@@ -7,6 +7,7 @@ using NUnit.Framework;
 using Snekl.Core.Domain;
 using ServiceStack.OrmLite;
 using Snekl.Core.Repositories;
+using Snekl.Core.Services;
 
 namespace Snekl.Core.Tests
 {
@@ -18,7 +19,7 @@ namespace Snekl.Core.Tests
         {
             var dbFactory = new OrmLiteConnectionFactory(
                 System.Configuration.ConfigurationManager.ConnectionStrings["Test"].ConnectionString,
-                MySqlDialect.Provider);
+                PostgreSqlDialect.Provider);
 
             var userRepository = new EntityRepository<User>(dbFactory);
             var anchorRepository = new EntityRepository<Anchor>(dbFactory);
@@ -69,7 +70,7 @@ namespace Snekl.Core.Tests
         {
             var dbFactory = new OrmLiteConnectionFactory(
                 System.Configuration.ConfigurationManager.ConnectionStrings["Test"].ConnectionString,
-                MySqlDialect.Provider);
+                PostgreSqlDialect.Provider);
 
             var entityRepository = new EntityRepository<User>(dbFactory);
 
@@ -86,7 +87,7 @@ namespace Snekl.Core.Tests
         {
             var dbFactory = new OrmLiteConnectionFactory(
                 System.Configuration.ConfigurationManager.ConnectionStrings["Test"].ConnectionString,
-                MySqlDialect.Provider);
+                PostgreSqlDialect.Provider);
 
             var entityRepository = new EntityRepository<User>(dbFactory);
             
@@ -101,13 +102,30 @@ namespace Snekl.Core.Tests
         {
             var dbFactory = new OrmLiteConnectionFactory(
                 System.Configuration.ConfigurationManager.ConnectionStrings["Test"].ConnectionString,
-                MySqlDialect.Provider);
+                PostgreSqlDialect.Provider);
 
             var entityRepository = new EntityRepository<User>(dbFactory);
 
             var result = entityRepository.Select().ToList();
 
             System.Console.WriteLine(string.Join(";", result.Select(f => f.InternalId)));
+        }
+
+        [Test]
+        //[Explicit]
+        public void GetPostDataFullJoin()
+        {
+            var dbFactory = new OrmLiteConnectionFactory(
+                System.Configuration.ConfigurationManager.ConnectionStrings["Test"].ConnectionString,
+                PostgreSqlDialect.Provider);
+
+            var postService = new PostService(dbFactory);
+
+
+            int totalRows;
+            var result = postService.GetPosts(1, 0, 100, out totalRows);
+
+            System.Console.WriteLine(string.Join(";", result.Post.Message));
         }
     }
 }

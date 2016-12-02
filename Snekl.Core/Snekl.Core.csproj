@@ -33,8 +33,8 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="MySql.Data, Version=6.9.9.0, Culture=neutral, PublicKeyToken=c5687fc88969c44d, processorArchitecture=MSIL">
-      <HintPath>..\packages\MySql.Data.6.9.9\lib\net45\MySql.Data.dll</HintPath>
+    <Reference Include="Npgsql, Version=3.1.8.0, Culture=neutral, PublicKeyToken=5d8b90d52f46fda7, processorArchitecture=MSIL">
+      <HintPath>..\packages\Npgsql.3.1.8\lib\net451\Npgsql.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="ServiceStack, Version=4.5.4.0, Culture=neutral, processorArchitecture=MSIL">
@@ -57,8 +57,8 @@
       <HintPath>..\packages\ServiceStack.OrmLite.4.5.4\lib\net45\ServiceStack.OrmLite.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="ServiceStack.OrmLite.MySql, Version=4.5.4.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\ServiceStack.OrmLite.MySql.4.5.4\lib\net45\ServiceStack.OrmLite.MySql.dll</HintPath>
+    <Reference Include="ServiceStack.OrmLite.PostgreSQL, Version=4.5.4.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\ServiceStack.OrmLite.PostgreSQL.4.5.4\lib\net45\ServiceStack.OrmLite.PostgreSQL.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="ServiceStack.Redis, Version=4.5.4.0, Culture=neutral, processorArchitecture=MSIL">
@@ -85,6 +85,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Controllers\PublicEntityController.cs" />
+    <Compile Include="Domain\PostPlus.cs" />
     <Compile Include="Domain\UserLink.cs" />
     <Compile Include="Domain\PostLink.cs" />
     <Compile Include="Domain\AnchorLink.cs" />

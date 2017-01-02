@@ -58,12 +58,77 @@ namespace Snekl.Core.Tests
                 }
                 if (db.CreateTableIfNotExists<PostLink>())
                 {
-                    Assert.Greater(postRepository.Insert(new Post() { Message = $@"TEST MESSAGE {random.Next()}", UserId = 1 }), 0);
-                    Assert.Greater(postLinkRepository.Insert(new PostLink() { ParentPostId = 1, ChildPostId = 2 }), 0);
+                    Assert.Greater(postRepository.Insert(new Post() { Message = $@"TEST MESSAGE {random.Next()}", UserId = 1, ParentId = 1 }), 0);
+                    Assert.Greater(postLinkRepository.Insert(new PostLink() { ReferencePostId = 1, SourcePostId = 2 }), 0);
                 }
             }
         }
-        
+
+        [Test]
+        public void TestAddPosts()
+        {
+            var dbFactory = new OrmLiteConnectionFactory(
+                System.Configuration.ConfigurationManager.ConnectionStrings["Test"].ConnectionString,
+                PostgreSqlDialect.Provider);
+
+            var postRepository = new EntityRepository<Post>(dbFactory);
+            var random = new Random();
+
+            var ids = new List<long>();
+
+            ids.Add(postRepository.Insert(new Post()
+            {
+                Message = $@"TEST MESSAGE {random.Next()}",
+                UserId = 1,
+                ParentId = 1           
+            }));
+
+            for (int i = 0; i < 10; ++i)
+            {
+                var pId = ids[random.Next(0, ids.Count)];
+
+                var postStart = random.Next(TestData.BaconIpsum.Length - 30);
+                var length = random.Next(TestData.BaconIpsum.Length - postStart);
+                ids.Add(postRepository.Insert(new Post()
+                {
+                    Message = $@"TEST MESSAGE Parent: {pId}, Text: {TestData.BaconIpsum.Substring(postStart, length)}",
+                    UserId = 1,
+                    ParentId = pId
+                }));
+            }
+        }
+
+        [Test]
+        //[Explicit]
+        public void DropDbTables()
+        {
+            var dbFactory = new OrmLiteConnectionFactory(
+                System.Configuration.ConfigurationManager.ConnectionStrings["Test"].ConnectionString,
+                PostgreSqlDialect.Provider);
+
+            var userRepository = new EntityRepository<User>(dbFactory);
+            var anchorRepository = new EntityRepository<Anchor>(dbFactory);
+            var postRepository = new EntityRepository<Post>(dbFactory);
+
+            var anchorLinkRepository = new EntityRepository<AnchorLink>(dbFactory);
+            var userLinkRepository = new EntityRepository<UserLink>(dbFactory);
+            var postLinkRepository = new EntityRepository<PostLink>(dbFactory);
+
+            var random = new Random();
+
+            using (var db = dbFactory.Open())
+            {
+
+                db.DropTable<UserLink>();
+                db.DropTable<AnchorLink>();
+                db.DropTable<PostLink>();
+                db.DropTable<Post>();
+                db.DropTable<Anchor>();                
+                db.DropTable<User>();
+                
+            }
+        }
+
         [Test]
         //[Explicit]
         public void TestInsert()
@@ -121,11 +186,11 @@ namespace Snekl.Core.Tests
 
             var postService = new PostService(dbFactory);
 
+            var queryResponse = new QueryResponse();
 
-            int totalRows;
-            var result = postService.GetPosts(1, 0, 100, out totalRows);
+            var result = postService.GetPostsByAnchorId(1, 0, 100, out queryResponse);
 
-            System.Console.WriteLine(string.Join(";", result.Post.Message));
+            System.Console.WriteLine(string.Join(";", result.Select(f => f.Post.Message)));
         }
     }
 }

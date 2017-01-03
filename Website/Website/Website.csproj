@@ -1,0 +1,406 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\TypeScript\Microsoft.TypeScript.Default.props" Condition="Exists('$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\TypeScript\Microsoft.TypeScript.Default.props')" />
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProductVersion>
+    </ProductVersion>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{6F86FC59-9DE7-4BF5-8D11-CB7E99DA29FC}</ProjectGuid>
+    <ProjectTypeGuids>{349c5851-65df-11da-9384-00065b846f21};{fae04ec0-301f-11d3-bf4b-00c04f79efbc}</ProjectTypeGuids>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>Website</RootNamespace>
+    <AssemblyName>Website</AssemblyName>
+    <TargetFrameworkVersion>v4.6.1</TargetFrameworkVersion>
+    <UseIISExpress>true</UseIISExpress>
+    <IISExpressSSLPort />
+    <IISExpressAnonymousAuthentication />
+    <IISExpressWindowsAuthentication />
+    <IISExpressUseClassicPipelineMode />
+    <RestorePackages>true</RestorePackages>
+    <UseGlobalApplicationHostFile />
+    <TypeScriptToolsVersion>2.0</TypeScriptToolsVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="Microsoft.Web.Infrastructure, Version=1.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\Microsoft.Web.Infrastructure.1.0.0.0\lib\net40\Microsoft.Web.Infrastructure.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="Npgsql, Version=3.1.8.0, Culture=neutral, PublicKeyToken=5d8b90d52f46fda7, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Npgsql.3.1.8\lib\net451\Npgsql.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="ServiceStack, Version=4.5.4.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\ServiceStack.4.5.4\lib\net45\ServiceStack.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="ServiceStack.Client, Version=4.5.4.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\ServiceStack.Client.4.5.4\lib\net45\ServiceStack.Client.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="ServiceStack.Common, Version=4.5.4.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\ServiceStack.Common.4.5.4\lib\net45\ServiceStack.Common.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="ServiceStack.Interfaces, Version=4.0.0.0, Culture=neutral, PublicKeyToken=e06fbc6124f57c43, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\ServiceStack.Interfaces.4.5.4\lib\portable-wp80+sl5+net45+win8+wpa81+monotouch+monoandroid+xamarin.ios10\ServiceStack.Interfaces.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="ServiceStack.OrmLite, Version=4.5.4.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\ServiceStack.OrmLite.4.5.4\lib\net45\ServiceStack.OrmLite.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="ServiceStack.OrmLite.PostgreSQL, Version=4.5.4.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\ServiceStack.OrmLite.PostgreSQL.4.5.4\lib\net45\ServiceStack.OrmLite.PostgreSQL.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="ServiceStack.Razor, Version=4.5.4.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\ServiceStack.Razor.4.5.4\lib\net45\ServiceStack.Razor.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="ServiceStack.Redis, Version=4.5.4.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\ServiceStack.Redis.4.5.4\lib\net45\ServiceStack.Redis.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="ServiceStack.Server, Version=4.5.4.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\ServiceStack.Server.4.5.4\lib\net45\ServiceStack.Server.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="ServiceStack.Text, Version=4.5.4.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\ServiceStack.Text.4.5.4\lib\net45\ServiceStack.Text.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.ComponentModel.DataAnnotations" />
+    <Reference Include="System" />
+    <Reference Include="System.Net" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Web" />
+    <Reference Include="System.Web.Helpers, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\Microsoft.AspNet.WebPages.3.2.3\lib\net45\System.Web.Helpers.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Web.Razor, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\ServiceStack.Razor.4.5.4\lib\net45\System.Web.Razor.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Web.WebPages, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\Microsoft.AspNet.WebPages.3.2.3\lib\net45\System.Web.WebPages.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Web.WebPages.Deployment, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\Microsoft.AspNet.WebPages.3.2.3\lib\net45\System.Web.WebPages.Deployment.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Web.WebPages.Razor, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\Microsoft.AspNet.WebPages.3.2.3\lib\net45\System.Web.WebPages.Razor.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Configuration" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="config.js" />
+    <Content Include="Properties\css\app.css" />
+    <Content Include="data\generate.js" />
+    <Content Include="gulpfile.js" />
+    <Content Include="index.html" />
+    <Content Include="partials\hello\hello.html" />
+    <Content Include="Scripts\_references.js" />
+    <Content Include="partials\partial1.html" />
+    <Content Include="partials\partial2.html" />
+    <Content Include="partials\404.html" />
+    <Content Include="styles\app.css" />
+    <Content Include="tests\karma.conf.js" />
+    <Content Include="packages.config">
+      <SubType>Designer</SubType>
+    </Content>
+    <Content Include="package.json" />
+    <Content Include="transpiled\app\app.component.js" />
+    <Content Include="transpiled\app\app.module.js" />
+    <Content Include="transpiled\app\app.state.js" />
+    <Content Include="transpiled\app\app.states.js" />
+    <Content Include="transpiled\app\bootstrap\bootstrap.js" />
+    <Content Include="transpiled\app\bootstrap\ngmodule.js" />
+    <Content Include="transpiled\app\contacts\contact.component.js" />
+    <Content Include="transpiled\app\contacts\contact.state.js" />
+    <Content Include="transpiled\app\contacts\contactDetail.component.js" />
+    <Content Include="transpiled\app\contacts\contactList.component.js" />
+    <Content Include="transpiled\app\contacts\contacts.component.js" />
+    <Content Include="transpiled\app\contacts\contacts.module.js" />
+    <Content Include="transpiled\app\contacts\contacts.state.js" />
+    <Content Include="transpiled\app\contacts\contacts.states.js" />
+    <Content Include="transpiled\app\contacts\contactView.component.js" />
+    <Content Include="transpiled\app\contacts\editContact.component.js" />
+    <Content Include="transpiled\app\contacts\editContact.state.js" />
+    <Content Include="transpiled\app\contacts\index.js" />
+    <Content Include="transpiled\app\contacts\newContact.state.js" />
+    <Content Include="transpiled\app\tree\tree.states.js" />
+    <Content Include="transpiled\app\tree\index.js" />
+    <Content Include="transpiled\app\tree\tree.component.js" />
+    <Content Include="transpiled\app\global\appConfig.service.js" />
+    <Content Include="transpiled\app\global\auth.service.js" />
+    <Content Include="transpiled\app\global\dataSources.service.js" />
+    <Content Include="transpiled\app\global\dialog.directive.js" />
+    <Content Include="transpiled\app\global\dialog.service.js" />
+    <Content Include="transpiled\app\global\index.js" />
+    <Content Include="transpiled\app\global\requiresAuth.hook.js" />
+    <Content Include="transpiled\app\home.component.js" />
+    <Content Include="transpiled\app\home.state.js" />
+    <Content Include="transpiled\app\login.component.js" />
+    <Content Include="transpiled\app\login.state.js" />
+    <Content Include="transpiled\app\main\app.component.js" />
+    <Content Include="transpiled\app\main\app.config.js" />
+    <Content Include="transpiled\app\main\app.states.js" />
+    <Content Include="transpiled\app\main\home.component.js" />
+    <Content Include="transpiled\app\main\index.js" />
+    <Content Include="transpiled\app\main\login.component.js" />
+    <Content Include="transpiled\app\main\welcome.component.js" />
+    <Content Include="transpiled\app\mymessages\compose.component.js" />
+    <Content Include="transpiled\app\mymessages\compose.state.js" />
+    <Content Include="transpiled\app\mymessages\directives\folderList.component.js" />
+    <Content Include="transpiled\app\mymessages\directives\messageTable.component.js" />
+    <Content Include="transpiled\app\mymessages\directives\messageTable.js" />
+    <Content Include="transpiled\app\mymessages\directives\sortMessages.directive.js" />
+    <Content Include="transpiled\app\mymessages\directives\sortMessages.js" />
+    <Content Include="transpiled\app\mymessages\filters\messageBody.filter.js" />
+    <Content Include="transpiled\app\mymessages\filters\messageBodyFilter.js" />
+    <Content Include="transpiled\app\mymessages\folder.component.js" />
+    <Content Include="transpiled\app\mymessages\folder.state.js" />
+    <Content Include="transpiled\app\mymessages\index.js" />
+    <Content Include="transpiled\app\mymessages\message.component.js" />
+    <Content Include="transpiled\app\mymessages\message.state.js" />
+    <Content Include="transpiled\app\mymessages\messageList.component.js" />
+    <Content Include="transpiled\app\mymessages\mymessages.component.js" />
+    <Content Include="transpiled\app\mymessages\mymessages.module.js" />
+    <Content Include="transpiled\app\mymessages\mymessages.state.js" />
+    <Content Include="transpiled\app\mymessages\mymessages.states.js" />
+    <Content Include="transpiled\app\mymessages\services\messagesListUI.service.js" />
+    <Content Include="transpiled\app\prefs\index.js" />
+    <Content Include="transpiled\app\prefs\prefs.component.js" />
+    <Content Include="transpiled\app\prefs\prefs.module.js" />
+    <Content Include="transpiled\app\prefs\prefs.state.js" />
+    <Content Include="transpiled\app\prefs\prefs.states.js" />
+    <Content Include="transpiled\app\routerhooks\redirectTo.js" />
+    <Content Include="transpiled\app\routerhooks\requiresAuth.js" />
+    <Content Include="transpiled\app\services\appConfig.js" />
+    <Content Include="transpiled\app\services\auth.js" />
+    <Content Include="transpiled\app\services\dataSources.js" />
+    <Content Include="transpiled\app\services\dialog.js" />
+    <Content Include="transpiled\app\util\ga.js" />
+    <Content Include="transpiled\app\util\revertableModel.js" />
+    <Content Include="transpiled\app\util\sessionStorage.js" />
+    <Content Include="transpiled\app\util\util.js" />
+    <Content Include="transpiled\app\welcome.component.js" />
+    <Content Include="transpiled\app\welcome.state.js" />
+    <Content Include="wwwroot_build\README.txt" />
+    <Content Include="wwwroot_build\00-install-dependencies.bat" />
+    <Content Include="wwwroot_build\package-and-deploy.bat" />
+    <Content Include="wwwroot_build\deploy\appsettings.txt" />
+    <Content Include="wwwroot_build\publish\config.json" />
+    <Content Include="data\contacts.json" />
+    <Content Include="data\corpora\2nd-treatise.txt.gz" />
+    <Content Include="data\corpora\beatles.txt.gz" />
+    <Content Include="data\corpora\beowulf.txt.gz" />
+    <Content Include="data\corpora\bsdfaq.txt.gz" />
+    <Content Include="data\corpora\cat-in-the-hat.txt.gz" />
+    <Content Include="data\corpora\comm_man.txt.gz" />
+    <Content Include="data\corpora\elflore.txt.gz" />
+    <Content Include="data\corpora\flatland.txt.gz" />
+    <Content Include="data\corpora\green-eggs.txt.gz" />
+    <Content Include="data\corpora\macbeth.txt.gz" />
+    <Content Include="data\corpora\palin.txt.gz" />
+    <Content Include="data\corpora\rfc2549.txt.gz" />
+    <Content Include="data\corpora\rfc7230.txt.gz" />
+    <Content Include="data\corpora\sneetches.txt.gz" />
+    <Content Include="data\corpora\two-cities.txt.gz" />
+    <Content Include="data\fetch.sh" />
+    <Content Include="data\folders.json" />
+    <Content Include="data\generate.sh" />
+    <Content Include="data\messages.json" />
+    <Content Include="data\README.md" />
+    <Content Include="transpiled\app\app.component.js.map" />
+    <Content Include="transpiled\app\app.module.js.map" />
+    <Content Include="transpiled\app\app.state.js.map" />
+    <Content Include="transpiled\app\app.states.js.map" />
+    <Content Include="transpiled\app\bootstrap\bootstrap.js.map" />
+    <Content Include="transpiled\app\bootstrap\ngmodule.js.map" />
+    <Content Include="transpiled\app\contacts\contact.component.js.map" />
+    <Content Include="transpiled\app\contacts\contact.state.js.map" />
+    <Content Include="transpiled\app\contacts\contactDetail.component.js.map" />
+    <Content Include="transpiled\app\contacts\contactList.component.js.map" />
+    <Content Include="transpiled\app\contacts\contacts.component.js.map" />
+    <Content Include="transpiled\app\contacts\contacts.module.js.map" />
+    <Content Include="transpiled\app\contacts\contacts.state.js.map" />
+    <Content Include="transpiled\app\contacts\contacts.states.js.map" />
+    <Content Include="transpiled\app\contacts\contactView.component.js.map" />
+    <Content Include="transpiled\app\contacts\editContact.component.js.map" />
+    <Content Include="transpiled\app\contacts\editContact.state.js.map" />
+    <Content Include="transpiled\app\contacts\index.js.map" />
+    <Content Include="transpiled\app\contacts\newContact.state.js.map" />
+    <Content Include="transpiled\app\global\appConfig.service.js.map" />
+    <Content Include="transpiled\app\global\auth.service.js.map" />
+    <Content Include="transpiled\app\global\dataSources.service.js.map" />
+    <Content Include="transpiled\app\global\dialog.directive.js.map" />
+    <Content Include="transpiled\app\global\dialog.service.js.map" />
+    <Content Include="transpiled\app\global\index.js.map" />
+    <Content Include="transpiled\app\global\requiresAuth.hook.js.map" />
+    <Content Include="transpiled\app\home.component.js.map" />
+    <Content Include="transpiled\app\home.state.js.map" />
+    <Content Include="transpiled\app\login.component.js.map" />
+    <Content Include="transpiled\app\login.state.js.map" />
+    <Content Include="transpiled\app\main\app.component.js.map" />
+    <Content Include="transpiled\app\main\app.config.js.map" />
+    <Content Include="transpiled\app\main\app.states.js.map" />
+    <Content Include="transpiled\app\main\home.component.js.map" />
+    <Content Include="transpiled\app\main\index.js.map" />
+    <Content Include="transpiled\app\main\login.component.js.map" />
+    <Content Include="transpiled\app\main\welcome.component.js.map" />
+    <Content Include="transpiled\app\mymessages\compose.component.js.map" />
+    <Content Include="transpiled\app\mymessages\compose.state.js.map" />
+    <Content Include="transpiled\app\mymessages\directives\folderList.component.js.map" />
+    <Content Include="transpiled\app\mymessages\directives\messageTable.component.js.map" />
+    <Content Include="transpiled\app\mymessages\directives\messageTable.js.map" />
+    <Content Include="transpiled\app\mymessages\directives\sortMessages.directive.js.map" />
+    <Content Include="transpiled\app\mymessages\directives\sortMessages.js.map" />
+    <Content Include="transpiled\app\mymessages\filters\messageBody.filter.js.map" />
+    <Content Include="transpiled\app\mymessages\filters\messageBodyFilter.js.map" />
+    <Content Include="transpiled\app\mymessages\folder.component.js.map" />
+    <Content Include="transpiled\app\mymessages\folder.state.js.map" />
+    <Content Include="transpiled\app\mymessages\index.js.map" />
+    <Content Include="transpiled\app\mymessages\message.component.js.map" />
+    <Content Include="transpiled\app\mymessages\message.state.js.map" />
+    <Content Include="transpiled\app\mymessages\messageList.component.js.map" />
+    <Content Include="transpiled\app\mymessages\mymessages.component.js.map" />
+    <Content Include="transpiled\app\mymessages\mymessages.module.js.map" />
+    <Content Include="transpiled\app\mymessages\mymessages.state.js.map" />
+    <Content Include="transpiled\app\mymessages\mymessages.states.js.map" />
+    <Content Include="transpiled\app\mymessages\services\messagesListUI.service.js.map" />
+    <Content Include="transpiled\app\prefs\index.js.map" />
+    <Content Include="transpiled\app\prefs\prefs.component.js.map" />
+    <Content Include="transpiled\app\prefs\prefs.module.js.map" />
+    <Content Include="transpiled\app\prefs\prefs.state.js.map" />
+    <Content Include="transpiled\app\prefs\prefs.states.js.map" />
+    <Content Include="transpiled\app\routerhooks\redirectTo.js.map" />
+    <Content Include="transpiled\app\routerhooks\requiresAuth.js.map" />
+    <Content Include="transpiled\app\services\appConfig.js.map" />
+    <Content Include="transpiled\app\services\auth.js.map" />
+    <Content Include="transpiled\app\services\dataSources.js.map" />
+    <Content Include="transpiled\app\services\dialog.js.map" />
+    <Content Include="transpiled\app\util\ga.js.map" />
+    <Content Include="transpiled\app\util\revertableModel.js.map" />
+    <Content Include="transpiled\app\util\sessionStorage.js.map" />
+    <Content Include="transpiled\app\util\util.js.map" />
+    <Content Include="transpiled\app\welcome.component.js.map" />
+    <Content Include="transpiled\app\welcome.state.js.map" />
+    <Content Include="typings\globals\angular\typings.json" />
+    <Content Include="typings\globals\es6-shim\typings.json" />
+    <Content Include="typings\globals\jquery\typings.json" />
+    <None Include="Web.Debug.config">
+      <DependentUpon>Web.config</DependentUpon>
+    </None>
+    <None Include="Web.Release.config">
+      <DependentUpon>Web.config</DependentUpon>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Global.asax" />
+    <Content Include="tests\unit\controllerSpec.js" />
+    <Content Include="Web.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="AppHost.cs" />
+    <Compile Include="Global.asax.cs">
+      <DependentUpon>Global.asax</DependentUpon>
+    </Compile>
+    <Compile Include="Startup\IocLoader.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Snekl.Core\Snekl.Core.csproj">
+      <Project>{3d06658c-4321-4ad9-8f11-497979d20d55}</Project>
+      <Name>Snekl.Core</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Utilities\Utilities.csproj">
+      <Project>{9ff363e8-2a09-498f-971e-b9c9c50b96a7}</Project>
+      <Name>Utilities</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\Website.ServiceInterface\Website.ServiceInterface.csproj">
+      <Project>{582dfb0f-f84d-4e43-9bca-2a5a86600b7a}</Project>
+      <Name>Website.ServiceInterface</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\Website.ServiceModel\Website.ServiceModel.csproj">
+      <Project>{08bef328-ab7d-48d3-800d-48acc75c7914}</Project>
+      <Name>Website.ServiceModel</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="img\" />
+    <Folder Include="wwwroot\" />
+  </ItemGroup>
+  <ItemGroup>
+    <TypeScriptCompile Include="typings\globals\angular\index.d.ts" />
+    <TypeScriptCompile Include="typings\globals\es6-shim\index.d.ts" />
+    <TypeScriptCompile Include="typings\globals\jquery\index.d.ts" />
+    <TypeScriptCompile Include="typings\index.d.ts" />
+  </ItemGroup>
+  <ItemGroup>
+    <Service Include="{4A0DDDB5-7A95-4FBF-97CC-616D07737A77}" />
+  </ItemGroup>
+  <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\TypeScript\Microsoft.TypeScript.targets" Condition="Exists('$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\TypeScript\Microsoft.TypeScript.targets')" />
+  <Import Project="$(VSToolsPath)\WebApplications\Microsoft.WebApplication.targets" Condition="'$(VSToolsPath)' != ''" />
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v10.0\WebApplications\Microsoft.WebApplication.targets" Condition="false" />
+  <Import Project="$(SolutionDir)\.nuget\NuGet.targets" Condition="Exists('$(SolutionDir)\.nuget\NuGet.targets')" />
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+       Other similar extension points exist, see Microsoft.Common.targets.
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+  -->
+  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <ErrorText>This project references NuGet package(s) that are missing on this computer. Enable NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
+    </PropertyGroup>
+  </Target>
+  <ProjectExtensions>
+    <VisualStudio>
+      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}">
+        <WebProjectProperties>
+          <UseIIS>True</UseIIS>
+          <AutoAssignPort>True</AutoAssignPort>
+          <DevelopmentServerPort>50249</DevelopmentServerPort>
+          <DevelopmentServerVPath>/</DevelopmentServerVPath>
+          <IISUrl>http://localhost:50249/</IISUrl>
+          <NTLMAuthentication>False</NTLMAuthentication>
+          <UseCustomServer>False</UseCustomServer>
+          <CustomServerUrl>
+          </CustomServerUrl>
+          <SaveServerSettingsInUserFile>False</SaveServerSettingsInUserFile>
+        </WebProjectProperties>
+      </FlavorProperties>
+    </VisualStudio>
+  </ProjectExtensions>
+</Project>

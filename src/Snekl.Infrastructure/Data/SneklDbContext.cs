@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Snekl.Domain.Entities;
+using Snekl.Domain.Identity;
 
 namespace Snekl.Infrastructure.Data;
 
@@ -16,6 +17,9 @@ public class SneklDbContext : DbContext
     public DbSet<CuratedList> CuratedLists => Set<CuratedList>();
     public DbSet<ListEntry> ListEntries => Set<ListEntry>();
     public DbSet<ListSubscription> ListSubscriptions => Set<ListSubscription>();
+    public DbSet<PersonClusterRecord> PersonClusterRecords => Set<PersonClusterRecord>();
+    public DbSet<AuthorIdentityMap> AuthorIdentityMaps => Set<AuthorIdentityMap>();
+    public DbSet<TrustedAuthIssuer> TrustedAuthIssuers => Set<TrustedAuthIssuer>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -79,6 +83,25 @@ public class SneklDbContext : DbContext
             e.HasIndex(x => new { x.UserId, x.ListId }).IsUnique();
             e.HasOne(x => x.User).WithMany(x => x.ListSubscriptions).HasForeignKey(x => x.UserId);
             e.HasOne(x => x.List).WithMany(x => x.Subscriptions).HasForeignKey(x => x.ListId);
+        });
+
+        modelBuilder.Entity<PersonClusterRecord>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.CanonicalUsername);
+        });
+
+        modelBuilder.Entity<AuthorIdentityMap>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.IssuerUrl, x.SubjectId }).IsUnique();
+            e.HasOne(x => x.PersonCluster).WithMany().HasForeignKey(x => x.PersonClusterId);
+        });
+
+        modelBuilder.Entity<TrustedAuthIssuer>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.IssuerUrl).IsUnique();
         });
     }
 }

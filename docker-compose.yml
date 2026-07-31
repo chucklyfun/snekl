@@ -1,4 +1,64 @@
 services:
+  postgres-auth-alpha:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: snekl
+      POSTGRES_PASSWORD: snekl
+      POSTGRES_DB: snekl_auth
+    volumes:
+      - postgres-auth-alpha-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U snekl"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-auth-beta:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: snekl
+      POSTGRES_PASSWORD: snekl
+      POSTGRES_DB: snekl_auth
+    volumes:
+      - postgres-auth-beta-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U snekl"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  auth-alpha:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.account.api
+    ports:
+      - "5100:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__Default: Host=postgres-auth-alpha;Port=5432;Database=snekl_auth;Username=snekl;Password=snekl
+      Auth__Name: Snekl Auth Alpha
+      Auth__BaseUrl: http://localhost:5100
+      Auth__SigningKey: snekl-auth-alpha-dev-signing-key-change-in-production
+    depends_on:
+      postgres-auth-alpha:
+        condition: service_healthy
+
+  auth-beta:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.account.api
+    ports:
+      - "5101:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__Default: Host=postgres-auth-beta;Port=5432;Database=snekl_auth;Username=snekl;Password=snekl
+      Auth__Name: Snekl Auth Beta
+      Auth__BaseUrl: http://localhost:5101
+      Auth__SigningKey: snekl-auth-beta-dev-signing-key-change-in-production
+    depends_on:
+      postgres-auth-beta:
+        condition: service_healthy
+
   postgres-alpha:
     image: postgres:16-alpine
     environment:
@@ -64,5 +124,7 @@ services:
         condition: service_healthy
 
 volumes:
+  postgres-auth-alpha-data:
+  postgres-auth-beta-data:
   postgres-alpha-data:
   postgres-beta-data:

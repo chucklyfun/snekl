@@ -4,6 +4,8 @@ Snekl is an open-source, forum-style social network built as a **network of inde
 
 ## Architecture
 
+Snekl separates **auth servers** (identity ring) from **content servers** (forums and posts). See [docs/architecture-auth-ring.md](docs/architecture-auth-ring.md) for the full auth ring design.
+
 ```
 ┌─────────────────┐         HTTP federation          ┌─────────────────┐
 │   Node Alpha    │ ◄──────────────────────────────► │   Node Beta     │
@@ -17,6 +19,15 @@ Snekl is an open-source, forum-style social network built as a **network of inde
                      │ React (Vite) │
                      │   Frontend   │
                      └─────────────┘
+
+┌──────────────────┐  ring login / vouch   ┌──────────────────┐
+│   Auth Alpha     │ ◄──────────────────► │   Auth Beta      │
+│  Snekl.Account   │  mutual partner trust │  Snekl.Account   │
+└──────────────────┘                       └──────────────────┘
+         │ JWT (PersonCluster)                      │
+         └──────────────┬───────────────────────────┘
+                        ▼
+              Content servers trust issuers
 ```
 
 ### Components
@@ -24,6 +35,7 @@ Snekl is an open-source, forum-style social network built as a **network of inde
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
 | **API** | ASP.NET Core 8, EF Core | REST web services, JWT auth, federation inbox |
+| **Account API** | ASP.NET Core 8 | Auth ring: login, PersonCluster, partner trust |
 | **Domain** | C# class library | Users, forums, threaded posts, peer nodes |
 | **Database** | PostgreSQL | Independent per-node storage |
 | **Frontend** | React 19, TypeScript, Vite | Forum browsing, posting, federation management |
@@ -83,12 +95,22 @@ Open `http://localhost:5173`.
 docker compose up --build
 ```
 
-- **Alpha node:** http://localhost:5001
-- **Beta node:** http://localhost:5002
+- **Auth Alpha:** http://localhost:5100
+- **Auth Beta:** http://localhost:5101
+- **Content Alpha:** http://localhost:5001
+- **Content Beta:** http://localhost:5002
 
-Point the React app at either node via `VITE_API_URL` in `.env`.
+Point the React app at a content node via `VITE_API_URL` in `.env`. Register and log in via an auth server (`http://localhost:5100/api/auth/register`).
 
-To connect nodes running in Docker, subscribe using `http://host.docker.internal:5002` from the Alpha federation page (containers reach the host network this way).
+To connect content nodes running in Docker, subscribe using `http://host.docker.internal:5002` from the Alpha federation page (containers reach the host network this way).
+
+### 5. Run auth server locally
+
+```bash
+dotnet run --project src/Snekl.Account.Api
+```
+
+Auth API listens on `http://localhost:5100`.
 
 ## API endpoints
 
@@ -116,6 +138,21 @@ To connect nodes running in Docker, subscribe using `http://host.docker.internal
 | GET | `/api/federation/peers` | List peer nodes |
 | POST | `/api/federation/peers` | Subscribe to peer |
 | POST | `/api/federation/inbox` | Federation inbox (inter-node) |
+| GET | `/api/identity/clusters/{id}` | PersonCluster reference (external auth) |
+| POST | `/api/identity/map` | Map `(iss, sub)` → PersonCluster |
+| GET/POST | `/api/identity/issuers` | Trusted auth issuers |
+
+### Auth server endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/auth/register` | Create PersonCluster + identity |
+| POST | `/api/auth/login` | Local login + ring sessions |
+| GET | `/api/me` | Cluster profile + linked identities |
+| PUT | `/api/me/profile` | Update display name, bio, tag |
+| POST | `/api/partners/trust` | Establish mutual partner trust |
+| POST | `/api/partners/provision` | Accept vouched identity |
+| GET | `/.well-known/jwks.json` | JWKS for content server trust |
 
 ## Project structure
 
@@ -123,7 +160,12 @@ To connect nodes running in Docker, subscribe using `http://host.docker.internal
 src/
   Snekl.Domain/          # Entities and DTOs
   Snekl.Infrastructure/  # EF Core, services, federation client
-  Snekl.Api/             # ASP.NET Core REST API
+  Snekl.Api/             # ASP.NET Core REST API (content)
+  Snekl.Account.Domain/  # Auth ring entities and DTOs
+  Snekl.Account.Infrastructure/
+  Snekl.Account.Api/     # Auth ring REST API
+docs/
+  architecture-auth-ring.md
 client/
   snekl-web/             # React frontend
 docker/

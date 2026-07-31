@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.AddScoped<IPostService, PostService>();
         services.AddScoped<INodeService, NodeService>();
         services.AddScoped<IFederationService, FederationService>();
+        services.AddScoped<IPersonClusterMappingService, PersonClusterMappingService>();
         services.AddHttpClient<IFederationClient, FederationClient>();
 
         return services;

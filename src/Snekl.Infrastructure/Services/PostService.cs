@@ -34,7 +34,11 @@ public class PostService : IPostService
         {
             var parent = await _db.Posts.FindAsync([request.ParentPostId.Value], ct)
                 ?? throw new InvalidOperationException("Parent post not found.");
-            parent.ReplyCount++;
+
+            if (parent.ForumId != forum.Id)
+                throw new InvalidOperationException("Parent post belongs to a different forum.");
+
+            await IncrementReplyCountsAsync(parent.Id, ct);
         }
 
         var post = new Post
@@ -73,21 +77,16 @@ public class PostService : IPostService
 
     public async Task<PostDto?> GetThreadAsync(Guid postId, Guid? viewerUserId = null, CancellationToken ct = default)
     {
-        var root = await _db.Posts
-            .Include(p => p.Author)
-            .FirstOrDefaultAsync(p => p.Id == postId, ct);
+        var threadPosts = await LoadThreadPostsAsync(postId, ct);
+        if (threadPosts.Count == 0) return null;
 
+        var root = threadPosts.FirstOrDefault(p => p.Id == postId);
         if (root is null) return null;
 
-        var allPosts = await _db.Posts
-            .Include(p => p.Author)
-            .Where(p => p.ForumId == root.ForumId)
-            .ToListAsync(ct);
-
-        var authorIds = allPosts.Select(p => p.AuthorUserId).Distinct();
+        var authorIds = threadPosts.Select(p => p.AuthorUserId).Distinct();
         var presentations = await _presentation.GetPresentationsAsync(authorIds, viewerUserId, ct);
 
-        return BuildTree(root, allPosts, presentations);
+        return BuildTree(root, threadPosts, presentations);
     }
 
     public async Task UpsertFederatedAsync(FederatedPostPayload payload, Guid sourceNodeId, string sourceNodeUrl, CancellationToken ct = default)
@@ -126,6 +125,9 @@ public class PostService : IPostService
             _db.Users.Add(author);
         }
 
+        if (payload.ParentPostId.HasValue)
+            await IncrementReplyCountsAsync(payload.ParentPostId.Value, ct);
+
         var post = new Post
         {
             Id = payload.Id,
@@ -139,19 +141,55 @@ public class PostService : IPostService
             OriginNodeUrl = sourceNodeUrl
         };
 
-        if (payload.ParentPostId.HasValue)
-        {
-            var parent = await _db.Posts.FindAsync([payload.ParentPostId.Value], ct);
-            if (parent is not null) parent.ReplyCount++;
-        }
-
         _db.Posts.Add(post);
         await _db.SaveChangesAsync(ct);
     }
 
-    private static PostDto BuildTree(Post root, List<Post> allPosts, IReadOnlyDictionary<Guid, UserPresentationDto> presentations)
+    /// <summary>
+    /// ReplyCount stores total descendants. Increment the parent and every ancestor up to the thread root.
+    /// </summary>
+    private async Task IncrementReplyCountsAsync(Guid parentPostId, CancellationToken ct)
     {
-        var lookup = allPosts
+        var currentId = parentPostId;
+        while (true)
+        {
+            var ancestor = await _db.Posts.FindAsync([currentId], ct);
+            if (ancestor is null) break;
+
+            ancestor.ReplyCount++;
+            if (!ancestor.ParentPostId.HasValue) break;
+            currentId = ancestor.ParentPostId.Value;
+        }
+    }
+
+    /// <summary>
+    /// Load only the root post and its descendants using a recursive CTE (not the entire forum).
+    /// </summary>
+    private async Task<List<Post>> LoadThreadPostsAsync(Guid rootId, CancellationToken ct)
+    {
+        var postIds = await _db.Database
+            .SqlQuery<Guid>($"""
+                WITH RECURSIVE thread_posts AS (
+                    SELECT "Id" FROM "Posts" WHERE "Id" = {rootId}
+                    UNION ALL
+                    SELECT p."Id" FROM "Posts" p
+                    INNER JOIN thread_posts tp ON p."ParentPostId" = tp."Id"
+                )
+                SELECT "Id" FROM thread_posts
+                """)
+            .ToListAsync(ct);
+
+        if (postIds.Count == 0) return [];
+
+        return await _db.Posts
+            .Include(p => p.Author)
+            .Where(p => postIds.Contains(p.Id))
+            .ToListAsync(ct);
+    }
+
+    private static PostDto BuildTree(Post root, List<Post> threadPosts, IReadOnlyDictionary<Guid, UserPresentationDto> presentations)
+    {
+        var lookup = threadPosts
             .GroupBy(p => p.ParentPostId ?? Guid.Empty)
             .ToDictionary(g => g.Key, g => g.ToList());
         return BuildNode(root, lookup, presentations);

@@ -9,6 +9,8 @@ public class Post : ExternalEntity
     public Guid AuthorUserId { get; set; }
     public User? Author { get; set; }
     public string Message { get; set; } = string.Empty;
+
+    /// <summary>Total number of descendant replies in this post's subtree (not direct-only).</summary>
     public int ReplyCount { get; set; }
 
     public ICollection<Post> Replies { get; set; } = new List<Post>();

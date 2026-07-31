@@ -96,7 +96,16 @@ To connect nodes running in Docker, subscribe using `http://host.docker.internal
 |--------|------|-------------|
 | POST | `/api/auth/register` | Create account |
 | POST | `/api/auth/login` | Get JWT token |
-| GET | `/api/auth/me` | Current user (auth required) |
+| GET | `/api/auth/me` | Current user with flair, status, annotations |
+| PUT | `/api/users/me/flair` | Update personal flair and name color |
+| PUT | `/api/users/me/status` | Set temporary status (with expiry) |
+| DELETE | `/api/users/me/status` | Clear active status |
+| GET | `/api/users/status/presets` | Status presets (live, at event, safe, etc.) |
+| GET | `/api/users/{username}` | Public profile with presentation |
+| GET | `/api/lists` | Curated highlight/warn lists |
+| POST | `/api/lists` | Create a curated list |
+| POST | `/api/lists/{id}/entries` | Add user to list with severity + tooltip |
+| POST | `/api/lists/{id}/subscribe` | Subscribe to a list |
 | GET | `/api/forums` | List forums |
 | POST | `/api/forums` | Create forum (auth required) |
 | GET | `/api/forums/{slug}` | Forum details |

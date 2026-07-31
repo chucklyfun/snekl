@@ -46,6 +46,8 @@ public class SneklDbContext : DbContext
         modelBuilder.Entity<Post>(e =>
         {
             e.HasKey(x => x.Id);
+            e.HasIndex(x => x.ParentPostId);
+            e.HasIndex(x => new { x.ForumId, x.ParentPostId });
             e.HasOne(x => x.Forum).WithMany(x => x.Posts).HasForeignKey(x => x.ForumId);
             e.HasOne(x => x.Author).WithMany(x => x.Posts).HasForeignKey(x => x.AuthorUserId);
             e.HasOne(x => x.ParentPost).WithMany(x => x.Replies).HasForeignKey(x => x.ParentPostId);

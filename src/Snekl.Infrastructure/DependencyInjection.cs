@@ -1,0 +1,24 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Snekl.Infrastructure.Data;
+using Snekl.Infrastructure.Services;
+
+namespace Snekl.Infrastructure;
+
+public static class DependencyInjection
+{
+    public static IServiceCollection AddSneklInfrastructure(this IServiceCollection services, string connectionString)
+    {
+        services.AddDbContext<SneklDbContext>(options =>
+            options.UseNpgsql(connectionString));
+
+        services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IForumService, ForumService>();
+        services.AddScoped<IPostService, PostService>();
+        services.AddScoped<INodeService, NodeService>();
+        services.AddScoped<IFederationService, FederationService>();
+        services.AddHttpClient<IFederationClient, FederationClient>();
+
+        return services;
+    }
+}

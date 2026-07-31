@@ -1,0 +1,19 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+COPY Snekl.Modern.sln ./
+COPY src/Snekl.Domain/Snekl.Domain.csproj src/Snekl.Domain/
+COPY src/Snekl.Infrastructure/Snekl.Infrastructure.csproj src/Snekl.Infrastructure/
+COPY src/Snekl.Api/Snekl.Api.csproj src/Snekl.Api/
+
+RUN dotnet restore src/Snekl.Api/Snekl.Api.csproj
+
+COPY src/ src/
+RUN dotnet publish src/Snekl.Api/Snekl.Api.csproj -c Release -o /app/publish --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+WORKDIR /app
+COPY --from=build /app/publish .
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "Snekl.Api.dll"]

@@ -1,1 +1,138 @@
-# snekl
+# Snekl — Federated Forum Social Network
+
+Snekl is an open-source, forum-style social network built as a **network of independent nodes**. Each node runs its own C# web service and PostgreSQL database. Nodes connect to each other through a lightweight HTTP federation protocol to share forums and threaded discussions.
+
+## Architecture
+
+```
+┌─────────────────┐         HTTP federation          ┌─────────────────┐
+│   Node Alpha    │ ◄──────────────────────────────► │   Node Beta     │
+│  ASP.NET Core   │    POST /api/federation/inbox     │  ASP.NET Core   │
+│  PostgreSQL     │    GET  /api/node                 │  PostgreSQL     │
+└────────┬────────┘                                   └────────┬────────┘
+         │                                                     │
+         └──────────────────┬──────────────────────────────────┘
+                            │
+                     ┌──────▼──────┐
+                     │ React (Vite) │
+                     │   Frontend   │
+                     └─────────────┘
+```
+
+### Components
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| **API** | ASP.NET Core 8, EF Core | REST web services, JWT auth, federation inbox |
+| **Domain** | C# class library | Users, forums, threaded posts, peer nodes |
+| **Database** | PostgreSQL | Independent per-node storage |
+| **Frontend** | React 19, TypeScript, Vite | Forum browsing, posting, federation management |
+| **Legacy** | ServiceStack (.NET 4.6) | Original 2016 codebase (preserved in repo root) |
+
+### Federation protocol
+
+Each node exposes:
+
+- `GET /api/node` — node identity (name, URL, ID)
+- `POST /api/federation/peers` — subscribe to another node
+- `POST /api/federation/inbox` — receive federated content
+- `DELETE /api/federation/peers/{id}` — unsubscribe
+
+When a user creates a forum or post locally, the node broadcasts an envelope to all subscribed peers. Federated content is stored locally with origin metadata and displayed alongside local content.
+
+## Quick start (local development)
+
+### Prerequisites
+
+- [.NET 8 SDK](https://dotnet.microsoft.com/download)
+- [Node.js 20+](https://nodejs.org/)
+- PostgreSQL 16 (or use Docker Compose below)
+
+### 1. Start PostgreSQL
+
+```bash
+docker run -d --name snekl-pg \
+  -e POSTGRES_USER=snekl \
+  -e POSTGRES_PASSWORD=snekl \
+  -e POSTGRES_DB=snekl \
+  -p 5432:5432 postgres:16-alpine
+```
+
+### 2. Run the API
+
+```bash
+dotnet run --project src/Snekl.Api
+```
+
+API listens on `http://localhost:5000` (or the port shown in console output).
+
+### 3. Run the React frontend
+
+```bash
+cd client/snekl-web
+cp .env.example .env
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`.
+
+### 4. Run two federated nodes (Docker)
+
+```bash
+docker compose up --build
+```
+
+- **Alpha node:** http://localhost:5001
+- **Beta node:** http://localhost:5002
+
+Point the React app at either node via `VITE_API_URL` in `.env`.
+
+To connect nodes running in Docker, subscribe using `http://host.docker.internal:5002` from the Alpha federation page (containers reach the host network this way).
+
+## API endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/auth/register` | Create account |
+| POST | `/api/auth/login` | Get JWT token |
+| GET | `/api/auth/me` | Current user (auth required) |
+| GET | `/api/forums` | List forums |
+| POST | `/api/forums` | Create forum (auth required) |
+| GET | `/api/forums/{slug}` | Forum details |
+| GET | `/api/posts/forum/{forumId}` | List threads |
+| GET | `/api/posts/{postId}` | Thread with replies |
+| POST | `/api/posts` | Create post/reply (auth required) |
+| GET | `/api/node` | Node metadata |
+| GET | `/api/federation/peers` | List peer nodes |
+| POST | `/api/federation/peers` | Subscribe to peer |
+| POST | `/api/federation/inbox` | Federation inbox (inter-node) |
+
+## Project structure
+
+```
+src/
+  Snekl.Domain/          # Entities and DTOs
+  Snekl.Infrastructure/  # EF Core, services, federation client
+  Snekl.Api/             # ASP.NET Core REST API
+client/
+  snekl-web/             # React frontend
+docker/
+  Dockerfile.api         # Multi-stage API container
+docker-compose.yml       # Two-node demo cluster
+Snekl.Core/              # Legacy domain (ServiceStack era)
+Website/                 # Legacy web app (AngularJS)
+```
+
+## Roadmap
+
+- Signed federation envelopes (node key pairs)
+- ActivityPub compatibility layer
+- Moderation tools per forum
+- Full-text search across local + federated content
+- Real-time updates via SignalR
+- Mobile-friendly PWA
+
+## License
+
+MIT — see [LICENSE](LICENSE).

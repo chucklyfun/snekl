@@ -46,6 +46,10 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<SneklDbContext>();
+    if (app.Environment.IsDevelopment())
+    {
+        await db.Database.EnsureDeletedAsync();
+    }
     await db.Database.EnsureCreatedAsync();
 
     var nodeService = scope.ServiceProvider.GetRequiredService<INodeService>();

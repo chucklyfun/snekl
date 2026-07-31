@@ -1,20 +1,16 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
+import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';
 import type { Forum, Post } from '../types';
 
 function ThreadPreview({ post }: { post: Post }) {
   return (
     <Link to={`/posts/${post.id}`} className="card card-link">
-      <div className="post-author">
-        {post.author.displayName}
-        {post.isFederated && <span className="badge badge-federated">federated</span>}
-      </div>
+      <UserByline presentation={post.author} timestamp={post.createdAt} showStatus={false} />
       <p className="post-body">{post.message.slice(0, 200)}{post.message.length > 200 ? '…' : ''}</p>
-      <div className="card-meta">
-        {post.replyCount} replies · {new Date(post.createdAt).toLocaleString()}
-      </div>
+      <div className="card-meta">{post.replyCount} replies</div>
     </Link>
   );
 }

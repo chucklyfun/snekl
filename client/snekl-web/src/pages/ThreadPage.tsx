@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
+import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';
 import type { Post } from '../types';
 
@@ -26,11 +27,7 @@ function PostNode({ post, forumId, onReply }: { post: Post; forumId: string; onR
 
   return (
     <div className="post-item">
-      <div>
-        <span className="post-author">{post.author.displayName}</span>
-        {post.isFederated && <span className="badge badge-federated">federated</span>}
-        <span className="post-time">{new Date(post.createdAt).toLocaleString()}</span>
-      </div>
+      <UserByline presentation={post.author} timestamp={post.createdAt} />
       <p className="post-body">{post.message}</p>
       {user && (
         <button type="button" className="btn-ghost" onClick={() => setShowReply(!showReply)}>

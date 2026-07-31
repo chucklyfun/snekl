@@ -21,6 +21,12 @@ public class ForumsController : ControllerBase
         _auth = auth;
     }
 
+    private Guid? ViewerId()
+    {
+        var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return claim is null ? null : Guid.Parse(claim);
+    }
+
     private async Task BroadcastForumIfPossible(string slug, Guid userId, CancellationToken ct)
     {
         var user = await _auth.GetUserByIdAsync(userId, ct);
@@ -31,12 +37,12 @@ public class ForumsController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<ForumDto>>> List(CancellationToken ct) =>
-        Ok(await _forums.ListAsync(ct));
+        Ok(await _forums.ListAsync(ViewerId(), ct));
 
     [HttpGet("{slug}")]
     public async Task<ActionResult<ForumDto>> Get(string slug, CancellationToken ct)
     {
-        var forum = await _forums.GetBySlugAsync(slug, ct);
+        var forum = await _forums.GetBySlugAsync(slug, ViewerId(), ct);
         return forum is null ? NotFound() : Ok(forum);
     }
 
@@ -47,7 +53,7 @@ public class ForumsController : ControllerBase
         try
         {
             var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-            var forumEntity = await _forums.CreateAsync(userId, request, ct);
+            var forumEntity = await _forums.CreateAsync(userId, request, userId, ct);
             await BroadcastForumIfPossible(forumEntity.Slug, userId, ct);
             return CreatedAtAction(nameof(Get), new { slug = forumEntity.Slug }, forumEntity);
         }

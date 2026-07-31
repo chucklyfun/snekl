@@ -3,6 +3,8 @@ import { AuthProvider } from './AuthContext';
 import { Layout } from './Layout';
 import { CreateForumPage } from './pages/CreateForumPage';
 import { FederationPage } from './pages/FederationPage';
+import { ListsPage } from './pages/ListsPage';
+import { ProfilePage } from './pages/ProfilePage';
 import { ForumPage } from './pages/ForumPage';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
@@ -23,6 +25,8 @@ export default function App() {
             <Route path="/forums/:slug" element={<ForumPage />} />
             <Route path="/posts/:postId" element={<ThreadPage />} />
             <Route path="/federation" element={<FederationPage />} />
+            <Route path="/lists" element={<ListsPage />} />
+            <Route path="/users/:username" element={<ProfilePage />} />
           </Routes>
         </Layout>
       </BrowserRouter>

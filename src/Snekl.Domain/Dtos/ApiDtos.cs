@@ -20,13 +20,15 @@ public record UserDto(
     string? OriginNodeUrl,
     bool IsFederated);
 
+// Deprecated for display — use UserPresentationDto in posts and profiles.
+
 public record CreateForumRequest(string Name, string Slug, string Description);
 public record ForumDto(
     Guid Id,
     string Name,
     string Slug,
     string Description,
-    UserDto? CreatedBy,
+    UserPresentationDto? CreatedBy,
     string? OriginNodeUrl,
     bool IsFederated,
     int PostCount,
@@ -37,7 +39,7 @@ public record PostDto(
     Guid Id,
     Guid ForumId,
     Guid? ParentPostId,
-    UserDto Author,
+    UserPresentationDto Author,
     string Message,
     int ReplyCount,
     string? OriginNodeUrl,

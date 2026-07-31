@@ -11,8 +11,13 @@ namespace Snekl.Api.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _auth;
+    private readonly IUserPresentationService _presentation;
 
-    public AuthController(IAuthService auth) => _auth = auth;
+    public AuthController(IAuthService auth, IUserPresentationService presentation)
+    {
+        _auth = auth;
+        _presentation = presentation;
+    }
 
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request, CancellationToken ct)
@@ -36,10 +41,11 @@ public class AuthController : ControllerBase
 
     [Authorize]
     [HttpGet("me")]
-    public async Task<ActionResult<UserDto>> Me(CancellationToken ct)
+    public async Task<ActionResult<UserPresentationDto>> Me(CancellationToken ct)
     {
         var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
         var user = await _auth.GetUserByIdAsync(userId, ct);
-        return user is null ? NotFound() : Ok(AuthService.ToDto(user));
+        if (user is null) return NotFound();
+        return Ok(await _presentation.GetPresentationAsync(userId, userId, ct));
     }
 }

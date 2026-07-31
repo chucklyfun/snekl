@@ -124,6 +124,16 @@ Snekl.Core/              # Legacy domain (ServiceStack era)
 Website/                 # Legacy web app (AngularJS)
 ```
 
+## User presentation
+
+- **Personal flair** — emoji, optional icon, username color/style
+- **Temporary status** — live, at event, supporting cause, safe, preparing (with avatar overlays and auto-expiry)
+- **Curated lists** — community-managed highlight, verify, and warning lists
+- **Severity-based annotations** — username color/style, flair badges, hover tooltips
+- **Avatar overlays** — rings, corner badges, pulse for live streaming
+
+Subscribe to lists you trust on the **Lists** page; annotations appear on posts and profiles when you browse while logged in.
+
 ## Roadmap
 
 - Signed federation envelopes (node key pairs)

@@ -172,6 +172,15 @@ a:hover {
   color: var(--muted);
 }
 
+select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 0.65rem 0.85rem;
+  font: inherit;
+}
+
 input,
 textarea {
   background: var(--bg);

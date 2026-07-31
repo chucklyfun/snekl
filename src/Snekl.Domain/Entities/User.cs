@@ -8,6 +8,15 @@ public class User : ExternalEntity
     public string PasswordHash { get; set; } = string.Empty;
     public string Bio { get; set; } = string.Empty;
 
+    public string? FlairEmoji { get; set; }
+    public string? FlairIconUrl { get; set; }
+    public string? FlairLabel { get; set; }
+    public string? NameColor { get; set; }
+    public string? NameStyle { get; set; }
+
     public ICollection<Post> Posts { get; set; } = new List<Post>();
     public ICollection<Forum> Forums { get; set; } = new List<Forum>();
+    public UserStatus? ActiveStatus { get; set; }
+    public ICollection<CuratedList> OwnedLists { get; set; } = new List<CuratedList>();
+    public ICollection<ListSubscription> ListSubscriptions { get; set; } = new List<ListSubscription>();
 }

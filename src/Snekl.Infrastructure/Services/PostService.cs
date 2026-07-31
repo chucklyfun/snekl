@@ -7,20 +7,25 @@ namespace Snekl.Infrastructure.Services;
 
 public interface IPostService
 {
-    Task<PostDto> CreateAsync(Guid userId, CreatePostRequest request, CancellationToken ct = default);
+    Task<PostDto> CreateAsync(Guid userId, CreatePostRequest request, Guid? viewerUserId = null, CancellationToken ct = default);
     Task<Post?> GetEntityAsync(Guid postId, CancellationToken ct = default);
-    Task<IReadOnlyList<PostDto>> GetForumThreadsAsync(Guid forumId, int page, int pageSize, CancellationToken ct = default);
-    Task<PostDto?> GetThreadAsync(Guid postId, CancellationToken ct = default);
+    Task<IReadOnlyList<PostDto>> GetForumThreadsAsync(Guid forumId, int page, int pageSize, Guid? viewerUserId = null, CancellationToken ct = default);
+    Task<PostDto?> GetThreadAsync(Guid postId, Guid? viewerUserId = null, CancellationToken ct = default);
     Task UpsertFederatedAsync(FederatedPostPayload payload, Guid sourceNodeId, string sourceNodeUrl, CancellationToken ct = default);
 }
 
 public class PostService : IPostService
 {
     private readonly SneklDbContext _db;
+    private readonly IUserPresentationService _presentation;
 
-    public PostService(SneklDbContext db) => _db = db;
+    public PostService(SneklDbContext db, IUserPresentationService presentation)
+    {
+        _db = db;
+        _presentation = presentation;
+    }
 
-    public async Task<PostDto> CreateAsync(Guid userId, CreatePostRequest request, CancellationToken ct = default)
+    public async Task<PostDto> CreateAsync(Guid userId, CreatePostRequest request, Guid? viewerUserId = null, CancellationToken ct = default)
     {
         var forum = await _db.Forums.FindAsync([request.ForumId], ct)
             ?? throw new InvalidOperationException("Forum not found.");
@@ -43,14 +48,14 @@ public class PostService : IPostService
         _db.Posts.Add(post);
         await _db.SaveChangesAsync(ct);
 
-        var author = await _db.Users.FindAsync([userId], ct);
-        return ToDto(post, author!, []);
+        var authorPresentation = await _presentation.GetPresentationAsync(userId, viewerUserId ?? userId, ct);
+        return ToDto(post, authorPresentation, []);
     }
 
     public Task<Post?> GetEntityAsync(Guid postId, CancellationToken ct = default) =>
         _db.Posts.Include(p => p.Author).Include(p => p.Forum).FirstOrDefaultAsync(p => p.Id == postId, ct);
 
-    public async Task<IReadOnlyList<PostDto>> GetForumThreadsAsync(Guid forumId, int page, int pageSize, CancellationToken ct = default)
+    public async Task<IReadOnlyList<PostDto>> GetForumThreadsAsync(Guid forumId, int page, int pageSize, Guid? viewerUserId = null, CancellationToken ct = default)
     {
         var posts = await _db.Posts
             .Include(p => p.Author)
@@ -60,10 +65,13 @@ public class PostService : IPostService
             .Take(pageSize)
             .ToListAsync(ct);
 
-        return posts.Select(p => ToDto(p, p.Author!, [])).ToList();
+        var authorIds = posts.Select(p => p.AuthorUserId).Distinct();
+        var presentations = await _presentation.GetPresentationsAsync(authorIds, viewerUserId, ct);
+
+        return posts.Select(p => ToDto(p, presentations[p.AuthorUserId], [])).ToList();
     }
 
-    public async Task<PostDto?> GetThreadAsync(Guid postId, CancellationToken ct = default)
+    public async Task<PostDto?> GetThreadAsync(Guid postId, Guid? viewerUserId = null, CancellationToken ct = default)
     {
         var root = await _db.Posts
             .Include(p => p.Author)
@@ -76,7 +84,10 @@ public class PostService : IPostService
             .Where(p => p.ForumId == root.ForumId)
             .ToListAsync(ct);
 
-        return BuildTree(root, allPosts);
+        var authorIds = allPosts.Select(p => p.AuthorUserId).Distinct();
+        var presentations = await _presentation.GetPresentationsAsync(authorIds, viewerUserId, ct);
+
+        return BuildTree(root, allPosts, presentations);
     }
 
     public async Task UpsertFederatedAsync(FederatedPostPayload payload, Guid sourceNodeId, string sourceNodeUrl, CancellationToken ct = default)
@@ -86,7 +97,8 @@ public class PostService : IPostService
         var forum = await _db.Forums.FirstOrDefaultAsync(f => f.Id == payload.ForumId, ct);
         if (forum is null)
         {
-            await new ForumService(_db).UpsertFederatedAsync(
+            var forumService = new ForumService(_db, _presentation);
+            await forumService.UpsertFederatedAsync(
                 new FederatedForumPayload(
                     payload.ForumId,
                     payload.ForumName,
@@ -137,29 +149,29 @@ public class PostService : IPostService
         await _db.SaveChangesAsync(ct);
     }
 
-    private static PostDto BuildTree(Post root, List<Post> allPosts)
+    private static PostDto BuildTree(Post root, List<Post> allPosts, IReadOnlyDictionary<Guid, UserPresentationDto> presentations)
     {
         var lookup = allPosts
             .GroupBy(p => p.ParentPostId ?? Guid.Empty)
             .ToDictionary(g => g.Key, g => g.ToList());
-        return BuildNode(root, lookup);
+        return BuildNode(root, lookup, presentations);
     }
 
-    private static PostDto BuildNode(Post post, Dictionary<Guid, List<Post>> lookup)
+    private static PostDto BuildNode(Post post, Dictionary<Guid, List<Post>> lookup, IReadOnlyDictionary<Guid, UserPresentationDto> presentations)
     {
         var children = lookup.GetValueOrDefault(post.Id, [])
             .OrderBy(p => p.CreatedAt)
-            .Select(p => BuildNode(p, lookup))
+            .Select(p => BuildNode(p, lookup, presentations))
             .ToList();
 
-        return ToDto(post, post.Author!, children);
+        return ToDto(post, presentations[post.AuthorUserId], children);
     }
 
-    public static PostDto ToDto(Post post, User author, List<PostDto> replies) => new(
+    public static PostDto ToDto(Post post, UserPresentationDto author, List<PostDto> replies) => new(
         post.Id,
         post.ForumId,
         post.ParentPostId,
-        AuthService.ToDto(author),
+        author,
         post.Message,
         post.ReplyCount,
         post.OriginNodeUrl,

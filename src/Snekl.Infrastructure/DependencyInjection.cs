@@ -12,6 +12,9 @@ public static class DependencyInjection
         services.AddDbContext<SneklDbContext>(options =>
             options.UseNpgsql(connectionString));
 
+        services.AddScoped<IUserPresentationService, UserPresentationService>();
+        services.AddScoped<IUserProfileService, UserProfileService>();
+        services.AddScoped<ICuratedListService, CuratedListService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IForumService, ForumService>();
         services.AddScoped<IPostService, PostService>();

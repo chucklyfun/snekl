@@ -14,11 +14,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </Link>
         <nav className="nav-links">
           <Link to="/">Forums</Link>
+          <Link to="/lists">Lists</Link>
           <Link to="/federation">Federation</Link>
           {user && <Link to="/forums/new">New forum</Link>}
           {user ? (
             <>
-              <span className="user-badge">{user.displayName}</span>
+              <Link to={`/users/${user.username}`} className="user-badge">{user.effectiveDisplayName}</Link>
               <button type="button" className="btn-ghost" onClick={logout}>
                 Log out
               </button>

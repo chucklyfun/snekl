@@ -7,9 +7,9 @@ namespace Snekl.Infrastructure.Services;
 
 public interface IForumService
 {
-    Task<ForumDto> CreateAsync(Guid userId, CreateForumRequest request, CancellationToken ct = default);
-    Task<IReadOnlyList<ForumDto>> ListAsync(CancellationToken ct = default);
-    Task<ForumDto?> GetBySlugAsync(string slug, CancellationToken ct = default);
+    Task<ForumDto> CreateAsync(Guid userId, CreateForumRequest request, Guid? viewerUserId = null, CancellationToken ct = default);
+    Task<IReadOnlyList<ForumDto>> ListAsync(Guid? viewerUserId = null, CancellationToken ct = default);
+    Task<ForumDto?> GetBySlugAsync(string slug, Guid? viewerUserId = null, CancellationToken ct = default);
     Task<Forum?> GetEntityBySlugAsync(string slug, CancellationToken ct = default);
     Task UpsertFederatedAsync(FederatedForumPayload payload, Guid sourceNodeId, string sourceNodeUrl, CancellationToken ct = default);
 }
@@ -17,10 +17,15 @@ public interface IForumService
 public class ForumService : IForumService
 {
     private readonly SneklDbContext _db;
+    private readonly IUserPresentationService _presentation;
 
-    public ForumService(SneklDbContext db) => _db = db;
+    public ForumService(SneklDbContext db, IUserPresentationService presentation)
+    {
+        _db = db;
+        _presentation = presentation;
+    }
 
-    public async Task<ForumDto> CreateAsync(Guid userId, CreateForumRequest request, CancellationToken ct = default)
+    public async Task<ForumDto> CreateAsync(Guid userId, CreateForumRequest request, Guid? viewerUserId = null, CancellationToken ct = default)
     {
         var slug = request.Slug.Trim().ToLowerInvariant();
         if (await _db.Forums.AnyAsync(f => f.Slug == slug, ct))
@@ -37,11 +42,11 @@ public class ForumService : IForumService
         _db.Forums.Add(forum);
         await _db.SaveChangesAsync(ct);
 
-        var createdBy = await _db.Users.FindAsync([userId], ct);
+        var createdBy = await _presentation.GetPresentationAsync(userId, viewerUserId ?? userId, ct);
         return ToDto(forum, createdBy, 0);
     }
 
-    public async Task<IReadOnlyList<ForumDto>> ListAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<ForumDto>> ListAsync(Guid? viewerUserId = null, CancellationToken ct = default)
     {
         var forums = await _db.Forums
             .Include(f => f.CreatedBy)
@@ -54,16 +59,22 @@ public class ForumService : IForumService
             .Select(g => new { ForumId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.ForumId, x => x.Count, ct);
 
-        return forums.Select(f => ToDto(f, f.CreatedBy, postCounts.GetValueOrDefault(f.Id))).ToList();
+        var creatorIds = forums.Select(f => f.CreatedByUserId).Distinct();
+        var presentations = await _presentation.GetPresentationsAsync(creatorIds, viewerUserId, ct);
+
+        return forums.Select(f => ToDto(f, presentations.GetValueOrDefault(f.CreatedByUserId), postCounts.GetValueOrDefault(f.Id))).ToList();
     }
 
-    public async Task<ForumDto?> GetBySlugAsync(string slug, CancellationToken ct = default)
+    public async Task<ForumDto?> GetBySlugAsync(string slug, Guid? viewerUserId = null, CancellationToken ct = default)
     {
         var forum = await GetEntityBySlugAsync(slug, ct);
         if (forum is null) return null;
 
         var postCount = await _db.Posts.CountAsync(p => p.ForumId == forum.Id && p.ParentPostId == null, ct);
-        return ToDto(forum, forum.CreatedBy, postCount);
+        var createdBy = forum.CreatedByUserId != Guid.Empty
+            ? await _presentation.GetPresentationAsync(forum.CreatedByUserId, viewerUserId, ct)
+            : null;
+        return ToDto(forum, createdBy, postCount);
     }
 
     public Task<Forum?> GetEntityBySlugAsync(string slug, CancellationToken ct = default) =>
@@ -106,12 +117,12 @@ public class ForumService : IForumService
         await _db.SaveChangesAsync(ct);
     }
 
-    public static ForumDto ToDto(Forum forum, User? createdBy, int postCount) => new(
+    private static ForumDto ToDto(Forum forum, UserPresentationDto? createdBy, int postCount) => new(
         forum.Id,
         forum.Name,
         forum.Slug,
         forum.Description,
-        createdBy is null ? null : AuthService.ToDto(createdBy),
+        createdBy,
         forum.OriginNodeUrl,
         forum.IsFederated,
         postCount,

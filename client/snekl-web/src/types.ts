@@ -114,6 +114,37 @@ export interface AuthResponse {
   user: User;
 }
 
+export interface PersonCluster {
+  id: string;
+  did: string;
+  canonicalUsername: string;
+  displayName: string;
+  email: string;
+  bio: string;
+  primaryAuthServerUrl: string;
+  disambiguationTag?: string | null;
+  displayLabel: string;
+  identities: Array<{
+    id: string;
+    authServerUrl: string;
+    isPrimary: boolean;
+    hasLocalPassword: boolean;
+  }>;
+}
+
+export interface RingSession {
+  ringSessionId: string;
+  accessToken: string;
+  expiresAt: string;
+  person: PersonCluster;
+  partnerSessions: Array<{
+    authServerUrl: string;
+    accessToken: string;
+    expiresAt: string;
+  }>;
+  generatedKeyPrivatePkcs8Base64?: string | null;
+}
+
 export interface StatusPreset {
   preset: string;
   label: string;

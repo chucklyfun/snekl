@@ -100,7 +100,14 @@ docker compose up --build
 - **Content Alpha:** http://localhost:5001
 - **Content Beta:** http://localhost:5002
 
-Point the React app at a content node via `VITE_API_URL` in `.env`. Register and log in via an auth server (`http://localhost:5100/api/auth/register`).
+Point the React app at a content node via `VITE_API_URL` and auth via `VITE_AUTH_URL` in `client/snekl-web/.env`:
+
+```bash
+VITE_API_URL=http://localhost:5001
+VITE_AUTH_URL=http://localhost:5100
+```
+
+Register and log in through the auth server; the React client generates a `did:key` in the browser and sends an ownership proof on signup.
 
 To connect content nodes running in Docker, subscribe using `http://host.docker.internal:5002` from the Alpha federation page (containers reach the host network this way).
 

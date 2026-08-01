@@ -23,6 +23,9 @@ export function LoginPage() {
   return (
     <div className="card" style={{ maxWidth: 420, margin: '0 auto' }}>
       <h1 className="page-title">Log in</h1>
+      <p style={{ color: 'var(--muted)', marginBottom: '1rem' }}>
+        Sign in via the auth server. Your content node trusts the returned token.
+      </p>
       {error && <div className="error-banner">{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="form-group">

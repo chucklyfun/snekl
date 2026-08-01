@@ -41,11 +41,14 @@ public class PostService : IPostService
             await IncrementReplyCountsAsync(parent.Id, ct);
         }
 
+        var author = await _db.Users.FindAsync([userId], ct);
         var post = new Post
         {
             ForumId = forum.Id,
             ParentPostId = request.ParentPostId,
             AuthorUserId = userId,
+            AuthorPersonClusterId = null,
+            AuthorDid = author?.Did,
             Message = request.Message.Trim()
         };
 

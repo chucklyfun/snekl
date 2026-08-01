@@ -1,23 +1,24 @@
 import type {
-  AuthResponse,
   CuratedList,
   Forum,
   ListAnnotation,
   NodeInfo,
   Peer,
   Post,
+  RingSession,
   StatusPreset,
   UserPresentation,
   UserStatus,
 } from './types';
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:5000';
+const CONTENT_API = import.meta.env.VITE_API_URL ?? 'http://localhost:5001';
+const AUTH_API = import.meta.env.VITE_AUTH_URL ?? 'http://localhost:5100';
 
 function getToken(): string | null {
   return localStorage.getItem('snekl_token');
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(baseUrl: string, path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
@@ -26,7 +27,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const response = await fetch(`${baseUrl}${path}`, { ...options, headers });
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -37,22 +38,36 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return response.json();
 }
 
-export const api = {
-  register: (username: string, email: string, password: string, displayName: string) =>
-    request<AuthResponse>('/api/auth/register', {
+export const authApi = {
+  register: (payload: {
+    username: string;
+    email: string;
+    password: string;
+    displayName: string;
+    did: string;
+    keyOwnershipProof: string;
+  }) =>
+    request<RingSession>(AUTH_API, '/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, email, password, displayName }),
+      body: JSON.stringify(payload),
     }),
 
   login: (username: string, password: string) =>
-    request<AuthResponse>('/api/auth/login', {
+    request<RingSession>(AUTH_API, '/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     }),
 
-  me: () => request<UserPresentation>('/api/auth/me'),
+  me: () => request<RingSession['person']>(AUTH_API, '/api/me'),
+};
 
-  getUser: (username: string) => request<UserPresentation>(`/api/users/${username}`),
+export const api = {
+  register: authApi.register,
+  login: authApi.login,
+
+  me: () => request<UserPresentation>(CONTENT_API, '/api/auth/me'),
+
+  getUser: (username: string) => request<UserPresentation>(CONTENT_API, `/api/users/${username}`),
 
   updateFlair: (flair: {
     emoji?: string;
@@ -61,12 +76,12 @@ export const api = {
     nameColor?: string;
     nameStyle?: string;
   }) =>
-    request<UserPresentation>('/api/users/me/flair', {
+    request<UserPresentation>(CONTENT_API, '/api/users/me/flair', {
       method: 'PUT',
       body: JSON.stringify(flair),
     }),
 
-  getStatusPresets: () => request<StatusPreset[]>('/api/users/status/presets'),
+  getStatusPresets: () => request<StatusPreset[]>(CONTENT_API, '/api/users/status/presets'),
 
   setStatus: (status: {
     preset: string;
@@ -85,48 +100,48 @@ export const api = {
     displayNameSuffix?: string;
     nameColorOverride?: string;
   }) =>
-    request<UserStatus>('/api/users/me/status', {
+    request<UserStatus>(CONTENT_API, '/api/users/me/status', {
       method: 'PUT',
       body: JSON.stringify(status),
     }),
 
-  clearStatus: () => request<void>('/api/users/me/status', { method: 'DELETE' }),
+  clearStatus: () => request<void>(CONTENT_API, '/api/users/me/status', { method: 'DELETE' }),
 
-  getNode: () => request<NodeInfo>('/api/node'),
+  getNode: () => request<NodeInfo>(CONTENT_API, '/api/node'),
 
-  getForums: () => request<Forum[]>('/api/forums'),
+  getForums: () => request<Forum[]>(CONTENT_API, '/api/forums'),
 
-  getForum: (slug: string) => request<Forum>(`/api/forums/${slug}`),
+  getForum: (slug: string) => request<Forum>(CONTENT_API, `/api/forums/${slug}`),
 
   createForum: (name: string, slug: string, description: string) =>
-    request<Forum>('/api/forums', {
+    request<Forum>(CONTENT_API, '/api/forums', {
       method: 'POST',
       body: JSON.stringify({ name, slug, description }),
     }),
 
   getForumThreads: (forumId: string) =>
-    request<Post[]>(`/api/posts/forum/${forumId}`),
+    request<Post[]>(CONTENT_API, `/api/posts/forum/${forumId}`),
 
-  getThread: (postId: string) => request<Post>(`/api/posts/${postId}`),
+  getThread: (postId: string) => request<Post>(CONTENT_API, `/api/posts/${postId}`),
 
   createPost: (forumId: string, message: string, parentPostId?: string) =>
-    request<Post>('/api/posts', {
+    request<Post>(CONTENT_API, '/api/posts', {
       method: 'POST',
       body: JSON.stringify({ forumId, message, parentPostId: parentPostId ?? null }),
     }),
 
-  getPeers: () => request<Peer[]>('/api/federation/peers'),
+  getPeers: () => request<Peer[]>(CONTENT_API, '/api/federation/peers'),
 
   subscribePeer: (baseUrl: string) =>
-    request<Peer>('/api/federation/peers', {
+    request<Peer>(CONTENT_API, '/api/federation/peers', {
       method: 'POST',
       body: JSON.stringify({ baseUrl }),
     }),
 
   unsubscribePeer: (peerId: string) =>
-    request<void>(`/api/federation/peers/${peerId}`, { method: 'DELETE' }),
+    request<void>(CONTENT_API, `/api/federation/peers/${peerId}`, { method: 'DELETE' }),
 
-  getLists: () => request<CuratedList[]>('/api/lists'),
+  getLists: () => request<CuratedList[]>(CONTENT_API, '/api/lists'),
 
   createList: (data: {
     name: string;
@@ -135,19 +150,19 @@ export const api = {
     defaultFlairEmoji?: string;
     isPublic: boolean;
   }) =>
-    request<CuratedList>('/api/lists', {
+    request<CuratedList>(CONTENT_API, '/api/lists', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
   subscribeList: (listId: string, appliedBehavior: string) =>
-    request<void>(`/api/lists/${listId}/subscribe`, {
+    request<void>(CONTENT_API, `/api/lists/${listId}/subscribe`, {
       method: 'POST',
       body: JSON.stringify({ appliedBehavior }),
     }),
 
   unsubscribeList: (listId: string) =>
-    request<void>(`/api/lists/${listId}/subscribe`, { method: 'DELETE' }),
+    request<void>(CONTENT_API, `/api/lists/${listId}/subscribe`, { method: 'DELETE' }),
 
   addListEntry: (listId: string, data: {
     targetUserId: string;
@@ -156,8 +171,10 @@ export const api = {
     flairEmoji?: string;
     usernameColor?: string;
   }) =>
-    request<ListAnnotation>(`/api/lists/${listId}/entries`, {
+    request<ListAnnotation>(CONTENT_API, `/api/lists/${listId}/entries`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 };
+
+export { AUTH_API, CONTENT_API };

@@ -30,6 +30,8 @@ public class SneklDbContext : DbContext
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.Username).IsUnique();
             e.HasIndex(x => x.Email).IsUnique();
+            e.HasIndex(x => x.Did).IsUnique();
+            e.HasIndex(x => new { x.AuthIssuerUrl, x.AuthSubjectId }).IsUnique();
             e.HasOne(x => x.ActiveStatus).WithOne(x => x.User).HasForeignKey<UserStatus>(x => x.UserId);
         });
 

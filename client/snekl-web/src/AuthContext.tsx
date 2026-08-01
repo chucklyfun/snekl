@@ -1,12 +1,15 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { api } from './api';
+import { api, authApi } from './api';
+import { buildRegisterChallenge, signMultibaseProof } from './did/didKey';
+import { clearDidKey, getOrCreateDidKey, getStoredDid } from './did/keyStore';
 import type { UserPresentation } from './types';
 
 interface AuthContextValue {
   user: UserPresentation | null;
+  did: string | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
-  register: (username: string, email: string, password: string, displayName: string) => Promise<void>;
+  register: (username: string, email: string, password: string, displayName: string) => Promise<string>;
   logout: () => void;
   refreshMe: () => Promise<void>;
 }
@@ -15,6 +18,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserPresentation | null>(null);
+  const [did, setDid] = useState<string | null>(getStoredDid());
   const [loading, setLoading] = useState(true);
 
   const refreshMe = async () => {
@@ -25,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const me = await api.me();
     setUser(me);
+    setDid(getStoredDid());
   };
 
   useEffect(() => {
@@ -34,24 +39,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (username: string, password: string) => {
-    const result = await api.login(username, password);
-    localStorage.setItem('snekl_token', result.token);
+    const result = await authApi.login(username, password);
+    localStorage.setItem('snekl_token', result.accessToken);
+    setDid(result.person.did);
     await refreshMe();
   };
 
   const register = async (username: string, email: string, password: string, displayName: string) => {
-    const result = await api.register(username, email, password, displayName);
-    localStorage.setItem('snekl_token', result.token);
+    const keyMaterial = await getOrCreateDidKey();
+    const normalizedUsername = username.trim().toLowerCase();
+    const challenge = buildRegisterChallenge(normalizedUsername, keyMaterial.did);
+    const keyOwnershipProof = await signMultibaseProof(keyMaterial.privateKey, challenge);
+
+    const result = await authApi.register({
+      username: normalizedUsername,
+      email,
+      password,
+      displayName,
+      did: keyMaterial.did,
+      keyOwnershipProof,
+    });
+
+    localStorage.setItem('snekl_token', result.accessToken);
+    setDid(result.person.did);
     await refreshMe();
+    return result.person.did;
   };
 
   const logout = () => {
     localStorage.removeItem('snekl_token');
     setUser(null);
+    clearDidKey();
+    setDid(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshMe }}>
+    <AuthContext.Provider value={{ user, did, loading, login, register, logout, refreshMe }}>
       {children}
     </AuthContext.Provider>
   );

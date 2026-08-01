@@ -44,6 +44,11 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<UserPresentationDto>> Me(CancellationToken ct)
     {
         var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var authSource = User.FindFirstValue("auth_source");
+
+        if (authSource == "shadow")
+            return Ok(await _presentation.GetPresentationAsync(userId, userId, ct));
+
         var user = await _auth.GetUserByIdAsync(userId, ct);
         if (user is null) return NotFound();
         return Ok(await _presentation.GetPresentationAsync(userId, userId, ct));

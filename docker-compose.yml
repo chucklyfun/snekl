@@ -101,6 +101,9 @@ services:
       Node__Name: Snekl Alpha
       Node__BaseUrl: http://localhost:5001
       Node__Description: Primary federated forum node
+      AuthIssuers__0__Name: Snekl Auth Alpha
+      AuthIssuers__0__IssuerUrl: http://localhost:5100
+      AuthIssuers__0__JwksUrl: http://host.docker.internal:5100/.well-known/jwks.json
     depends_on:
       postgres-alpha:
         condition: service_healthy

@@ -1,7 +1,6 @@
 using System.Text;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
+using Snekl.Domain.Identity;
 using Snekl.Infrastructure;
 using Snekl.Infrastructure.Data;
 using Snekl.Infrastructure.Services;
@@ -15,23 +14,7 @@ builder.Services.AddSwaggerGen();
 var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? "Host=localhost;Port=5432;Database=snekl;Username=snekl;Password=snekl";
 
-builder.Services.AddSneklInfrastructure(connectionString);
-
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "snekl-dev-secret-key-change-in-production-min-32-chars";
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? "snekl",
-            ValidAudience = builder.Configuration["Jwt:Audience"] ?? "snekl",
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
-        };
-    });
+builder.Services.AddSneklInfrastructure(connectionString, builder.Configuration);
 
 builder.Services.AddAuthorization();
 
@@ -62,6 +45,8 @@ using (var scope = app.Services.CreateScope())
             configuredUrl,
             builder.Configuration["Node:Description"] ?? node.Description);
     }
+
+    await SeedTrustedAuthIssuersAsync(db, builder.Configuration);
 }
 
 if (app.Environment.IsDevelopment())
@@ -76,3 +61,39 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+static async Task SeedTrustedAuthIssuersAsync(SneklDbContext db, ConfigurationManager config)
+{
+    var configured = config.GetSection("AuthIssuers").GetChildren().ToList();
+    var entries = configured.Count > 0
+        ? configured.Select(c => (Name: c["Name"] ?? c["IssuerUrl"]!, IssuerUrl: c["IssuerUrl"]!, JwksUrl: c["JwksUrl"]!))
+        :
+        [
+            ("Snekl Auth Alpha", "http://localhost:5100", "http://localhost:5100/.well-known/jwks.json"),
+            ("Snekl Auth Beta", "http://localhost:5101", "http://localhost:5101/.well-known/jwks.json")
+        ];
+
+    foreach (var (name, issuerUrl, jwksUrl) in entries)
+    {
+        if (string.IsNullOrWhiteSpace(issuerUrl) || string.IsNullOrWhiteSpace(jwksUrl)) continue;
+        var normalized = issuerUrl.Trim().TrimEnd('/');
+        var existing = await db.TrustedAuthIssuers.FirstOrDefaultAsync(i => i.IssuerUrl == normalized);
+        if (existing is null)
+        {
+            db.TrustedAuthIssuers.Add(new TrustedAuthIssuer
+            {
+                IssuerUrl = normalized,
+                JwksUrl = jwksUrl.Trim(),
+                Name = name
+            });
+        }
+        else
+        {
+            existing.JwksUrl = jwksUrl.Trim();
+            existing.Name = name;
+            existing.IsActive = true;
+        }
+    }
+
+    await db.SaveChangesAsync();
+}

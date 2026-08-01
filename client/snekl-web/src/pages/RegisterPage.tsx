@@ -25,6 +25,9 @@ export function RegisterPage() {
   return (
     <div className="card" style={{ maxWidth: 420, margin: '0 auto' }}>
       <h1 className="page-title">Create account</h1>
+      <p style={{ color: 'var(--muted)', marginBottom: '1rem' }}>
+        Your browser generates a <code>did:key</code> identity. The private key stays on this device.
+      </p>
       {error && <div className="error-banner">{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="form-group">

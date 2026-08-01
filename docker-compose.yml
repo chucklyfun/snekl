@@ -1,4 +1,14 @@
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   postgres-auth-alpha:
     image: postgres:16-alpine
     environment:
@@ -39,8 +49,11 @@ services:
       Auth__Name: Snekl Auth Alpha
       Auth__BaseUrl: http://localhost:5100
       Auth__SigningKey: snekl-auth-alpha-dev-signing-key-change-in-production
+      ConnectionStrings__Redis: redis:6379
     depends_on:
       postgres-auth-alpha:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   auth-beta:
@@ -55,8 +68,11 @@ services:
       Auth__Name: Snekl Auth Beta
       Auth__BaseUrl: http://localhost:5101
       Auth__SigningKey: snekl-auth-beta-dev-signing-key-change-in-production
+      ConnectionStrings__Redis: redis:6379
     depends_on:
       postgres-auth-beta:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   postgres-alpha:
@@ -104,8 +120,11 @@ services:
       AuthIssuers__0__Name: Snekl Auth Alpha
       AuthIssuers__0__IssuerUrl: http://localhost:5100
       AuthIssuers__0__JwksUrl: http://host.docker.internal:5100/.well-known/jwks.json
+      ConnectionStrings__Redis: redis:6379
     depends_on:
       postgres-alpha:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   api-beta:
@@ -122,8 +141,11 @@ services:
       Node__Name: Snekl Beta
       Node__BaseUrl: http://localhost:5002
       Node__Description: Secondary federated forum node
+      ConnectionStrings__Redis: redis:6379
     depends_on:
       postgres-beta:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:

@@ -1,9 +1,12 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Snekl.Domain.Dtos;
 using Snekl.Domain.Entities;
+using Snekl.Infrastructure.Caching;
 using Snekl.Infrastructure.Data;
+using Snekl.Redis;
 
 namespace Snekl.Infrastructure.Services;
 
@@ -65,19 +68,22 @@ public class FederationService : IFederationService
     private readonly INodeService _nodeService;
     private readonly IForumService _forumService;
     private readonly IPostService _postService;
+    private readonly IRedisDedupService? _dedup;
 
     public FederationService(
         SneklDbContext db,
         IFederationClient client,
         INodeService nodeService,
         IForumService forumService,
-        IPostService postService)
+        IPostService postService,
+        IServiceProvider services)
     {
         _db = db;
         _client = client;
         _nodeService = nodeService;
         _forumService = forumService;
         _postService = postService;
+        _dedup = services.GetService(typeof(IRedisDedupService)) as IRedisDedupService;
     }
 
     public async Task<PeerDto> SubscribeAsync(string baseUrl, CancellationToken ct = default)
@@ -165,6 +171,13 @@ public class FederationService : IFederationService
 
     public async Task ReceiveAsync(FederationEnvelope envelope, CancellationToken ct = default)
     {
+        if (_dedup is not null && TryGetEntityId(envelope, out var entityId))
+        {
+            var dedupKey = CacheKeys.FederationEnvelope(envelope.SourceNodeId, envelope.Type, entityId);
+            if (!await _dedup.TryMarkProcessedAsync(dedupKey, TimeSpan.FromDays(1), ct))
+                return;
+        }
+
         var json = JsonSerializer.Serialize(envelope.Payload);
         switch (envelope.Type)
         {
@@ -180,6 +193,22 @@ public class FederationService : IFederationService
                 var nodeInfo = JsonSerializer.Deserialize<NodeInfoDto>(json, FederationClient.JsonOptions)!;
                 await UpsertPeerFromSubscriptionAsync(nodeInfo, ct);
                 break;
+        }
+    }
+
+    private static bool TryGetEntityId(FederationEnvelope envelope, out Guid entityId)
+    {
+        entityId = Guid.Empty;
+        try
+        {
+            var json = JsonSerializer.Serialize(envelope.Payload);
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty("id", out var idProp) &&
+                   Guid.TryParse(idProp.GetString(), out entityId);
+        }
+        catch
+        {
+            return false;
         }
     }
 

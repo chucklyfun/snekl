@@ -3,6 +3,7 @@ using Snekl.Account.Domain.Dtos;
 using Snekl.Account.Domain.Entities;
 using Snekl.Account.Infrastructure.Data;
 using Snekl.Account.Infrastructure.Security;
+using Snekl.Redis;
 
 namespace Snekl.Account.Infrastructure.Services;
 
@@ -22,17 +23,20 @@ public class PartnerService : IPartnerService
     private readonly IAuthServerService _server;
     private readonly ITokenService _tokens;
     private readonly IPartnerClient _client;
+    private readonly IRedisDedupService? _dedup;
 
     public PartnerService(
         AccountDbContext db,
         IAuthServerService server,
         ITokenService tokens,
-        IPartnerClient client)
+        IPartnerClient client,
+        IServiceProvider services)
     {
         _db = db;
         _server = server;
         _tokens = tokens;
         _client = client;
+        _dedup = services.GetService(typeof(IRedisDedupService)) as IRedisDedupService;
     }
 
     public async Task<PartnerTrustDto> EstablishTrustAsync(string partnerBaseUrl, CancellationToken ct = default)
@@ -205,6 +209,13 @@ public class PartnerService : IPartnerService
         if (trust is null) return false;
 
         if (string.IsNullOrWhiteSpace(trust.PartnerSigningKey)) return false;
+
+        if (_dedup is not null)
+        {
+            var nonceKey = $"vouch:{vouch.Signature[..Math.Min(48, vouch.Signature.Length)]}";
+            if (!await _dedup.TryMarkProcessedAsync(nonceKey, vouch.ExpiresAt - DateTime.UtcNow, ct))
+                return false;
+        }
 
         return VouchBuilder.TryValidate(vouch, trust.PartnerSigningKey);
     }

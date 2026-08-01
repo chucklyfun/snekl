@@ -4,6 +4,7 @@ using Snekl.Domain.Identity;
 using Snekl.Infrastructure;
 using Snekl.Infrastructure.Data;
 using Snekl.Infrastructure.Services;
+using Snekl.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -56,6 +57,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
+app.UseSneklRateLimiting(builder.Configuration);
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

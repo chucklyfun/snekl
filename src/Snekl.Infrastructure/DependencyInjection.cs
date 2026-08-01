@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Snekl.Infrastructure.Data;
 using Snekl.Infrastructure.Security;
 using Snekl.Infrastructure.Services;
+using Snekl.Redis;
 
 namespace Snekl.Infrastructure;
 
@@ -13,6 +14,8 @@ public static class DependencyInjection
     {
         services.AddDbContext<SneklDbContext>(options =>
             options.UseNpgsql(connectionString));
+
+        services.AddSneklRedis(config, config["Node:Name"] ?? "snekl-content");
 
         services.AddScoped<IUserPresentationService, UserPresentationService>();
         services.AddScoped<IUserProfileService, UserProfileService>();

@@ -1,7 +1,10 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using Snekl.Domain.Dtos;
 using Snekl.Domain.Entities;
 using Snekl.Domain.Enums;
+using Snekl.Infrastructure.Caching;
 using Snekl.Infrastructure.Data;
 
 namespace Snekl.Infrastructure.Services;
@@ -12,13 +15,20 @@ public interface IUserPresentationService
     Task<UserPresentationDto> GetPresentationAsync(Guid userId, Guid? viewerUserId = null, CancellationToken ct = default);
     Task<UserPresentationDto?> GetPresentationByUsernameAsync(string username, Guid? viewerUserId = null, CancellationToken ct = default);
     Task<IReadOnlyDictionary<Guid, UserPresentationDto>> GetPresentationsAsync(IEnumerable<Guid> userIds, Guid? viewerUserId = null, CancellationToken ct = default);
+    Task InvalidatePresentationAsync(Guid userId, CancellationToken ct = default);
 }
 
 public class UserPresentationService : IUserPresentationService
 {
+    private static readonly TimeSpan PresentationTtl = TimeSpan.FromSeconds(60);
     private readonly SneklDbContext _db;
+    private readonly IDistributedCache _cache;
 
-    public UserPresentationService(SneklDbContext db) => _db = db;
+    public UserPresentationService(SneklDbContext db, IDistributedCache cache)
+    {
+        _db = db;
+        _cache = cache;
+    }
 
     public async Task ClearExpiredStatusesAsync(CancellationToken ct = default)
     {
@@ -30,9 +40,15 @@ public class UserPresentationService : IUserPresentationService
 
     public async Task<UserPresentationDto> GetPresentationAsync(Guid userId, Guid? viewerUserId = null, CancellationToken ct = default)
     {
+        var cacheKey = CacheKeys.Presentation(userId, viewerUserId);
+        var cached = await _cache.GetJsonAsync<UserPresentationDto>(cacheKey, ct);
+        if (cached is not null) return cached;
+
         await ClearExpiredStatusesAsync(ct);
-        var map = await GetPresentationsAsync([userId], viewerUserId, ct);
-        return map[userId];
+        var map = await LoadPresentationsAsync([userId], viewerUserId, ct);
+        var presentation = map[userId];
+        await _cache.SetJsonAsync(cacheKey, presentation, PresentationTtl, ct);
+        return presentation;
     }
 
     public async Task<UserPresentationDto?> GetPresentationByUsernameAsync(string username, Guid? viewerUserId = null, CancellationToken ct = default)
@@ -46,9 +62,42 @@ public class UserPresentationService : IUserPresentationService
         Guid? viewerUserId = null,
         CancellationToken ct = default)
     {
-        await ClearExpiredStatusesAsync(ct);
-
         var ids = userIds.Distinct().ToList();
+        var result = new Dictionary<Guid, UserPresentationDto>();
+        var missing = new List<Guid>();
+
+        foreach (var id in ids)
+        {
+            var cached = await _cache.GetJsonAsync<UserPresentationDto>(CacheKeys.Presentation(id, viewerUserId), ct);
+            if (cached is not null) result[id] = cached;
+            else missing.Add(id);
+        }
+
+        if (missing.Count > 0)
+        {
+            await ClearExpiredStatusesAsync(ct);
+            var loaded = await LoadPresentationsAsync(missing, viewerUserId, ct);
+            foreach (var (id, presentation) in loaded)
+            {
+                result[id] = presentation;
+                await _cache.SetJsonAsync(CacheKeys.Presentation(id, viewerUserId), presentation, PresentationTtl, ct);
+            }
+        }
+
+        return result;
+    }
+
+    public async Task InvalidatePresentationAsync(Guid userId, CancellationToken ct = default)
+    {
+        await _cache.RemoveAsync(CacheKeys.Presentation(userId, null), ct);
+        await _cache.RemoveAsync(CacheKeys.Presentation(userId, userId), ct);
+    }
+
+    private async Task<IReadOnlyDictionary<Guid, UserPresentationDto>> LoadPresentationsAsync(
+        IReadOnlyList<Guid> ids,
+        Guid? viewerUserId,
+        CancellationToken ct)
+    {
         var users = await _db.Users
             .Include(u => u.ActiveStatus)
             .Where(u => ids.Contains(u.Id))

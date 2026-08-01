@@ -1,5 +1,7 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using Snekl.Account.Domain.Dtos;
 using Snekl.Account.Domain.Entities;
 using Snekl.Account.Infrastructure.Data;
@@ -19,12 +21,18 @@ public class IdentityCredentialService : IIdentityCredentialService
     private readonly AccountDbContext _db;
     private readonly IAuthServerService _server;
     private readonly IHttpClientFactory _httpFactory;
+    private readonly IDistributedCache _cache;
 
-    public IdentityCredentialService(AccountDbContext db, IAuthServerService server, IHttpClientFactory httpFactory)
+    public IdentityCredentialService(
+        AccountDbContext db,
+        IAuthServerService server,
+        IHttpClientFactory httpFactory,
+        IDistributedCache cache)
     {
         _db = db;
         _server = server;
         _httpFactory = httpFactory;
+        _cache = cache;
     }
 
     public async Task<ExportIdentityResponse> ExportAsync(Guid clusterId, CancellationToken ct = default)
@@ -74,6 +82,11 @@ public class IdentityCredentialService : IIdentityCredentialService
     {
         if (!did.StartsWith(DidWeb.Prefix, StringComparison.Ordinal)) return null;
 
+        var cacheKey = $"didweb:{did}";
+        var cachedJson = await _cache.GetStringAsync(cacheKey, ct);
+        if (cachedJson is not null)
+            return JsonSerializer.Deserialize<DidDocument>(cachedJson);
+
         var hostPart = did[DidWeb.Prefix.Length..];
         var host = Uri.UnescapeDataString(hostPart);
         var baseUrl = host.Contains(':') ? $"http://{host}" : $"https://{host}";
@@ -83,6 +96,13 @@ public class IdentityCredentialService : IIdentityCredentialService
             var http = _httpFactory.CreateClient();
             var url = DidWeb.DocumentUrl(baseUrl);
             var doc = await http.GetFromJsonAsync<DidDocument>(url, cancellationToken: ct);
+            if (doc is not null)
+            {
+                await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(doc), new DistributedCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(6)
+                }, ct);
+            }
             return doc;
         }
         catch

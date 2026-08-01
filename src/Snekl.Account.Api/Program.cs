@@ -7,6 +7,8 @@ using Snekl.Account.Infrastructure.Data;
 using Snekl.Account.Infrastructure.Security;
 using Snekl.Account.Infrastructure.Services;
 
+using Snekl.Redis;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
@@ -16,7 +18,7 @@ builder.Services.AddSwaggerGen();
 var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? "Host=localhost;Port=5432;Database=snekl_auth;Username=snekl;Password=snekl";
 
-builder.Services.AddAccountInfrastructure(connectionString);
+builder.Services.AddAccountInfrastructure(connectionString, builder.Configuration);
 
 var signingKey = builder.Configuration["Auth:SigningKey"] ?? "snekl-auth-dev-signing-key-change-in-production-min-32";
 var authBaseUrl = (builder.Configuration["Auth:BaseUrl"] ?? "http://localhost:5100").TrimEnd('/');
@@ -73,6 +75,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
+app.UseSneklRateLimiting(builder.Configuration);
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

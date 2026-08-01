@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Snekl.Domain\Snekl.Domain.csproj" />
+    <ProjectReference Include="..\Snekl.Redis\Snekl.Redis.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -195,6 +195,24 @@ Website/                 # Legacy web app (AngularJS)
 
 Subscribe to lists you trust on the **Lists** page; annotations appear on posts and profiles when you browse while logged in.
 
+## Redis (high-volume interactions)
+
+Redis is optional but recommended for production and included in `docker compose`. When `ConnectionStrings:Redis` is set, Snekl uses it for:
+
+| Use | Benefit |
+|-----|---------|
+| **JWKS / issuer keys** | Shared cache across API replicas; avoids HTTP fetch per JWT |
+| **Shadow user lookup** | Caches external `(iss, sub) → UserId` mapping |
+| **User presentation** | 60s cache for flair, status, list annotations on reads |
+| **Rate limiting** | Login, register, posting, federation inbox |
+| **Federation dedup** | Prevents duplicate inbox processing |
+| **Vouch replay protection** | One-time partner vouch signatures |
+| **DID document cache** | Caches remote `did:web` resolution |
+
+Without Redis, services fall back to in-memory distributed cache (single-node only) and rate limiting is disabled.
+
+Local Redis: `docker run -d -p 6379:6379 redis:7-alpine`
+
 ## Roadmap
 
 - Signed federation envelopes (node key pairs)

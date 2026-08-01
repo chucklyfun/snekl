@@ -18,7 +18,7 @@ services:
     volumes:
       - postgres-auth-alpha-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U snekl"]
+      test: ["CMD-SHELL", "pg_isready -U snekl -d snekl_auth"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -32,7 +32,7 @@ services:
     volumes:
       - postgres-auth-beta-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U snekl"]
+      test: ["CMD-SHELL", "pg_isready -U snekl -d snekl_auth"]
       interval: 5s
       timeout: 5s
       retries: 5

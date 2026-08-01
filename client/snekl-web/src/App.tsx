@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Route, Routes } from 'react-router';
 import { AuthProvider } from './AuthContext';
 import { Layout } from './Layout';
 import { CreateForumPage } from './pages/CreateForumPage';

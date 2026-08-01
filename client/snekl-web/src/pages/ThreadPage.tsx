@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { api } from '../api';
 import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';

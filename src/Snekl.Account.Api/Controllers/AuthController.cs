@@ -25,6 +25,19 @@ public class AuthController : ControllerBase
         }
     }
 
+    [HttpPost("import")]
+    public async Task<ActionResult<RingSessionDto>> Import(ImportIdentityRequest request, CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await _auth.ImportAsync(request, ct));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
     [HttpPost("login")]
     public async Task<ActionResult<RingSessionDto>> Login(LoginRequest request, CancellationToken ct)
     {

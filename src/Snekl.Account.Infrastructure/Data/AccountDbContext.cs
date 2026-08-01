@@ -22,6 +22,7 @@ public class AccountDbContext : DbContext
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.CanonicalUsername);
+            e.HasIndex(x => x.Did).IsUnique();
         });
 
         modelBuilder.Entity<AuthIdentity>(e =>

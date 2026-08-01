@@ -48,6 +48,7 @@ public static class VouchSigner
 
 public record UnsignedVouch(
     Guid PersonClusterId,
+    string PersonDid,
     Guid SourceIdentityId,
     string SourceAuthServerUrl,
     string CanonicalUsername,
@@ -64,6 +65,7 @@ public static class VouchBuilder
         var unsigned = new
         {
             data.PersonClusterId,
+            data.PersonDid,
             data.SourceIdentityId,
             data.SourceAuthServerUrl,
             data.CanonicalUsername,
@@ -76,6 +78,7 @@ public static class VouchBuilder
         var signature = VouchSigner.Sign(unsigned, signingKey);
         return new VouchPayload(
             data.PersonClusterId,
+            data.PersonDid,
             data.SourceIdentityId,
             data.SourceAuthServerUrl,
             data.CanonicalUsername,
@@ -93,6 +96,7 @@ public static class VouchBuilder
         var unsigned = new
         {
             vouch.PersonClusterId,
+            vouch.PersonDid,
             SourceIdentityId = vouch.SourceIdentityId,
             vouch.SourceAuthServerUrl,
             vouch.CanonicalUsername,

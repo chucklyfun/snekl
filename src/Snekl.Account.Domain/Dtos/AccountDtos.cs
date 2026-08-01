@@ -1,6 +1,20 @@
 namespace Snekl.Account.Domain.Dtos;
 
-public record RegisterRequest(string Username, string Email, string Password, string DisplayName);
+public record RegisterRequest(
+    string Username,
+    string Email,
+    string Password,
+    string DisplayName,
+    string? Did = null,
+    string? KeyOwnershipProof = null);
+
+public record ImportIdentityRequest(
+    string Username,
+    string Email,
+    string Password,
+    string DisplayName,
+    string IdentityCredentialJson);
+
 public record LoginRequest(string Username, string Password);
 
 public record AuthIdentityDto(
@@ -11,6 +25,7 @@ public record AuthIdentityDto(
 
 public record PersonClusterDto(
     Guid Id,
+    string Did,
     string CanonicalUsername,
     string DisplayName,
     string Email,
@@ -25,7 +40,8 @@ public record RingSessionDto(
     string AccessToken,
     DateTime ExpiresAt,
     PersonClusterDto Person,
-    IReadOnlyList<PartnerSessionDto> PartnerSessions);
+    IReadOnlyList<PartnerSessionDto> PartnerSessions,
+    string? GeneratedKeyPrivatePkcs8Base64 = null);
 
 public record PartnerSessionDto(string AuthServerUrl, string AccessToken, DateTime ExpiresAt);
 
@@ -47,6 +63,7 @@ public record RingSessionRequest(
 
 public record VouchPayload(
     Guid PersonClusterId,
+    string PersonDid,
     Guid SourceIdentityId,
     string SourceAuthServerUrl,
     string CanonicalUsername,
@@ -56,6 +73,8 @@ public record VouchPayload(
     string? DisambiguationTag,
     DateTime ExpiresAt,
     string Signature);
+
+public record ExportIdentityResponse(string IdentityCredentialJson, DateTime ExpiresAt);
 
 public record UpdateProfileRequest(string DisplayName, string Bio, string? DisambiguationTag);
 

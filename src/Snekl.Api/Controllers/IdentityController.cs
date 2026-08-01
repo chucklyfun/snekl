@@ -12,6 +12,13 @@ public class IdentityController : ControllerBase
 
     public IdentityController(IPersonClusterMappingService mapping) => _mapping = mapping;
 
+    [HttpGet("clusters/by-did/{*did}")]
+    public async Task<ActionResult<PersonClusterRefDto>> GetClusterByDid(string did, CancellationToken ct)
+    {
+        var cluster = await _mapping.GetClusterByDidAsync(did, ct);
+        return cluster is null ? NotFound() : Ok(cluster);
+    }
+
     [HttpGet("clusters/{clusterId:guid}")]
     public async Task<ActionResult<PersonClusterRefDto>> GetCluster(Guid clusterId, CancellationToken ct)
     {

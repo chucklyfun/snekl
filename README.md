@@ -146,13 +146,16 @@ Auth API listens on `http://localhost:5100`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/auth/register` | Create PersonCluster + identity |
+| POST | `/api/auth/register` | Create identity with new or client-provided `did:key` |
+| POST | `/api/auth/import` | Register on this server via exported identity credential |
 | POST | `/api/auth/login` | Local login + ring sessions |
-| GET | `/api/me` | Cluster profile + linked identities |
+| GET | `/api/me` | Profile + linked identities (includes DID) |
+| POST | `/api/me/export` | Export signed identity credential for untrusted-server linking |
 | PUT | `/api/me/profile` | Update display name, bio, tag |
 | POST | `/api/partners/trust` | Establish mutual partner trust |
 | POST | `/api/partners/provision` | Accept vouched identity |
-| GET | `/.well-known/jwks.json` | JWKS for content server trust |
+| GET | `/.well-known/did.json` | Auth server DID document (`did:web`) |
+| GET | `/.well-known/jwks.json` | JWKS for content server JWT trust |
 
 ## Project structure
 

@@ -19,6 +19,7 @@ public static class DependencyInjection
         services.AddScoped<IRingLoginService, RingLoginService>();
         services.AddScoped<IPersonClusterService, PersonClusterService>();
         services.AddScoped<IPartnerService, PartnerService>();
+        services.AddScoped<IIdentityCredentialService, IdentityCredentialService>();
         services.AddHttpClient<IPartnerClient, PartnerClient>();
 
         return services;

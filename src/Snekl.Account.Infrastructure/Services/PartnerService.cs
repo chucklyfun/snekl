@@ -111,6 +111,7 @@ public class PartnerService : IPartnerService
         var expiry = DateTime.UtcNow.AddMinutes(15);
         var vouch = VouchBuilder.Create(new UnsignedVouch(
             cluster.Id,
+            cluster.Did,
             identity.Id,
             config.BaseUrl,
             cluster.CanonicalUsername,
@@ -135,13 +136,15 @@ public class PartnerService : IPartnerService
 
         var cluster = await _db.PersonClusters
             .Include(c => c.Identities)
-            .FirstOrDefaultAsync(c => c.Id == vouch.PersonClusterId, ct);
+            .FirstOrDefaultAsync(c => c.Did == vouch.PersonDid || c.Id == vouch.PersonClusterId, ct);
 
         if (cluster is null)
         {
             cluster = new PersonCluster
             {
                 Id = vouch.PersonClusterId,
+                Did = vouch.PersonDid,
+                PublicKeyMultibase = Snekl.Domain.Identity.Did.DidKey.PublicKeyMultibase(vouch.PersonDid),
                 CanonicalUsername = vouch.CanonicalUsername,
                 DisplayName = vouch.DisplayName,
                 Email = vouch.Email,

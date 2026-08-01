@@ -2,6 +2,7 @@ namespace Snekl.Domain.Identity;
 
 public record PersonClusterRefDto(
     Guid Id,
+    string Did,
     string CanonicalUsername,
     string DisplayName,
     string PrimaryAuthServerUrl,
@@ -10,6 +11,7 @@ public record PersonClusterRefDto(
 
 public record MapIdentityRequest(
     Guid PersonClusterId,
+    string AuthorDid,
     string CanonicalUsername,
     string DisplayName,
     string PrimaryAuthServerUrl,

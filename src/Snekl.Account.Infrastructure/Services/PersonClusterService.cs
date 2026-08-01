@@ -10,6 +10,7 @@ public static class PersonClusterMapper
 {
     public static PersonClusterDto ToDto(PersonCluster cluster, IEnumerable<AuthIdentity> identities) => new(
         cluster.Id,
+        cluster.Did,
         cluster.CanonicalUsername,
         cluster.DisplayName,
         cluster.Email,

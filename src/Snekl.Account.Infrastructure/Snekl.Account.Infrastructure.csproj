@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Snekl.Account.Domain\Snekl.Account.Domain.csproj" />
+    <ProjectReference Include="..\Snekl.Domain\Snekl.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

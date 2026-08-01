@@ -12,8 +12,13 @@ namespace Snekl.Account.Api.Controllers;
 public class MeController : ControllerBase
 {
     private readonly IPersonClusterService _clusters;
+    private readonly IIdentityCredentialService _credentials;
 
-    public MeController(IPersonClusterService clusters) => _clusters = clusters;
+    public MeController(IPersonClusterService clusters, IIdentityCredentialService credentials)
+    {
+        _clusters = clusters;
+        _credentials = credentials;
+    }
 
     [HttpGet]
     public async Task<ActionResult<PersonClusterDto>> Get(CancellationToken ct)
@@ -21,6 +26,20 @@ public class MeController : ControllerBase
         var clusterId = Guid.Parse(User.FindFirstValue("cluster_id")!);
         var cluster = await _clusters.GetAsync(clusterId, ct);
         return cluster is null ? NotFound() : Ok(cluster);
+    }
+
+    [HttpPost("export")]
+    public async Task<ActionResult<ExportIdentityResponse>> Export(CancellationToken ct)
+    {
+        var clusterId = Guid.Parse(User.FindFirstValue("cluster_id")!);
+        try
+        {
+            return Ok(await _credentials.ExportAsync(clusterId, ct));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
     [HttpPut("profile")]

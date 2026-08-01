@@ -89,12 +89,14 @@ public class SneklDbContext : DbContext
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.CanonicalUsername);
+            e.HasIndex(x => x.Did).IsUnique();
         });
 
         modelBuilder.Entity<AuthorIdentityMap>(e =>
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.IssuerUrl, x.SubjectId }).IsUnique();
+            e.HasIndex(x => x.AuthorDid);
             e.HasOne(x => x.PersonCluster).WithMany().HasForeignKey(x => x.PersonClusterId);
         });
 

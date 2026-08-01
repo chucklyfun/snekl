@@ -4,6 +4,7 @@ namespace Snekl.Domain.Identity;
 public class PersonClusterRecord
 {
     public Guid Id { get; set; }
+    public string Did { get; set; } = string.Empty;
     public string CanonicalUsername { get; set; } = string.Empty;
     public string PrimaryAuthServerUrl { get; set; } = string.Empty;
     public string? DisambiguationTag { get; set; }
@@ -16,6 +17,7 @@ public class AuthorIdentityMap
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid PersonClusterId { get; set; }
     public PersonClusterRecord? PersonCluster { get; set; }
+    public string AuthorDid { get; set; } = string.Empty;
     public string IssuerUrl { get; set; } = string.Empty;
     public Guid SubjectId { get; set; }
     public DateTime MappedAt { get; set; } = DateTime.UtcNow;

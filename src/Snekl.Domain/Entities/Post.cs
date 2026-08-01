@@ -9,6 +9,7 @@ public class Post : ExternalEntity
     public Guid AuthorUserId { get; set; }
     public User? Author { get; set; }
     public Guid? AuthorPersonClusterId { get; set; }
+    public string? AuthorDid { get; set; }
     public string Message { get; set; } = string.Empty;
 
     /// <summary>Total number of descendant replies in this post's subtree (not direct-only).</summary>

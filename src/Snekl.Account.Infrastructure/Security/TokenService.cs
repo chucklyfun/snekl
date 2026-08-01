@@ -42,6 +42,7 @@ public class TokenService : ITokenService
             {
                 new Claim(JwtRegisteredClaimNames.Sub, identity.Id.ToString()),
                 new Claim("cluster_id", cluster.Id.ToString()),
+                new Claim("did", cluster.Did),
                 new Claim("username", cluster.CanonicalUsername),
                 new Claim("display_name", cluster.DisplayName),
                 new Claim(JwtRegisteredClaimNames.Email, cluster.Email)

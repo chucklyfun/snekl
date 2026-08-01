@@ -1,16 +1,20 @@
 using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
 using BCrypt.Net;
 using Microsoft.EntityFrameworkCore;
 using Snekl.Account.Domain.Dtos;
 using Snekl.Account.Domain.Entities;
 using Snekl.Account.Infrastructure.Data;
 using Snekl.Account.Infrastructure.Security;
+using Snekl.Domain.Identity.Did;
 
 namespace Snekl.Account.Infrastructure.Services;
 
 public interface IAccountAuthService
 {
     Task<RingSessionDto> RegisterAsync(RegisterRequest request, CancellationToken ct = default);
+    Task<RingSessionDto> ImportAsync(ImportIdentityRequest request, CancellationToken ct = default);
     Task<RingSessionDto?> LoginAsync(LoginRequest request, CancellationToken ct = default);
     Task<AuthIdentity?> GetIdentityAsync(Guid identityId, CancellationToken ct = default);
 }
@@ -21,17 +25,20 @@ public class AccountAuthService : IAccountAuthService
     private readonly IAuthServerService _server;
     private readonly ITokenService _tokens;
     private readonly IRingLoginService _ring;
+    private readonly IIdentityCredentialService _credentials;
 
     public AccountAuthService(
         AccountDbContext db,
         IAuthServerService server,
         ITokenService tokens,
-        IRingLoginService ring)
+        IRingLoginService ring,
+        IIdentityCredentialService credentials)
     {
         _db = db;
         _server = server;
         _tokens = tokens;
         _ring = ring;
+        _credentials = credentials;
     }
 
     public async Task<RingSessionDto> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
@@ -42,12 +49,87 @@ public class AccountAuthService : IAccountAuthService
         if (await _db.PersonClusters.AnyAsync(c => c.CanonicalUsername == username, ct))
             throw new InvalidOperationException("Username already exists on this auth server.");
 
+        string? generatedPrivateKey = null;
+        string did;
+        string publicKeyMultibase;
+
+        if (!string.IsNullOrWhiteSpace(request.Did))
+        {
+            did = request.Did.Trim();
+            if (!DidKey.TryParse(did, out _))
+                throw new InvalidOperationException("Invalid did:key.");
+
+            if (await _db.PersonClusters.AnyAsync(c => c.Did == did, ct))
+                throw new InvalidOperationException("DID already registered on this auth server.");
+
+            publicKeyMultibase = DidKey.PublicKeyMultibase(did);
+            var challenge = $"snekl-register:{username}:{did}";
+            if (string.IsNullOrWhiteSpace(request.KeyOwnershipProof) ||
+                !DidKey.VerifyMultibaseProof(did, challenge, request.KeyOwnershipProof))
+                throw new InvalidOperationException("Invalid DID ownership proof.");
+        }
+        else
+        {
+            var keyPair = DidKey.Generate();
+            did = keyPair.Did;
+            publicKeyMultibase = DidKey.PublicKeyMultibase(did);
+            generatedPrivateKey = Convert.ToBase64String(keyPair.PrivateKey);
+        }
+
         var cluster = new PersonCluster
         {
+            Did = did,
+            PublicKeyMultibase = publicKeyMultibase,
             CanonicalUsername = username,
             DisplayName = request.DisplayName.Trim(),
             Email = request.Email.Trim().ToLowerInvariant(),
             PrimaryAuthServerUrl = config.BaseUrl
+        };
+
+        var identity = new AuthIdentity
+        {
+            PersonCluster = cluster,
+            AuthServerUrl = config.BaseUrl,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+            IsPrimary = true
+        };
+
+        _db.PersonClusters.Add(cluster);
+        _db.AuthIdentities.Add(identity);
+        _db.SettingsReplicas.Add(new UserSettingsReplica { PersonCluster = cluster });
+        await _db.SaveChangesAsync(ct);
+
+        var session = await _ring.CreateRingSessionAsync(identity, cluster, config, ct);
+        return session with { GeneratedKeyPrivatePkcs8Base64 = generatedPrivateKey };
+    }
+
+    public async Task<RingSessionDto> ImportAsync(ImportIdentityRequest request, CancellationToken ct = default)
+    {
+        var config = await _server.GetOrCreateAsync(ct);
+        var username = request.Username.Trim().ToLowerInvariant();
+        var credential = _credentials.Parse(request.IdentityCredentialJson)
+            ?? throw new InvalidOperationException("Invalid identity credential.");
+
+        if (!await _credentials.ValidateAsync(credential, ct))
+            throw new InvalidOperationException("Identity credential validation failed.");
+
+        var subject = credential.CredentialSubject;
+        if (await _db.PersonClusters.AnyAsync(c => c.Did == subject.Id, ct))
+            throw new InvalidOperationException("DID already registered on this auth server.");
+
+        if (await _db.PersonClusters.AnyAsync(c => c.CanonicalUsername == username, ct))
+            throw new InvalidOperationException("Username already exists on this auth server.");
+
+        var cluster = new PersonCluster
+        {
+            Did = subject.Id,
+            PublicKeyMultibase = DidKey.PublicKeyMultibase(subject.Id),
+            CanonicalUsername = username,
+            DisplayName = request.DisplayName.Trim(),
+            Email = request.Email.Trim().ToLowerInvariant(),
+            Bio = subject.Bio,
+            DisambiguationTag = subject.DisambiguationTag,
+            PrimaryAuthServerUrl = subject.PrimaryAuthServerUrl
         };
 
         var identity = new AuthIdentity
@@ -130,6 +212,7 @@ public class RingLoginService : IRingLoginService
 
         var vouch = VouchBuilder.Create(new UnsignedVouch(
             cluster.Id,
+            cluster.Did,
             identity.Id,
             config.BaseUrl,
             cluster.CanonicalUsername,

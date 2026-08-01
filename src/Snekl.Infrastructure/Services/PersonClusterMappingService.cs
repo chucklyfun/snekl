@@ -6,8 +6,10 @@ namespace Snekl.Infrastructure.Services;
 public interface IPersonClusterMappingService
 {
     Task<PersonClusterRefDto?> GetClusterAsync(Guid clusterId, CancellationToken ct = default);
+    Task<PersonClusterRefDto?> GetClusterByDidAsync(string did, CancellationToken ct = default);
     Task<PersonClusterRefDto> MapIdentityAsync(MapIdentityRequest request, CancellationToken ct = default);
     Task<Guid?> ResolveClusterIdAsync(string issuerUrl, Guid subjectId, CancellationToken ct = default);
+    Task<string?> ResolveDidAsync(string issuerUrl, Guid subjectId, CancellationToken ct = default);
     Task<IReadOnlyList<TrustedAuthIssuer>> ListTrustedIssuersAsync(CancellationToken ct = default);
     Task<TrustedAuthIssuer> RegisterTrustedIssuerAsync(RegisterTrustedIssuerRequest request, CancellationToken ct = default);
 }
@@ -24,6 +26,12 @@ public class PersonClusterMappingService : IPersonClusterMappingService
         return record is null ? null : ToDto(record);
     }
 
+    public async Task<PersonClusterRefDto?> GetClusterByDidAsync(string did, CancellationToken ct = default)
+    {
+        var record = await _db.PersonClusterRecords.FirstOrDefaultAsync(r => r.Did == did, ct);
+        return record is null ? null : ToDto(record);
+    }
+
     public async Task<PersonClusterRefDto> MapIdentityAsync(MapIdentityRequest request, CancellationToken ct = default)
     {
         var issuerUrl = request.IssuerUrl.Trim().TrimEnd('/');
@@ -33,6 +41,7 @@ public class PersonClusterMappingService : IPersonClusterMappingService
             cluster = new PersonClusterRecord
             {
                 Id = request.PersonClusterId,
+                Did = request.AuthorDid,
                 CanonicalUsername = request.CanonicalUsername,
                 DisplayName = request.DisplayName,
                 PrimaryAuthServerUrl = request.PrimaryAuthServerUrl,
@@ -42,6 +51,7 @@ public class PersonClusterMappingService : IPersonClusterMappingService
         }
         else
         {
+            cluster.Did = request.AuthorDid;
             cluster.CanonicalUsername = request.CanonicalUsername;
             cluster.DisplayName = request.DisplayName;
             cluster.PrimaryAuthServerUrl = request.PrimaryAuthServerUrl;
@@ -57,6 +67,7 @@ public class PersonClusterMappingService : IPersonClusterMappingService
             _db.AuthorIdentityMaps.Add(new AuthorIdentityMap
             {
                 PersonClusterId = request.PersonClusterId,
+                AuthorDid = request.AuthorDid,
                 IssuerUrl = issuerUrl,
                 SubjectId = request.SubjectId
             });
@@ -64,6 +75,7 @@ public class PersonClusterMappingService : IPersonClusterMappingService
         else
         {
             existing.PersonClusterId = request.PersonClusterId;
+            existing.AuthorDid = request.AuthorDid;
             existing.MappedAt = DateTime.UtcNow;
         }
 
@@ -76,6 +88,13 @@ public class PersonClusterMappingService : IPersonClusterMappingService
         var map = await _db.AuthorIdentityMaps.FirstOrDefaultAsync(m =>
             m.IssuerUrl == issuerUrl.Trim().TrimEnd('/') && m.SubjectId == subjectId, ct);
         return map?.PersonClusterId;
+    }
+
+    public async Task<string?> ResolveDidAsync(string issuerUrl, Guid subjectId, CancellationToken ct = default)
+    {
+        var map = await _db.AuthorIdentityMaps.FirstOrDefaultAsync(m =>
+            m.IssuerUrl == issuerUrl.Trim().TrimEnd('/') && m.SubjectId == subjectId, ct);
+        return map?.AuthorDid;
     }
 
     public async Task<IReadOnlyList<TrustedAuthIssuer>> ListTrustedIssuersAsync(CancellationToken ct = default) =>
@@ -107,6 +126,7 @@ public class PersonClusterMappingService : IPersonClusterMappingService
 
     private static PersonClusterRefDto ToDto(PersonClusterRecord record) => new(
         record.Id,
+        record.Did,
         record.CanonicalUsername,
         record.DisplayName,
         record.PrimaryAuthServerUrl,

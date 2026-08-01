@@ -5,6 +5,10 @@ public class AuthServerConfig
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "Snekl Auth";
     public string BaseUrl { get; set; } = "http://localhost:5100";
+    public string Did { get; set; } = string.Empty;
+    public string VerificationDid { get; set; } = string.Empty;
+    public string VerificationKeyMultibase { get; set; } = string.Empty;
+    public string VerificationPrivateKeyPkcs8 { get; set; } = string.Empty;
     public string SigningKey { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
@@ -12,6 +16,9 @@ public class AuthServerConfig
 public class PersonCluster
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    /// <summary>Canonical W3C DID (did:key) — stable identity across auth servers and content.</summary>
+    public string Did { get; set; } = string.Empty;
+    public string PublicKeyMultibase { get; set; } = string.Empty;
     public string CanonicalUsername { get; set; } = string.Empty;
     public string PrimaryAuthServerUrl { get; set; } = string.Empty;
     public string? DisambiguationTag { get; set; }

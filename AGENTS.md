@@ -27,6 +27,8 @@ Docker must already be running (`dockerd`). In this Cloud VM, if the docker sock
 
 Ensure `PATH` includes `$HOME/.dotnet` (dotnet SDK is installed via the official install script into `~/.dotnet`).
 
+Node/npm come from nvm (`~/.nvm/versions/node/v22.22.2/bin`). That directory is prepended in `~/.bashrc` so `npm`/`node` win over `/exec-daemon/node`. New shells should already have them; in a bare session run `source ~/.bashrc` or `export PATH="$HOME/.nvm/versions/node/v22.22.2/bin:$PATH"`.
+
 ### Lint / test / build
 
 | Area | Command | Notes |

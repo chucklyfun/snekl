@@ -17,10 +17,11 @@ public static class Base58Encoding
 
         for (var i = zeros; i < data.Length; i++)
         {
-            var carry = data[i];
+            // Use int for carry — casting buffer[j]*256 to byte truncates and corrupts encoding.
+            var carry = (int)data[i];
             for (var j = 0; j < length; j++)
             {
-                carry += (byte)(buffer[j] * 256);
+                carry += buffer[j] * 256;
                 buffer[j] = (byte)(carry % 58);
                 carry /= 58;
             }

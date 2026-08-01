@@ -64,13 +64,14 @@ public static class AuthenticationExtensions
                     ValidAudience = "snekl",
                     IssuerSigningKeyResolver = (_, securityToken, _, _) =>
                     {
-                        if (securityToken is not System.IdentityModel.Tokens.Jwt.JwtSecurityToken jwt ||
-                            string.IsNullOrWhiteSpace(jwt.Issuer))
+                        // JwtBearer may pass JsonWebToken (default) or JwtSecurityToken.
+                        // Use the base SecurityToken.Issuer so both work.
+                        if (securityToken is null || string.IsNullOrWhiteSpace(securityToken.Issuer))
                             return [];
 
                         using var scope = scopeFactory.CreateScope();
                         var externalAuth = scope.ServiceProvider.GetRequiredService<IExternalAuthService>();
-                        return externalAuth.ResolveSigningKeysAsync(jwt.Issuer).GetAwaiter().GetResult().ToList();
+                        return externalAuth.ResolveSigningKeysAsync(securityToken.Issuer).GetAwaiter().GetResult().ToList();
                     },
                     IssuerValidator = (issuer, _, _) =>
                     {

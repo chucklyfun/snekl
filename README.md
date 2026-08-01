@@ -54,6 +54,31 @@ When a user creates a forum or post locally, the node broadcasts an envelope to 
 
 ## Quick start (local development)
 
+### One command (recommended)
+
+From the repository root, with [Docker](https://docs.docker.com/get-docker/) running:
+
+```bash
+dotnet run --project src/Snekl.Server -- dev
+```
+
+This starts **Redis + PostgreSQL** in Docker, then launches locally:
+
+- **Auth:** http://localhost:5100
+- **Content:** http://localhost:5001
+- **Frontend:** http://localhost:5173
+
+Other commands:
+
+```bash
+dotnet run --project src/Snekl.Server -- up          # full Docker stack
+dotnet run --project src/Snekl.Server -- down        # stop full stack
+dotnet run --project src/Snekl.Server -- deps        # Redis + Postgres only
+dotnet run --project src/Snekl.Server -- dev --no-frontend
+```
+
+### Manual setup
+
 ### Prerequisites
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download)
@@ -171,6 +196,7 @@ src/
   Snekl.Domain/          # Entities and DTOs
   Snekl.Infrastructure/  # EF Core, services, federation client
   Snekl.Api/             # ASP.NET Core REST API (content)
+  Snekl.Server/          # Dev stack orchestrator CLI (`dotnet run --project src/Snekl.Server`)
   Snekl.Account.Domain/  # Auth ring entities and DTOs
   Snekl.Account.Infrastructure/
   Snekl.Account.Api/     # Auth ring REST API

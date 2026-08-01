@@ -1,0 +1,8 @@
+**/[Bb]in/
+**/[Oo]bj/
+**/.vs/
+**/.git/
+**/node_modules/
+client/snekl-web/dist/
+*.user
+*.suo

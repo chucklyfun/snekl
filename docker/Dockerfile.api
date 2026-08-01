@@ -3,6 +3,7 @@ WORKDIR /src
 
 COPY Snekl.Modern.sln ./
 COPY src/Snekl.Domain/Snekl.Domain.csproj src/Snekl.Domain/
+COPY src/Snekl.Redis/Snekl.Redis.csproj src/Snekl.Redis/
 COPY src/Snekl.Infrastructure/Snekl.Infrastructure.csproj src/Snekl.Infrastructure/
 COPY src/Snekl.Api/Snekl.Api.csproj src/Snekl.Api/
 

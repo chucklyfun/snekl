@@ -39,7 +39,6 @@ Snekl separates **auth servers** (identity ring) from **content servers** (forum
 | **Domain** | C# class library | Users, forums, threaded posts, peer nodes |
 | **Database** | PostgreSQL | Independent per-node storage |
 | **Frontend** | React 19, TypeScript, Vite | Forum browsing, posting, federation management |
-| **Legacy** | ServiceStack (.NET 4.6) | Original 2016 codebase (preserved in repo root) |
 
 ### Federation protocol
 
@@ -207,8 +206,7 @@ client/
 docker/
   Dockerfile.api         # Multi-stage API container
 docker-compose.yml       # Two-node demo cluster
-Snekl.Core/              # Legacy domain (ServiceStack era)
-Website/                 # Legacy web app (AngularJS)
+Snekl.Modern.sln         # Solution entrypoint
 ```
 
 ## User presentation

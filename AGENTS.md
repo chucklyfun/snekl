@@ -4,7 +4,7 @@
 
 ### Product scope
 
-Modern Snekl lives under `src/` (`Snekl.Modern.sln`) and `client/snekl-web/`. The root `Snekl.sln` / `Snekl.Core` / `Website` tree is the legacy .NET Framework 4.6 stack and is not required for modern local development.
+Snekl lives under `src/` (`Snekl.Modern.sln`) and `client/snekl-web/`.
 
 ### Starting the stack
 
@@ -35,8 +35,7 @@ Node/npm come from nvm (`~/.nvm/versions/node/v22.22.2/bin`). That directory is 
 |------|---------|-------|
 | Frontend lint | `npm run lint` in `client/snekl-web` | oxlint; may report non-blocking warnings |
 | Frontend build | `npm run build` in `client/snekl-web` | `tsc -b && vite build` |
-| .NET build | `dotnet build Snekl.Modern.sln` | No modern unit-test projects yet |
-| Legacy tests | `Tests/Snekl.Core.Tests` | .NET Framework / NUnit; not part of the modern stack |
+| .NET build | `dotnet build Snekl.Modern.sln` | No unit-test projects yet |
 
 ### Gotchas
 

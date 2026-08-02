@@ -1,6 +1,10 @@
 import { type FormEvent, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../AuthContext';
+import { authApi } from '../api';
+
+const devPasswordResetEnabled =
+  import.meta.env.VITE_ALLOW_DEV_PASSWORD_RESET === 'true' || import.meta.env.DEV;
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -10,15 +14,34 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [showDevReset, setShowDevReset] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     try {
       await login(email, password);
       navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
+    }
+  };
+
+  const handleDevReset = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    try {
+      const result = await authApi.devResetPassword(username.trim(), newPassword);
+      setSuccess(result.message);
+      setPassword(newPassword);
+      setNewPassword('');
+      setShowDevReset(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Password reset failed');
     }
   };
 
@@ -32,6 +55,7 @@ export function LoginPage() {
         <div style={{ marginBottom: '1rem', color: 'var(--accent)' }}>{successMessage}</div>
       )}
       {error && <div className="error-banner">{error}</div>}
+      {success && <div className="card" style={{ borderColor: 'var(--accent)', marginBottom: '1rem' }}>{success}</div>}
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label htmlFor="email">Email</label>
@@ -46,6 +70,48 @@ export function LoginPage() {
         </div>
         <button type="submit" className="btn-primary">Log in</button>
       </form>
+
+      {devPasswordResetEnabled && (
+        <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+          {!showDevReset ? (
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => {
+                setShowDevReset(true);
+                setError('');
+                setSuccess('');
+              }}
+            >
+              Dev: reset password
+            </button>
+          ) : (
+            <form onSubmit={handleDevReset}>
+              <p style={{ color: 'var(--muted)', marginBottom: '0.75rem', fontSize: '0.9rem' }}>
+                Test-only reset. No email required. Uses the username above.
+              </p>
+              <div className="form-group">
+                <label htmlFor="newPassword">New password</label>
+                <input
+                  id="newPassword"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                  minLength={6}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="submit" className="btn-primary">Set new password</button>
+                <button type="button" className="btn-ghost" onClick={() => setShowDevReset(false)}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+
       <p style={{ marginTop: '1rem', color: 'var(--muted)' }}>
         No account? <Link to="/register">Sign up</Link>
         {' · '}

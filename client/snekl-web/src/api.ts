@@ -90,6 +90,12 @@ export const authApi = {
       body: JSON.stringify({ token }),
     }),
 
+  devResetPassword: (username: string, newPassword: string) =>
+    request<{ message: string }>(AUTH_API, '/api/auth/dev/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ username, newPassword }),
+    }),
+
   me: () => request<RingSession['person']>(AUTH_API, '/api/me'),
 
   updateProfile: (payload: {

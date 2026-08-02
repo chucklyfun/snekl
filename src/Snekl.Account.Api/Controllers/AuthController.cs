@@ -11,15 +11,18 @@ public class AuthController : ControllerBase
     private readonly IAccountAuthService _auth;
     private readonly IPasswordResetService _passwordReset;
     private readonly IEmailVerificationService _emailVerification;
+    private readonly IConfiguration _configuration;
 
     public AuthController(
         IAccountAuthService auth,
         IPasswordResetService passwordReset,
-        IEmailVerificationService emailVerification)
+        IEmailVerificationService emailVerification,
+        IConfiguration configuration)
     {
         _auth = auth;
         _passwordReset = passwordReset;
         _emailVerification = emailVerification;
+        _configuration = configuration;
     }
 
     [HttpPost("register")]
@@ -80,6 +83,26 @@ public class AuthController : ControllerBase
         try
         {
             return Ok(await _emailVerification.VerifyAsync(request.Token, ct));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Development/test only. Set Auth:AllowDevPasswordReset to true (enabled by default in Development).
+    /// </summary>
+    [HttpPost("dev/reset-password")]
+    public async Task<IActionResult> DevResetPassword(DevResetPasswordRequest request, CancellationToken ct)
+    {
+        if (!_configuration.GetValue("Auth:AllowDevPasswordReset", false))
+            return NotFound();
+
+        try
+        {
+            await _auth.DevResetPasswordAsync(request, ct);
+            return Ok(new { message = "Password updated. You can log in with the new password." });
         }
         catch (InvalidOperationException ex)
         {

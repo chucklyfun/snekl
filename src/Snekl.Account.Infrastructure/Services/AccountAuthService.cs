@@ -16,6 +16,7 @@ public interface IAccountAuthService
     Task<RingSessionDto> RegisterAsync(RegisterRequest request, CancellationToken ct = default);
     Task<RingSessionDto> ImportAsync(ImportIdentityRequest request, CancellationToken ct = default);
     Task<RingSessionDto?> LoginAsync(LoginRequest request, CancellationToken ct = default);
+    Task DevResetPasswordAsync(DevResetPasswordRequest request, CancellationToken ct = default);
     Task<AuthIdentity?> GetIdentityAsync(Guid identityId, CancellationToken ct = default);
 }
 
@@ -182,6 +183,25 @@ public class AccountAuthService : IAccountAuthService
             return null;
 
         return await _ring.CreateRingSessionAsync(identity, identity.PersonCluster!, config, ct);
+    }
+
+    public async Task DevResetPasswordAsync(DevResetPasswordRequest request, CancellationToken ct = default)
+    {
+        var config = await _server.GetOrCreateAsync(ct);
+        var username = request.Username.Trim().ToLowerInvariant();
+
+        if (string.IsNullOrWhiteSpace(request.NewPassword) || request.NewPassword.Length < 6)
+            throw new InvalidOperationException("New password must be at least 6 characters.");
+
+        var identity = await _db.AuthIdentities
+            .Include(i => i.PersonCluster)
+            .FirstOrDefaultAsync(i =>
+                i.AuthServerUrl == config.BaseUrl &&
+                i.PersonCluster!.CanonicalUsername == username, ct)
+            ?? throw new InvalidOperationException("User not found on this auth server.");
+
+        identity.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        await _db.SaveChangesAsync(ct);
     }
 
     public Task<AuthIdentity?> GetIdentityAsync(Guid identityId, CancellationToken ct = default) =>

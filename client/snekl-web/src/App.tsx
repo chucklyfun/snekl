@@ -15,6 +15,8 @@ import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { ServersPage } from './pages/ServersPage';
+import { ServerSettingsPage } from './pages/ServerSettingsPage';
+import { ForumSettingsPage } from './pages/ForumSettingsPage';
 import { ThreadPage } from './pages/ThreadPage';
 import './Layout.css';
 
@@ -45,7 +47,11 @@ export default function App() {
                       <Route path="/login" element={<LoginPage />} />
                       <Route path="/register" element={<RegisterPage />} />
                       <Route path="/servers" element={<ServersPage />} />
+                      <Route path="/s/:serverDid/settings" element={<ServerSettingsPage />} />
                       <Route path="/s/:serverDid/forums/new" element={<CreateForumPage />} />
+                      <Route path="/s/:serverDid/forums/:parentSlug/:slug/settings" element={<ForumSettingsPage />} />
+                      <Route path="/s/:serverDid/forums/:slug/settings" element={<ForumSettingsPage />} />
+                      <Route path="/s/:serverDid/forums/:parentSlug/:slug" element={<ForumPage />} />
                       <Route path="/s/:serverDid/forums/:slug" element={<ForumPage />} />
                       <Route path="/s/:serverDid/posts/:postId" element={<ThreadPage />} />
                       <Route path="/federation" element={<FederationPage />} />

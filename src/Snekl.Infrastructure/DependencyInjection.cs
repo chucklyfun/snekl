@@ -27,6 +27,12 @@ public static class DependencyInjection
         services.AddScoped<IFederationService, FederationService>();
         services.AddScoped<IPersonClusterMappingService, PersonClusterMappingService>();
         services.AddScoped<ISiteAdminAuthService, SiteAdminAuthService>();
+        services.AddScoped<ISuperUserService, SuperUserService>();
+        services.AddScoped<IPermissionService, PermissionService>();
+        services.AddScoped<IRoleSeedService, RoleSeedService>();
+        services.AddScoped<IServerRoleService, ServerRoleService>();
+        services.AddScoped<IForumRoleService, ForumRoleService>();
+        services.AddScoped<IForumMemberService, ForumMemberService>();
         services.AddHttpClient<IFederationClient, FederationClient>();
         services.AddSneklAuthentication(config);
         services.AddSiteAdminAuthorization();

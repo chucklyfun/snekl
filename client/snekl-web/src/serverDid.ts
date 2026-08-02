@@ -13,8 +13,26 @@ export function decodeServerDid(encoded: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-export function forumPath(serverDid: string, slug: string): string {
+export function forumPath(serverDid: string, slug: string, parentSlug?: string): string {
+  if (parentSlug) {
+    return `/s/${encodeServerDid(serverDid)}/forums/${parentSlug}/${slug}`;
+  }
   return `/s/${encodeServerDid(serverDid)}/forums/${slug}`;
+}
+
+export function subforumPath(serverDid: string, parentSlug: string, slug: string): string {
+  return forumPath(serverDid, slug, parentSlug);
+}
+
+export function forumSettingsPath(serverDid: string, slug: string, parentSlug?: string): string {
+  const base = parentSlug
+    ? `/s/${encodeServerDid(serverDid)}/forums/${parentSlug}/${slug}/settings`
+    : `/s/${encodeServerDid(serverDid)}/forums/${slug}/settings`;
+  return base;
+}
+
+export function serverSettingsPath(serverDid: string): string {
+  return `/s/${encodeServerDid(serverDid)}/settings`;
 }
 
 export function threadPath(serverDid: string, postId: string): string {

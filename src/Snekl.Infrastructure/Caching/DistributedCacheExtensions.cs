@@ -29,7 +29,8 @@ public static class CacheKeys
 {
     public static string Jwks(string issuer) => $"jwks:{issuer.Trim().TrimEnd('/')}";
     public static string ShadowUser(string issuer, Guid subjectId) => $"shadow:{issuer.Trim().TrimEnd('/')}:{subjectId}";
-    public static string Presentation(Guid userId, Guid? viewerId) => $"pres:{userId}:{viewerId?.ToString() ?? "anon"}";
+    public static string Presentation(Guid userId, Guid? viewerId, Guid? forumId = null) =>
+        $"pres:{userId}:{viewerId?.ToString() ?? "anon"}:{forumId?.ToString() ?? "global"}";
     public static string FederationEnvelope(Guid sourceNodeId, string type, Guid entityId) =>
         $"fed:{sourceNodeId}:{type}:{entityId}";
     public static string DidWebDocument(string did) => $"didweb:{did}";

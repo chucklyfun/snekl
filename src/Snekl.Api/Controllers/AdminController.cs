@@ -41,15 +41,18 @@ public class AdminSiteController : ControllerBase
     private readonly INodeService _node;
     private readonly IFederationService _federation;
     private readonly IPersonClusterMappingService _identity;
+    private readonly ISuperUserService _superUsers;
 
     public AdminSiteController(
         INodeService node,
         IFederationService federation,
-        IPersonClusterMappingService identity)
+        IPersonClusterMappingService identity,
+        ISuperUserService superUsers)
     {
         _node = node;
         _federation = federation;
         _identity = identity;
+        _superUsers = superUsers;
     }
 
     [HttpGet("node")]
@@ -106,4 +109,36 @@ public class AdminSiteController : ControllerBase
         RegisterTrustedIssuerRequest request,
         CancellationToken ct) =>
         Ok(await _identity.RegisterTrustedIssuerAsync(request, ct));
+
+    [HttpGet("super-users")]
+    public async Task<ActionResult<IReadOnlyList<SuperUserDto>>> ListSuperUsers(CancellationToken ct) =>
+        Ok(await _superUsers.ListAsync(ct));
+
+    [HttpPost("super-users")]
+    public async Task<ActionResult<SuperUserDto>> GrantSuperUser(GrantSuperUserRequest request, CancellationToken ct)
+    {
+        try
+        {
+            var adminId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            return Ok(await _superUsers.GrantAsync(adminId, request.Username, request.Note, ct));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpDelete("super-users/{userId:guid}")]
+    public async Task<IActionResult> RevokeSuperUser(Guid userId, CancellationToken ct)
+    {
+        try
+        {
+            await _superUsers.RevokeAsync(userId, ct);
+            return NoContent();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
 }

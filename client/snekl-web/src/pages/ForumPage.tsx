@@ -1,10 +1,17 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { createContentClient } from '../api';
+import { createContentClient, hasPermission } from '../api';
 import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';
 import { useServerRegistry } from '../ServerRegistryContext';
-import { decodeServerDid, resolveServerBaseUrl, threadPath } from '../serverDid';
+import {
+  decodeServerDid,
+  forumPath,
+  forumSettingsPath,
+  resolveServerBaseUrl,
+  subforumPath,
+  threadPath,
+} from '../serverDid';
 import type { Forum, Post } from '../types';
 
 function ThreadPreview({ post, serverDid }: { post: Post; serverDid: string }) {
@@ -21,7 +28,11 @@ function ThreadPreview({ post, serverDid }: { post: Post; serverDid: string }) {
 }
 
 export function ForumPage() {
-  const { serverDid: encodedDid, slug } = useParams<{ serverDid: string; slug: string }>();
+  const { serverDid: encodedDid, slug, parentSlug } = useParams<{
+    serverDid: string;
+    slug: string;
+    parentSlug?: string;
+  }>();
   const { user } = useAuth();
   const { resolveBaseUrl } = useServerRegistry();
   const [forum, setForum] = useState<Forum | null>(null);
@@ -33,10 +44,15 @@ export function ForumPage() {
   const baseUrl = resolveServerBaseUrl(serverDid, resolveBaseUrl);
   const client = useMemo(() => (baseUrl ? createContentClient(baseUrl) : null), [baseUrl]);
 
+  const canCreateThread = hasPermission(forum?.viewerPermissions, 'CreateThread');
+  const canManageForum =
+    hasPermission(forum?.viewerPermissions, 'ManageForum') ||
+    hasPermission(forum?.viewerPermissions, 'ManageRoles');
+
   const load = () => {
     if (!slug || !client) return;
     client
-      .getForum(slug)
+      .getForum(slug, parentSlug)
       .then((f) => {
         setForum(f);
         return client.getForumThreads(f.id);
@@ -45,7 +61,7 @@ export function ForumPage() {
       .catch((err) => setError(err.message));
   };
 
-  useEffect(load, [slug, client]);
+  useEffect(load, [slug, parentSlug, client]);
 
   const handleNewThread = async (e: FormEvent) => {
     e.preventDefault();
@@ -65,15 +81,51 @@ export function ForumPage() {
 
   return (
     <div>
-      <Link to="/" style={{ color: 'var(--muted)' }}>
-        ← All forums
-      </Link>
-      <h1 className="page-title">{forum?.name}</h1>
-      <p className="page-subtitle">{forum?.description}</p>
+      {forum?.parentSlug && (
+        <Link to={forumPath(serverDid, forum.parentSlug)} style={{ color: 'var(--muted)' }}>
+          ← Parent forum
+        </Link>
+      )}
+      {!forum?.parentSlug && (
+        <Link to="/" style={{ color: 'var(--muted)' }}>
+          ← All forums
+        </Link>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
+        <div>
+          <h1 className="page-title">{forum?.name}</h1>
+          <p className="page-subtitle">{forum?.description}</p>
+        </div>
+        {user && canManageForum && forum && (
+          <Link to={forumSettingsPath(serverDid, forum.slug, parentSlug ?? forum.parentSlug ?? undefined)} className="btn-ghost">
+            Settings
+          </Link>
+        )}
+      </div>
 
       {error && <div className="error-banner">{error}</div>}
 
-      {user && forum && (
+      {forum && forum.subforums && forum.subforums.length > 0 && (
+        <section className="card" style={{ marginBottom: '1rem' }}>
+          <h2 className="card-title">Subforums</h2>
+          <div className="subforum-grid">
+            {forum.subforums.map((sub) => (
+              <Link
+                key={sub.id}
+                to={subforumPath(serverDid, forum.slug, sub.slug)}
+                className="card card-link"
+                style={{ padding: '0.75rem 1rem' }}
+              >
+                <strong>{sub.name}</strong>
+                <div className="card-meta">{sub.postCount} threads</div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {user && forum && canCreateThread && (
         <form onSubmit={handleNewThread} className="card">
           <h2 className="card-title">Start a thread</h2>
           <div className="form-group">
@@ -88,6 +140,10 @@ export function ForumPage() {
             Post thread
           </button>
         </form>
+      )}
+
+      {user && forum && !canCreateThread && (
+        <div className="card card-meta">You do not have permission to create threads here.</div>
       )}
 
       {!user && (

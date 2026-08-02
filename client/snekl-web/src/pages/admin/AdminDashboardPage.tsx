@@ -18,15 +18,20 @@ export function AdminDashboardPage() {
   const [jwksUrl, setJwksUrl] = useState('');
   const [issuerName, setIssuerName] = useState('');
 
+  const [superUsers, setSuperUsers] = useState<Array<{ userId: string; username: string; displayName: string; grantedAt: string; note?: string | null }>>([]);
+  const [superUsername, setSuperUsername] = useState('');
+  const [superNote, setSuperNote] = useState('');
+
   const load = () => {
-    Promise.all([adminApi.getNode(), adminApi.getPeers(), adminApi.getIssuers()])
-      .then(([nodeInfo, peerList, issuerList]) => {
+    Promise.all([adminApi.getNode(), adminApi.getPeers(), adminApi.getIssuers(), adminApi.getSuperUsers()])
+      .then(([nodeInfo, peerList, issuerList, superUserList]) => {
         setNode(nodeInfo);
         setNodeName(nodeInfo.name);
         setNodeUrl(nodeInfo.baseUrl);
         setNodeDescription(nodeInfo.description);
         setPeers(peerList);
         setIssuers(issuerList);
+        setSuperUsers(superUserList);
       })
       .catch((err) => setError(err.message));
   };
@@ -91,6 +96,32 @@ export function AdminDashboardPage() {
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to register issuer');
+    }
+  };
+
+  const grantSuperUser = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    try {
+      await adminApi.grantSuperUser(superUsername.trim(), superNote.trim() || undefined);
+      setSuperUsername('');
+      setSuperNote('');
+      setSuccess('Super User granted.');
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to grant Super User');
+    }
+  };
+
+  const revokeSuperUser = async (userId: string) => {
+    setError('');
+    try {
+      await adminApi.revokeSuperUser(userId);
+      setSuccess('Super User revoked.');
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke Super User');
     }
   };
 
@@ -159,6 +190,43 @@ export function AdminDashboardPage() {
             </div>
             <button type="button" className="btn-ghost" onClick={() => removePeer(peer.id)}>
               Remove
+            </button>
+          </div>
+        ))}
+      </form>
+
+      <form onSubmit={grantSuperUser} className="card">
+        <h2 className="card-title">Super Users</h2>
+        <p className="card-meta">
+          Grant Super User status to logged-in users so they can manage server roles and community policy.
+        </p>
+        <div className="inline-form">
+          <input
+            value={superUsername}
+            onChange={(e) => setSuperUsername(e.target.value)}
+            placeholder="Username"
+            required
+          />
+          <input
+            value={superNote}
+            onChange={(e) => setSuperNote(e.target.value)}
+            placeholder="Note (optional)"
+          />
+          <button type="submit" className="btn-primary">
+            Grant Super User
+          </button>
+        </div>
+        {superUsers.map((su) => (
+          <div key={su.userId} className="server-row">
+            <div>
+              <strong>{su.displayName}</strong>
+              <div className="card-meta">
+                @{su.username} · since {new Date(su.grantedAt).toLocaleString()}
+                {su.note ? ` · ${su.note}` : ''}
+              </div>
+            </div>
+            <button type="button" className="btn-ghost" onClick={() => revokeSuperUser(su.userId)}>
+              Revoke
             </button>
           </div>
         ))}

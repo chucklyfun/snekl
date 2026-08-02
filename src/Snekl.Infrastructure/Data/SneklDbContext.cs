@@ -21,6 +21,14 @@ public class SneklDbContext : DbContext
     public DbSet<AuthorIdentityMap> AuthorIdentityMaps => Set<AuthorIdentityMap>();
     public DbSet<TrustedAuthIssuer> TrustedAuthIssuers => Set<TrustedAuthIssuer>();
     public DbSet<SiteAdmin> SiteAdmins => Set<SiteAdmin>();
+    public DbSet<SuperUserGrant> SuperUserGrants => Set<SuperUserGrant>();
+    public DbSet<ServerRole> ServerRoles => Set<ServerRole>();
+    public DbSet<ServerRoleAssignment> ServerRoleAssignments => Set<ServerRoleAssignment>();
+    public DbSet<ForumRole> ForumRoles => Set<ForumRole>();
+    public DbSet<ForumRoleAssignment> ForumRoleAssignments => Set<ForumRoleAssignment>();
+    public DbSet<ForumFlairTemplate> ForumFlairTemplates => Set<ForumFlairTemplate>();
+    public DbSet<ForumMemberFlair> ForumMemberFlairs => Set<ForumMemberFlair>();
+    public DbSet<ForumMemberAlias> ForumMemberAliases => Set<ForumMemberAlias>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,8 +54,9 @@ public class SneklDbContext : DbContext
         modelBuilder.Entity<Forum>(e =>
         {
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.Slug).IsUnique();
+            e.HasIndex(x => new { x.ParentForumId, x.Slug }).IsUnique();
             e.HasOne(x => x.CreatedBy).WithMany(x => x.Forums).HasForeignKey(x => x.CreatedByUserId);
+            e.HasOne(x => x.ParentForum).WithMany(x => x.Subforums).HasForeignKey(x => x.ParentForumId);
         });
 
         modelBuilder.Entity<Post>(e =>
@@ -113,6 +122,69 @@ public class SneklDbContext : DbContext
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.Username).IsUnique();
+        });
+
+        modelBuilder.Entity<SuperUserGrant>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.UserId).IsUnique();
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
+            e.HasOne(x => x.GrantedBySiteAdmin).WithMany().HasForeignKey(x => x.GrantedBySiteAdminId);
+        });
+
+        modelBuilder.Entity<ServerRole>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.IsEveryone).HasFilter("\"IsEveryone\" = true");
+        });
+
+        modelBuilder.Entity<ServerRoleAssignment>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.UserId, x.RoleId }).IsUnique();
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
+            e.HasOne(x => x.Role).WithMany(x => x.Assignments).HasForeignKey(x => x.RoleId);
+        });
+
+        modelBuilder.Entity<ForumRole>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ForumId, x.IsEveryone }).HasFilter("\"IsEveryone\" = true");
+            e.HasOne(x => x.Forum).WithMany(x => x.Roles).HasForeignKey(x => x.ForumId);
+            e.HasOne(x => x.InheritFromRole).WithMany().HasForeignKey(x => x.InheritFromRoleId);
+        });
+
+        modelBuilder.Entity<ForumRoleAssignment>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ForumId, x.UserId, x.RoleId }).IsUnique();
+            e.HasOne(x => x.Forum).WithMany().HasForeignKey(x => x.ForumId);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
+            e.HasOne(x => x.Role).WithMany(x => x.Assignments).HasForeignKey(x => x.RoleId);
+        });
+
+        modelBuilder.Entity<ForumFlairTemplate>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasOne(x => x.Forum).WithMany(x => x.FlairTemplates).HasForeignKey(x => x.ForumId);
+            e.HasOne(x => x.InheritFromTemplate).WithMany().HasForeignKey(x => x.InheritFromTemplateId);
+        });
+
+        modelBuilder.Entity<ForumMemberFlair>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ForumId, x.UserId }).IsUnique();
+            e.HasOne(x => x.Forum).WithMany().HasForeignKey(x => x.ForumId);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
+            e.HasOne(x => x.Template).WithMany().HasForeignKey(x => x.TemplateId);
+        });
+
+        modelBuilder.Entity<ForumMemberAlias>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ForumId, x.UserId }).IsUnique();
+            e.HasOne(x => x.Forum).WithMany().HasForeignKey(x => x.ForumId);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
         });
     }
 }

@@ -8,6 +8,8 @@ import type { UserPresentation } from './types';
 interface AuthContextValue {
   user: UserPresentation | null;
   did: string | null;
+  isSuperUser: boolean;
+  serverPermissions: string[];
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string, displayName: string) => Promise<string>;
@@ -20,6 +22,8 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { refresh: refreshServers } = useServerRegistry();
   const [user, setUser] = useState<UserPresentation | null>(null);
+  const [isSuperUser, setIsSuperUser] = useState(false);
+  const [serverPermissions, setServerPermissions] = useState<string[]>([]);
   const [did, setDid] = useState<string | null>(getStoredDid());
   const [loading, setLoading] = useState(true);
 
@@ -27,10 +31,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = localStorage.getItem('snekl_token');
     if (!token) {
       setUser(null);
+      setIsSuperUser(false);
+      setServerPermissions([]);
       return;
     }
     const me = await api.me();
-    setUser(me);
+    setUser(me.user);
+    setIsSuperUser(me.isSuperUser);
+    setServerPermissions(me.serverPermissions);
     setDid(getStoredDid());
   };
 
@@ -73,13 +81,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     localStorage.removeItem('snekl_token');
     setUser(null);
+    setIsSuperUser(false);
+    setServerPermissions([]);
     clearDidKey();
     setDid(null);
     void refreshServers();
   };
 
   return (
-    <AuthContext.Provider value={{ user, did, loading, login, register, logout, refreshMe }}>
+    <AuthContext.Provider
+      value={{ user, did, isSuperUser, serverPermissions, loading, login, register, logout, refreshMe }}
+    >
       {children}
     </AuthContext.Provider>
   );

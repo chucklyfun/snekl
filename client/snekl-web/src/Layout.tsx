@@ -1,12 +1,20 @@
 import { Link } from 'react-router';
+import { hasPermission } from './api';
 import { useAuth } from './AuthContext';
 import { useServerRegistry } from './ServerRegistryContext';
-import { encodeServerDid } from './serverDid';
+import { createForumPath, serverSettingsPath } from './serverDid';
 import './Layout.css';
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, logout, isSuperUser, serverPermissions } = useAuth();
   const { activeServers } = useServerRegistry();
+
+  const primaryServer = activeServers[0];
+  const canCreateForum = isSuperUser || hasPermission(serverPermissions, 'CreateForum');
+  const canManageServer =
+    isSuperUser ||
+    hasPermission(serverPermissions, 'ManageServerRoles') ||
+    hasPermission(serverPermissions, 'ManageServerMembers');
 
   return (
     <div className="app-shell">
@@ -20,8 +28,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <Link to="/servers">Servers</Link>
           <Link to="/lists">Lists</Link>
           <Link to="/federation">Federation</Link>
-          {user && activeServers.length > 0 && (
-            <Link to={`/s/${encodeServerDid(activeServers[0].serverDid)}/forums/new`}>New forum</Link>
+          {user && primaryServer && canCreateForum && (
+            <Link to={createForumPath(primaryServer.serverDid)}>New forum</Link>
+          )}
+          {user && primaryServer && canManageServer && (
+            <Link to={serverSettingsPath(primaryServer.serverDid)}>Server settings</Link>
           )}
           {user ? (
             <>

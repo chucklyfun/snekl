@@ -22,29 +22,25 @@ public class ForumsController : ControllerBase
         _auth = auth;
     }
 
-    private Guid? ViewerId()
-    {
-        var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return claim is null ? null : Guid.Parse(claim);
-    }
-
-    private async Task BroadcastForumIfPossible(string slug, Guid userId, CancellationToken ct)
-    {
-        var user = await _auth.GetUserByIdAsync(userId, ct);
-        var forum = await _forums.GetEntityBySlugAsync(slug, ct);
-        if (user is not null && forum is not null)
-            await _federation.BroadcastForumAsync(forum, user, ct);
-    }
-
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<ForumDto>>> List(CancellationToken ct) =>
-        Ok(await _forums.ListAsync(ViewerId(), ct));
+    public async Task<ActionResult<IReadOnlyList<ForumDto>>> List(CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await _forums.ListAsync(this.ViewerUserId(), ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
 
     [HttpGet("{slug}")]
-    public async Task<ActionResult<ForumDto>> Get(string slug, CancellationToken ct)
+    public async Task<ActionResult<ForumDto>> Get(string slug, [FromQuery] string? parentSlug, CancellationToken ct)
     {
-        var forum = await _forums.GetBySlugAsync(slug, ViewerId(), ct);
-        return forum is null ? NotFound() : Ok(forum);
+        try
+        {
+            var forum = await _forums.GetBySlugAsync(slug, this.ViewerUserId(), parentSlug, ct);
+            return forum is null ? NotFound() : Ok(forum);
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }
 
     [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
@@ -58,9 +54,14 @@ public class ForumsController : ControllerBase
             await BroadcastForumIfPossible(forumEntity.Slug, userId, ct);
             return CreatedAtAction(nameof(Get), new { slug = forumEntity.Slug }, forumEntity);
         }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    private async Task BroadcastForumIfPossible(string slug, Guid userId, CancellationToken ct)
+    {
+        var user = await _auth.GetUserByIdAsync(userId, ct);
+        var forum = await _forums.GetEntityBySlugAsync(slug, null, ct);
+        if (user is not null && forum is not null)
+            await _federation.BroadcastForumAsync(forum, user, ct);
     }
 }

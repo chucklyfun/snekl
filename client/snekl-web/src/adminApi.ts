@@ -1,5 +1,5 @@
 import { CONTENT_API } from './api';
-import type { NodeInfo, Peer, SiteAdmin } from './types';
+import type { NodeInfo, Peer, SiteAdmin, SuperUser } from './types';
 
 function getAdminToken(): string | null {
   return localStorage.getItem('snekl_admin_token');
@@ -60,6 +60,17 @@ export const adminApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  getSuperUsers: () => adminRequest<SuperUser[]>('/api/admin/site/super-users'),
+
+  grantSuperUser: (username: string, note?: string) =>
+    adminRequest<SuperUser>('/api/admin/site/super-users', {
+      method: 'POST',
+      body: JSON.stringify({ username, note }),
+    }),
+
+  revokeSuperUser: (userId: string) =>
+    adminRequest<void>(`/api/admin/site/super-users/${userId}`, { method: 'DELETE' }),
 };
 
 export interface TrustedAuthIssuer {

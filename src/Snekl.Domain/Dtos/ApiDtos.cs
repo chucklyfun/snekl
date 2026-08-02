@@ -23,7 +23,8 @@ public record UserDto(
 
 // Deprecated for display — use UserPresentationDto in posts and profiles.
 
-public record CreateForumRequest(string Name, string Slug, string Description);
+public record CreateForumRequest(string Name, string Slug, string Description, Guid? ParentForumId = null);
+public record ForumSummaryDto(Guid Id, string Name, string Slug, int PostCount);
 public record ForumDto(
     Guid Id,
     string Name,
@@ -33,7 +34,12 @@ public record ForumDto(
     string? OriginNodeUrl,
     bool IsFederated,
     int PostCount,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    Guid? ParentForumId = null,
+    string? ParentSlug = null,
+    IReadOnlyList<ForumSummaryDto>? Subforums = null,
+    IReadOnlyList<string>? ViewerPermissions = null,
+    bool AllowAliases = true);
 
 public record CreatePostRequest(Guid ForumId, Guid? ParentPostId, string Message);
 public record PostDto(
@@ -88,3 +94,110 @@ public record FederatedForumPayload(
     DateTime CreatedAt);
 
 public record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize);
+
+public record AuthMeResponse(
+    UserPresentationDto User,
+    bool IsSuperUser,
+    IReadOnlyList<string> ServerPermissions);
+
+public record SuperUserDto(
+    Guid UserId,
+    string Username,
+    string DisplayName,
+    Guid GrantedBySiteAdminId,
+    DateTime GrantedAt,
+    string? Note);
+
+public record GrantSuperUserRequest(string Username, string? Note = null);
+
+public record ServerRoleDto(
+    Guid Id,
+    string Name,
+    string? Color,
+    int Position,
+    IReadOnlyList<string> Permissions,
+    bool IsEveryone);
+
+public record CreateServerRoleRequest(
+    string Name,
+    string? Color,
+    int Position,
+    IReadOnlyList<string> Permissions);
+
+public record UpdateServerRoleRequest(
+    string Name,
+    string? Color,
+    int Position,
+    IReadOnlyList<string> Permissions);
+
+public record ServerMemberDto(
+    Guid UserId,
+    string Username,
+    string DisplayName,
+    IReadOnlyList<ServerRoleDto> Roles);
+
+public record AssignServerRolesRequest(IReadOnlyList<Guid> RoleIds, string? Username = null);
+
+public record ServerPermissionsDto(
+    bool IsSuperUser,
+    IReadOnlyList<string> Permissions);
+
+public record ForumRoleDto(
+    Guid Id,
+    Guid ForumId,
+    string Name,
+    string? Color,
+    int Position,
+    IReadOnlyList<string> Permissions,
+    bool IsEveryone,
+    Guid? InheritFromRoleId);
+
+public record CreateForumRoleRequest(
+    string Name,
+    string? Color,
+    int Position,
+    IReadOnlyList<string> Permissions);
+
+public record UpdateForumRoleRequest(
+    string Name,
+    string? Color,
+    int Position,
+    IReadOnlyList<string> Permissions);
+
+public record ForumMemberDto(
+    Guid UserId,
+    string Username,
+    string DisplayName,
+    IReadOnlyList<ForumRoleDto> Roles,
+    ForumFlairTemplateDto? Flair,
+    string? Alias);
+
+public record AssignForumRolesRequest(IReadOnlyList<Guid> RoleIds);
+
+public record ForumFlairTemplateDto(
+    Guid Id,
+    Guid ForumId,
+    string? Emoji,
+    string? IconUrl,
+    string? Label,
+    string? NameColor,
+    string? NameStyle,
+    int Position,
+    Guid? InheritFromTemplateId);
+
+public record CreateForumFlairTemplateRequest(
+    string? Emoji,
+    string? IconUrl,
+    string? Label,
+    string? NameColor,
+    string? NameStyle,
+    int Position);
+
+public record AssignForumFlairRequest(Guid? TemplateId);
+
+public record SetForumAliasRequest(string Alias);
+
+public record UpdateForumSettingsRequest(
+    string? Name,
+    string? Description,
+    bool? AllowAliases);

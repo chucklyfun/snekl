@@ -67,6 +67,13 @@ export interface User {
   isFederated: boolean;
 }
 
+export interface ForumSummary {
+  id: string;
+  name: string;
+  slug: string;
+  postCount: number;
+}
+
 export interface Forum {
   id: string;
   name: string;
@@ -77,6 +84,79 @@ export interface Forum {
   isFederated: boolean;
   postCount: number;
   createdAt: string;
+  parentForumId?: string | null;
+  parentSlug?: string | null;
+  subforums?: ForumSummary[];
+  viewerPermissions?: string[];
+  allowAliases?: boolean;
+}
+
+export interface AuthMeResponse {
+  user: UserPresentation;
+  isSuperUser: boolean;
+  serverPermissions: string[];
+}
+
+export interface SuperUser {
+  userId: string;
+  username: string;
+  displayName: string;
+  grantedBySiteAdminId: string;
+  grantedAt: string;
+  note?: string | null;
+}
+
+export interface ServerRole {
+  id: string;
+  name: string;
+  color?: string | null;
+  position: number;
+  permissions: string[];
+  isEveryone: boolean;
+}
+
+export interface ServerMember {
+  userId: string;
+  username: string;
+  displayName: string;
+  roles: ServerRole[];
+}
+
+export interface ServerPermissionsInfo {
+  isSuperUser: boolean;
+  permissions: string[];
+}
+
+export interface ForumRole {
+  id: string;
+  forumId: string;
+  name: string;
+  color?: string | null;
+  position: number;
+  permissions: string[];
+  isEveryone: boolean;
+  inheritFromRoleId?: string | null;
+}
+
+export interface ForumMember {
+  userId: string;
+  username: string;
+  displayName: string;
+  roles: ForumRole[];
+  flair?: ForumFlairTemplate | null;
+  alias?: string | null;
+}
+
+export interface ForumFlairTemplate {
+  id: string;
+  forumId: string;
+  emoji?: string | null;
+  iconUrl?: string | null;
+  label?: string | null;
+  nameColor?: string | null;
+  nameStyle?: string | null;
+  position: number;
+  inheritFromTemplateId?: string | null;
 }
 
 export interface Post {

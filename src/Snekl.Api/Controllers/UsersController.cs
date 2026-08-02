@@ -29,7 +29,7 @@ public class UsersController : ControllerBase
     [HttpGet("{username}")]
     public async Task<ActionResult<UserPresentationDto>> GetProfile(string username, CancellationToken ct)
     {
-        var profile = await _presentation.GetPresentationByUsernameAsync(username, ViewerId(), ct);
+        var profile = await _presentation.GetPresentationByUsernameAsync(username, ViewerId(), null, ct);
         return profile is null ? NotFound() : Ok(profile);
     }
 
@@ -39,7 +39,7 @@ public class UsersController : ControllerBase
     {
         var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
         await _profile.UpdateFlairAsync(userId, request, ct);
-        return Ok(await _presentation.GetPresentationAsync(userId, userId, ct));
+        return Ok(await _presentation.GetPresentationAsync(userId, userId, null, ct));
     }
 
     [HttpGet("status/presets")]

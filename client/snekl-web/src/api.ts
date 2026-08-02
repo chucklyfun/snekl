@@ -1,14 +1,21 @@
 import type {
   AggregatedForum,
+  AuthMeResponse,
   ContentServerMembership,
   ContentServerStatusPreset,
   CuratedList,
   Forum,
+  ForumFlairTemplate,
+  ForumMember,
+  ForumRole,
   ListAnnotation,
   NodeInfo,
   Peer,
   Post,
   RingSession,
+  ServerMember,
+  ServerPermissionsInfo,
+  ServerRole,
   StatusPreset,
   UserPresentation,
   UserStatus,
@@ -39,6 +46,10 @@ async function request<T>(baseUrl: string, path: string, options: RequestInit = 
 
   if (response.status === 204) return undefined as T;
   return response.json();
+}
+
+export function hasPermission(permissions: string[] | undefined, name: string): boolean {
+  return permissions?.includes(name) ?? false;
 }
 
 export const authApi = {
@@ -93,8 +104,15 @@ export const authApi = {
 
 export function createContentClient(baseUrl: string) {
   const root = baseUrl.replace(/\/$/, '');
+
+  function forumBase(slug: string, parentSlug?: string) {
+    const qs = parentSlug ? `?parentSlug=${encodeURIComponent(parentSlug)}` : '';
+    return `/api/forums/${slug}${qs}`;
+  }
+
   return {
-    me: () => request<UserPresentation>(root, '/api/auth/me'),
+    me: () => request<AuthMeResponse>(root, '/api/auth/me'),
+    getServerPermissions: () => request<ServerPermissionsInfo>(root, '/api/server/me/permissions'),
     getUser: (username: string) => request<UserPresentation>(root, `/api/users/${username}`),
     updateFlair: (flair: {
       emoji?: string;
@@ -132,11 +150,12 @@ export function createContentClient(baseUrl: string) {
     clearStatus: () => request<void>(root, '/api/users/me/status', { method: 'DELETE' }),
     getNode: () => request<NodeInfo>(root, '/api/node'),
     getForums: () => request<Forum[]>(root, '/api/forums'),
-    getForum: (slug: string) => request<Forum>(root, `/api/forums/${slug}`),
-    createForum: (name: string, slug: string, description: string) =>
+    getForum: (slug: string, parentSlug?: string) =>
+      request<Forum>(root, forumBase(slug, parentSlug)),
+    createForum: (name: string, slug: string, description: string, parentForumId?: string) =>
       request<Forum>(root, '/api/forums', {
         method: 'POST',
-        body: JSON.stringify({ name, slug, description }),
+        body: JSON.stringify({ name, slug, description, parentForumId: parentForumId ?? null }),
       }),
     getForumThreads: (forumId: string) => request<Post[]>(root, `/api/posts/forum/${forumId}`),
     getThread: (postId: string) => request<Post>(root, `/api/posts/${postId}`),
@@ -184,6 +203,62 @@ export function createContentClient(baseUrl: string) {
     ) =>
       request<ListAnnotation>(root, `/api/lists/${listId}/entries`, {
         method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    getServerRoles: () => request<ServerRole[]>(root, '/api/server/roles'),
+    createServerRole: (data: { name: string; color?: string; position: number; permissions: string[] }) =>
+      request<ServerRole>(root, '/api/server/roles', { method: 'POST', body: JSON.stringify(data) }),
+    updateServerRole: (roleId: string, data: { name: string; color?: string; position: number; permissions: string[] }) =>
+      request<ServerRole>(root, `/api/server/roles/${roleId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteServerRole: (roleId: string) =>
+      request<void>(root, `/api/server/roles/${roleId}`, { method: 'DELETE' }),
+    getServerMembers: () => request<ServerMember[]>(root, '/api/server/members'),
+    assignServerRoles: (userId: string, roleIds: string[]) =>
+      request<void>(root, `/api/server/members/${userId}/roles`, {
+        method: 'PUT',
+        body: JSON.stringify({ roleIds }),
+      }),
+    assignServerRolesByUsername: (username: string, roleIds: string[]) =>
+      request<void>(root, `/api/server/members/by-username/${encodeURIComponent(username)}/roles`, {
+        method: 'PUT',
+        body: JSON.stringify({ roleIds }),
+      }),
+
+    getForumRoles: (slug: string, parentSlug?: string) =>
+      request<ForumRole[]>(root, `${forumBase(slug, parentSlug)}/roles`),
+    createForumRole: (slug: string, data: { name: string; color?: string; position: number; permissions: string[] }, parentSlug?: string) =>
+      request<ForumRole>(root, `${forumBase(slug, parentSlug)}/roles`, { method: 'POST', body: JSON.stringify(data) }),
+    getForumMembers: (slug: string, parentSlug?: string) =>
+      request<ForumMember[]>(root, `${forumBase(slug, parentSlug)}/members`),
+    assignForumRoles: (slug: string, userId: string, roleIds: string[], parentSlug?: string) =>
+      request<void>(root, `${forumBase(slug, parentSlug)}/members/${userId}/roles`, {
+        method: 'PUT',
+        body: JSON.stringify({ roleIds }),
+      }),
+    getFlairTemplates: (slug: string, parentSlug?: string) =>
+      request<ForumFlairTemplate[]>(root, `${forumBase(slug, parentSlug)}/flair-templates`),
+    createFlairTemplate: (
+      slug: string,
+      data: { emoji?: string; label?: string; nameColor?: string; position: number },
+      parentSlug?: string,
+    ) =>
+      request<ForumFlairTemplate>(root, `${forumBase(slug, parentSlug)}/flair-templates`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    setMyAlias: (slug: string, alias: string, parentSlug?: string) =>
+      request<void>(root, `${forumBase(slug, parentSlug)}/members/me/alias`, {
+        method: 'PUT',
+        body: JSON.stringify({ alias }),
+      }),
+    updateForumSettings: (
+      slug: string,
+      data: { name?: string; description?: string; allowAliases?: boolean },
+      parentSlug?: string,
+    ) =>
+      request<void>(root, `${forumBase(slug, parentSlug)}/settings`, {
+        method: 'PUT',
         body: JSON.stringify(data),
       }),
   };

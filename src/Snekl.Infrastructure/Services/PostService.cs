@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Snekl.Domain.Dtos;
 using Snekl.Domain.Entities;
+using Snekl.Domain.Enums;
 using Snekl.Infrastructure.Data;
 
 namespace Snekl.Infrastructure.Services;
@@ -18,17 +19,30 @@ public class PostService : IPostService
 {
     private readonly SneklDbContext _db;
     private readonly IUserPresentationService _presentation;
+    private readonly IPermissionService _permissions;
+    private readonly IForumService _forums;
 
-    public PostService(SneklDbContext db, IUserPresentationService presentation)
+    public PostService(
+        SneklDbContext db,
+        IUserPresentationService presentation,
+        IPermissionService permissions,
+        IForumService forums)
     {
         _db = db;
         _presentation = presentation;
+        _permissions = permissions;
+        _forums = forums;
     }
 
     public async Task<PostDto> CreateAsync(Guid userId, CreatePostRequest request, Guid? viewerUserId = null, CancellationToken ct = default)
     {
         var forum = await _db.Forums.FindAsync([request.ForumId], ct)
             ?? throw new InvalidOperationException("Forum not found.");
+
+        if (request.ParentPostId.HasValue)
+            await _permissions.RequireForumPermissionAsync(userId, forum.Id, ForumPermissions.Reply, ct);
+        else
+            await _permissions.RequireForumPermissionAsync(userId, forum.Id, ForumPermissions.CreateThread, ct);
 
         if (request.ParentPostId.HasValue)
         {
@@ -55,7 +69,7 @@ public class PostService : IPostService
         _db.Posts.Add(post);
         await _db.SaveChangesAsync(ct);
 
-        var authorPresentation = await _presentation.GetPresentationAsync(userId, viewerUserId ?? userId, ct);
+        var authorPresentation = await _presentation.GetPresentationAsync(userId, viewerUserId ?? userId, forum.Id, ct);
         return ToDto(post, authorPresentation, []);
     }
 
@@ -64,6 +78,9 @@ public class PostService : IPostService
 
     public async Task<IReadOnlyList<PostDto>> GetForumThreadsAsync(Guid forumId, int page, int pageSize, Guid? viewerUserId = null, CancellationToken ct = default)
     {
+        if (!await _permissions.CanViewForumAsync(viewerUserId, forumId, ct))
+            throw new PermissionDeniedException(ForumPermissions.ViewForum.ToString(), "forum");
+
         var posts = await _db.Posts
             .Include(p => p.Author)
             .Where(p => p.ForumId == forumId && p.ParentPostId == null)
@@ -73,7 +90,7 @@ public class PostService : IPostService
             .ToListAsync(ct);
 
         var authorIds = posts.Select(p => p.AuthorUserId).Distinct();
-        var presentations = await _presentation.GetPresentationsAsync(authorIds, viewerUserId, ct);
+        var presentations = await _presentation.GetPresentationsAsync(authorIds, viewerUserId, forumId, ct);
 
         return posts.Select(p => ToDto(p, presentations[p.AuthorUserId], [])).ToList();
     }
@@ -86,8 +103,11 @@ public class PostService : IPostService
         var root = threadPosts.FirstOrDefault(p => p.Id == postId);
         if (root is null) return null;
 
+        if (!await _permissions.CanViewForumAsync(viewerUserId, root.ForumId, ct))
+            throw new PermissionDeniedException(ForumPermissions.ViewForum.ToString(), "forum");
+
         var authorIds = threadPosts.Select(p => p.AuthorUserId).Distinct();
-        var presentations = await _presentation.GetPresentationsAsync(authorIds, viewerUserId, ct);
+        var presentations = await _presentation.GetPresentationsAsync(authorIds, viewerUserId, root.ForumId, ct);
 
         return BuildTree(root, threadPosts, presentations);
     }
@@ -99,8 +119,7 @@ public class PostService : IPostService
         var forum = await _db.Forums.FirstOrDefaultAsync(f => f.Id == payload.ForumId, ct);
         if (forum is null)
         {
-            var forumService = new ForumService(_db, _presentation);
-            await forumService.UpsertFederatedAsync(
+            await _forums.UpsertFederatedAsync(
                 new FederatedForumPayload(
                     payload.ForumId,
                     payload.ForumName,
@@ -148,9 +167,6 @@ public class PostService : IPostService
         await _db.SaveChangesAsync(ct);
     }
 
-    /// <summary>
-    /// ReplyCount stores total descendants. Increment the parent and every ancestor up to the thread root.
-    /// </summary>
     private async Task IncrementReplyCountsAsync(Guid parentPostId, CancellationToken ct)
     {
         var currentId = parentPostId;
@@ -165,9 +181,6 @@ public class PostService : IPostService
         }
     }
 
-    /// <summary>
-    /// Load only the root post and its descendants using a recursive CTE (not the entire forum).
-    /// </summary>
     private async Task<List<Post>> LoadThreadPostsAsync(Guid rootId, CancellationToken ct)
     {
         var postIds = await _db.Database

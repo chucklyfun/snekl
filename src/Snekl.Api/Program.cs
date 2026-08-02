@@ -51,6 +51,9 @@ using (var scope = app.Services.CreateScope())
     var adminUser = builder.Configuration["Admin:Username"] ?? "admin";
     var adminPass = builder.Configuration["Admin:Password"] ?? "admin";
     await adminAuth.EnsureSeedAdminAsync(adminUser, adminPass);
+
+    var roleSeed = scope.ServiceProvider.GetRequiredService<IRoleSeedService>();
+    await roleSeed.EnsureServerRolesAsync();
 }
 
 if (app.Environment.IsDevelopment())

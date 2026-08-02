@@ -353,6 +353,25 @@ button,
   background: linear-gradient(135deg, #7c5cff, #ef4444);
 }
 
+.permission-grid {
+  display: grid;
+  gap: 0.35rem 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+
+.permission-check {
+  align-items: center;
+  display: flex;
+  font-size: 0.875rem;
+  gap: 0.4rem;
+}
+
+.subforum-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
 @media (max-width: 640px) {
   .grid-2 {
     grid-template-columns: 1fr;

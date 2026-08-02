@@ -20,25 +20,29 @@ public class PostsController : ControllerBase
         _federation = federation;
     }
 
-    private Guid? ViewerId()
-    {
-        var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return claim is null ? null : Guid.Parse(claim);
-    }
-
     [HttpGet("forum/{forumId:guid}")]
     public async Task<ActionResult<IReadOnlyList<PostDto>>> GetForumThreads(
         Guid forumId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        CancellationToken ct = default) =>
-        Ok(await _posts.GetForumThreadsAsync(forumId, page, pageSize, ViewerId(), ct));
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return Ok(await _posts.GetForumThreadsAsync(forumId, page, pageSize, this.ViewerUserId(), ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
 
     [HttpGet("{postId:guid}")]
     public async Task<ActionResult<PostDto>> GetThread(Guid postId, CancellationToken ct)
     {
-        var thread = await _posts.GetThreadAsync(postId, ViewerId(), ct);
-        return thread is null ? NotFound() : Ok(thread);
+        try
+        {
+            var thread = await _posts.GetThreadAsync(postId, this.ViewerUserId(), ct);
+            return thread is null ? NotFound() : Ok(thread);
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }
 
     [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
@@ -56,9 +60,6 @@ public class PostsController : ControllerBase
 
             return CreatedAtAction(nameof(GetThread), new { postId = postDto.Id }, postDto);
         }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }
 }

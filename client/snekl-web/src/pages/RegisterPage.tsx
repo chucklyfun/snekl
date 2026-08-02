@@ -40,7 +40,10 @@ export function RegisterPage() {
         </div>
         <div className="form-group">
           <label htmlFor="email">Email</label>
-          <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+          <p style={{ marginTop: '0.35rem', fontSize: '0.875rem', color: 'var(--muted)' }}>
+            Used to log in and recover your password.
+          </p>
         </div>
         <div className="form-group">
           <label htmlFor="password">Password</label>

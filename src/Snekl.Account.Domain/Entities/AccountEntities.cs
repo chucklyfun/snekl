@@ -24,6 +24,7 @@ public class PersonCluster
     public string? DisambiguationTag { get; set; }
     public string DisplayName { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
+    public DateTime? EmailVerifiedAt { get; set; }
     public string Bio { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -70,4 +71,26 @@ public class RingSession
     public Guid PrimaryIdentityId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime ExpiresAt { get; set; }
+}
+
+public class PasswordResetToken
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid AuthIdentityId { get; set; }
+    public AuthIdentity? AuthIdentity { get; set; }
+    public string TokenHash { get; set; } = string.Empty;
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? UsedAt { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class EmailVerificationToken
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid PersonClusterId { get; set; }
+    public PersonCluster? PersonCluster { get; set; }
+    public string TokenHash { get; set; } = string.Empty;
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? UsedAt { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

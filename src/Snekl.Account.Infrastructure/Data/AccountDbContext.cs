@@ -13,6 +13,8 @@ public class AccountDbContext : DbContext
     public DbSet<AuthPartnerTrust> PartnerTrusts => Set<AuthPartnerTrust>();
     public DbSet<UserSettingsReplica> SettingsReplicas => Set<UserSettingsReplica>();
     public DbSet<RingSession> RingSessions => Set<RingSession>();
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+    public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -21,7 +23,10 @@ public class AccountDbContext : DbContext
         modelBuilder.Entity<PersonCluster>(e =>
         {
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.CanonicalUsername);
+            e.HasIndex(x => x.CanonicalUsername).IsUnique();
+            e.HasIndex(x => x.Email)
+                .IsUnique()
+                .HasFilter("\"EmailVerifiedAt\" IS NOT NULL");
             e.HasIndex(x => x.Did).IsUnique();
         });
 
@@ -45,5 +50,25 @@ public class AccountDbContext : DbContext
         });
 
         modelBuilder.Entity<RingSession>(e => e.HasKey(x => x.Id));
+
+        modelBuilder.Entity<PasswordResetToken>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.TokenHash);
+            e.HasOne(x => x.AuthIdentity)
+                .WithMany()
+                .HasForeignKey(x => x.AuthIdentityId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<EmailVerificationToken>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.TokenHash);
+            e.HasOne(x => x.PersonCluster)
+                .WithMany()
+                .HasForeignKey(x => x.PersonClusterId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 }

@@ -56,6 +56,8 @@ public static class AuthenticationExtensions
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
             .Configure<IServiceScopeFactory>((options, scopeFactory) =>
             {
+                // Keep JWT claim names stable; site admin checks both "role" and ClaimTypes.Role.
+                options.MapInboundClaims = false;
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,

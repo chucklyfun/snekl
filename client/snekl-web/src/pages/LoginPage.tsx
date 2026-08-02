@@ -1,11 +1,13 @@
 import { type FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../AuthContext';
 
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [username, setUsername] = useState('');
+  const location = useLocation();
+  const successMessage = (location.state as { message?: string } | null)?.message;
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
@@ -13,7 +15,7 @@ export function LoginPage() {
     e.preventDefault();
     setError('');
     try {
-      await login(username, password);
+      await login(email, password);
       navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -26,15 +28,21 @@ export function LoginPage() {
       <p style={{ color: 'var(--muted)', marginBottom: '1rem' }}>
         Sign in via the auth server. Your content node trusts the returned token.
       </p>
+      {successMessage && (
+        <div style={{ marginBottom: '1rem', color: 'var(--accent)' }}>{successMessage}</div>
+      )}
       {error && <div className="error-banner">{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="form-group">
-          <label htmlFor="username">Username</label>
-          <input id="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+          <label htmlFor="email">Email</label>
+          <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
         </div>
         <div className="form-group">
           <label htmlFor="password">Password</label>
           <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <p style={{ marginTop: '0.35rem', fontSize: '0.875rem' }}>
+            <Link to="/forgot-password">Forgot password?</Link>
+          </p>
         </div>
         <button type="submit" className="btn-primary">Log in</button>
       </form>

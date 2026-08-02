@@ -12,8 +12,12 @@ import { ListsPage } from './pages/ListsPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { ForumPage } from './pages/ForumPage';
 import { HomePage } from './pages/HomePage';
+import { AccountSettingsPage } from './pages/AccountSettingsPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { ServersPage } from './pages/ServersPage';
 import { ServerSettingsPage } from './pages/ServerSettingsPage';
 import { ForumSettingsPage } from './pages/ForumSettingsPage';
@@ -46,6 +50,10 @@ export default function App() {
                       <Route path="/" element={<HomePage />} />
                       <Route path="/login" element={<LoginPage />} />
                       <Route path="/register" element={<RegisterPage />} />
+                      <Route path="/account" element={<AccountSettingsPage />} />
+                      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                      <Route path="/reset-password" element={<ResetPasswordPage />} />
+                      <Route path="/verify-email" element={<VerifyEmailPage />} />
                       <Route path="/servers" element={<ServersPage />} />
                       <Route path="/s/:serverDid/settings" element={<ServerSettingsPage />} />
                       <Route path="/s/:serverDid/forums/new" element={<CreateForumPage />} />

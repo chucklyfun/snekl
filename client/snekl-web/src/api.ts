@@ -66,13 +66,55 @@ export const authApi = {
       body: JSON.stringify(payload),
     }),
 
-  login: (username: string, password: string) =>
+  login: (email: string, password: string) =>
     request<RingSession>(AUTH_API, '/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ email, password }),
+    }),
+
+  forgotPassword: (email: string) =>
+    request<{ message: string }>(AUTH_API, '/api/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  resetPassword: (token: string, newPassword: string) =>
+    request<{ message: string }>(AUTH_API, '/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, newPassword }),
+    }),
+
+  verifyEmail: (token: string) =>
+    request<{ message: string }>(AUTH_API, '/api/auth/verify-email', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
     }),
 
   me: () => request<RingSession['person']>(AUTH_API, '/api/me'),
+
+  updateProfile: (payload: {
+    username: string;
+    email: string;
+    displayName: string;
+    bio: string;
+    disambiguationTag?: string | null;
+  }) =>
+    request<{ person: RingSession['person']; accessToken: string }>(AUTH_API, '/api/me/profile', {
+      method: 'PUT',
+      body: JSON.stringify({
+        username: payload.username,
+        email: payload.email,
+        displayName: payload.displayName,
+        bio: payload.bio,
+        disambiguationTag: payload.disambiguationTag ?? null,
+      }),
+    }),
+
+  resendVerificationEmail: () =>
+    request<{ message: string }>(AUTH_API, '/api/me/send-verification-email', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
 
   getContentServers: () =>
     request<ContentServerMembership[]>(AUTH_API, '/api/me/content-servers'),

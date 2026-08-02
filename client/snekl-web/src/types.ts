@@ -201,6 +201,7 @@ export interface PersonCluster {
   canonicalUsername: string;
   displayName: string;
   email: string;
+  emailVerified: boolean;
   bio: string;
   primaryAuthServerUrl: string;
   disambiguationTag?: string | null;

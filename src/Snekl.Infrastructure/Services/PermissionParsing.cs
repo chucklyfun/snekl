@@ -14,7 +14,7 @@ public static class PermissionParsing
                 result |= flag;
         }
         if (result.HasFlag(ServerPermissions.ServerAdministrator))
-            result |= ServerPermissions.ViewServer | ServerPermissions.CreateForum |
+            result |= ServerPermissions.CreateForum |
                       ServerPermissions.ManageServerMembers | ServerPermissions.ManageServerRoles |
                       ServerPermissions.ManageServerSettings;
         return result;

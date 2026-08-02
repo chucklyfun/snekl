@@ -198,7 +198,7 @@ export function AdminDashboardPage() {
       <form onSubmit={grantSuperUser} className="card">
         <h2 className="card-title">Super Users</h2>
         <p className="card-meta">
-          Grant Super User status to logged-in users so they can manage server roles and community policy.
+          Grant Super User status so a user can manage server roles and settings. Browsing and moderation still follow their normal role assignments.
         </p>
         <div className="inline-form">
           <input

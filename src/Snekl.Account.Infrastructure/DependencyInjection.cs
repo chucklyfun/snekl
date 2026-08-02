@@ -20,12 +20,19 @@ public static class DependencyInjection
         services.AddSingleton<ITokenService, TokenService>();
         services.AddScoped<IAuthServerService, AuthServerService>();
         services.AddScoped<IAccountAuthService, AccountAuthService>();
+        services.AddScoped<IPasswordResetService, PasswordResetService>();
+        services.AddScoped<IEmailVerificationService, EmailVerificationService>();
         services.AddScoped<IRingLoginService, RingLoginService>();
         services.AddScoped<IPersonClusterService, PersonClusterService>();
         services.AddScoped<IPartnerService, PartnerService>();
         services.AddScoped<IIdentityCredentialService, IdentityCredentialService>();
         services.AddHttpClient<IPartnerClient, PartnerClient>();
         services.AddHttpClient<IContentServerMembershipService, ContentServerMembershipService>();
+
+        if (!string.IsNullOrWhiteSpace(config["Smtp:Host"]))
+            services.AddSingleton<IEmailSender, SmtpEmailSender>();
+        else
+            services.AddSingleton<IEmailSender, LoggingEmailSender>();
 
         return services;
     }

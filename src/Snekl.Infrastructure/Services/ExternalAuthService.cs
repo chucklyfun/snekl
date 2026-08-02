@@ -143,6 +143,15 @@ public class ExternalAuthService : IExternalAuthService
             user.Did = did;
             user.AuthIssuerUrl = issuer;
             user.AuthSubjectId = subjectId;
+            user.Email = email.Trim().ToLowerInvariant();
+
+            if (!string.Equals(user.Username, username, StringComparison.Ordinal))
+            {
+                var usernameTaken = await _db.Users.AnyAsync(u => u.Username == username && u.Id != user.Id, ct);
+                if (!usernameTaken)
+                    user.Username = username;
+            }
+
             await _db.SaveChangesAsync(ct);
         }
 

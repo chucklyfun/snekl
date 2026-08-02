@@ -18,14 +18,16 @@ public static class SiteAdminAuthorization
 
     public static bool IsSiteAdmin(ClaimsPrincipal user) =>
         user.Identity?.IsAuthenticated == true &&
-        user.HasClaim(SiteAdminClaims.Role, SiteAdminClaims.SiteAdmin);
+        user.Claims.Any(c =>
+            c.Value == SiteAdminClaims.SiteAdmin &&
+            (c.Type == SiteAdminClaims.Role || c.Type == ClaimTypes.Role));
 
     public static IServiceCollection AddSiteAdminAuthorization(this IServiceCollection services)
     {
         services.AddAuthorization(options =>
         {
             options.AddPolicy(SiteAdminPolicy, policy =>
-                policy.RequireClaim(SiteAdminClaims.Role, SiteAdminClaims.SiteAdmin));
+                policy.RequireAssertion(ctx => IsSiteAdmin(ctx.User)));
 
             options.AddPolicy(EndUserPolicy, policy =>
                 policy.RequireAssertion(ctx =>

@@ -15,7 +15,15 @@ public record ImportIdentityRequest(
     string DisplayName,
     string IdentityCredentialJson);
 
-public record LoginRequest(string Username, string Password);
+public record LoginRequest(string Email, string Password);
+
+public record ForgotPasswordRequest(string Email);
+
+public record ResetPasswordRequest(string Token, string NewPassword);
+
+public record VerifyEmailRequest(string Token);
+
+public record MessageResponse(string Message);
 
 public record AuthIdentityDto(
     Guid Id,
@@ -29,6 +37,7 @@ public record PersonClusterDto(
     string CanonicalUsername,
     string DisplayName,
     string Email,
+    bool EmailVerified,
     string Bio,
     string PrimaryAuthServerUrl,
     string? DisambiguationTag,
@@ -76,7 +85,14 @@ public record VouchPayload(
 
 public record ExportIdentityResponse(string IdentityCredentialJson, DateTime ExpiresAt);
 
-public record UpdateProfileRequest(string DisplayName, string Bio, string? DisambiguationTag);
+public record UpdateProfileRequest(
+    string Username,
+    string Email,
+    string DisplayName,
+    string Bio,
+    string? DisambiguationTag);
+
+public record UpdateProfileResponse(PersonClusterDto Person, string AccessToken);
 
 public record PartnerTrustDto(string PartnerBaseUrl, bool IsMutual, DateTime CreatedAt);
 

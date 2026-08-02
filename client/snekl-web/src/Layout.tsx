@@ -36,6 +36,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           )}
           {user ? (
             <>
+              <Link to="/account">Account</Link>
               <Link to={`/users/${user.username}`} className="user-badge">{user.effectiveDisplayName}</Link>
               <button type="button" className="btn-ghost" onClick={logout}>
                 Log out

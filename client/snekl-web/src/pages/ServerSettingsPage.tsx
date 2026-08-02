@@ -101,7 +101,11 @@ export function ServerSettingsPage() {
         ← Forums
       </Link>
       <h1 className="page-title">Server settings</h1>
-      {isSuperUser && <p className="page-subtitle">You are a Super User on this node.</p>}
+      {isSuperUser && (
+        <p className="page-subtitle">
+          You are a Super User on this node — server configuration only. Forum access and moderation follow your assigned roles.
+        </p>
+      )}
 
       {error && <div className="error-banner">{error}</div>}
       {success && (

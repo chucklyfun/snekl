@@ -11,7 +11,7 @@ interface AuthContextValue {
   isSuperUser: boolean;
   serverPermissions: string[];
   loading: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string, displayName: string) => Promise<string>;
   logout: () => void;
   refreshMe: () => Promise<void>;
@@ -48,8 +48,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = async (username: string, password: string) => {
-    const result = await authApi.login(username, password);
+  const login = async (email: string, password: string) => {
+    const result = await authApi.login(email, password);
     localStorage.setItem('snekl_token', result.accessToken);
     setDid(result.person.did);
     await refreshServers();

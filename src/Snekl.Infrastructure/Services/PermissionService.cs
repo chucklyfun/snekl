@@ -28,9 +28,9 @@ public class PermissionService : IPermissionService
     public async Task<ServerPermissions> GetServerPermissionsAsync(Guid? userId, CancellationToken ct = default)
     {
         if (userId.HasValue && await IsSuperUserAsync(userId, ct))
-            return ServerPermissions.ViewServer | ServerPermissions.CreateForum |
+            return ServerPermissions.CreateForum |
                    ServerPermissions.ManageServerMembers | ServerPermissions.ManageServerRoles |
-                   ServerPermissions.ManageServerSettings | ServerPermissions.ServerAdministrator;
+                   ServerPermissions.ManageServerSettings;
 
         var everyone = await _db.ServerRoles.FirstOrDefaultAsync(r => r.IsEveryone, ct);
         var perms = everyone?.Permissions ?? ServerPermissions.None;
@@ -142,7 +142,7 @@ public class PermissionService : IPermissionService
             result |= role.Permissions;
 
         if (result.HasFlag(ServerPermissions.ServerAdministrator))
-            result |= ServerPermissions.ViewServer | ServerPermissions.CreateForum |
+            result |= ServerPermissions.CreateForum |
                       ServerPermissions.ManageServerMembers | ServerPermissions.ManageServerRoles |
                       ServerPermissions.ManageServerSettings;
 
@@ -171,12 +171,6 @@ public class PermissionService : IPermissionService
     private static ForumPermissions MergeServerIntoForum(ServerPermissions server, ForumPermissions forum)
     {
         var result = forum;
-        if (server.HasFlag(ServerPermissions.ServerAdministrator))
-        {
-            result |= ForumPermissions.ViewForum | ForumPermissions.CreateThread | ForumPermissions.Reply |
-                      ForumPermissions.ManagePosts | ForumPermissions.ManageMembers | ForumPermissions.ManageRoles |
-                      ForumPermissions.ManageForum | ForumPermissions.ForumAdministrator;
-        }
         if (!server.HasFlag(ServerPermissions.ViewServer))
             result &= ~ForumPermissions.ViewForum;
         return result;

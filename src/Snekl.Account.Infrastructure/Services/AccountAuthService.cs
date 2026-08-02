@@ -26,19 +26,22 @@ public class AccountAuthService : IAccountAuthService
     private readonly ITokenService _tokens;
     private readonly IRingLoginService _ring;
     private readonly IIdentityCredentialService _credentials;
+    private readonly IEmailVerificationService _verification;
 
     public AccountAuthService(
         AccountDbContext db,
         IAuthServerService server,
         ITokenService tokens,
         IRingLoginService ring,
-        IIdentityCredentialService credentials)
+        IIdentityCredentialService credentials,
+        IEmailVerificationService verification)
     {
         _db = db;
         _server = server;
         _tokens = tokens;
         _ring = ring;
         _credentials = credentials;
+        _verification = verification;
     }
 
     public async Task<RingSessionDto> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
@@ -48,6 +51,8 @@ public class AccountAuthService : IAccountAuthService
 
         if (await _db.PersonClusters.AnyAsync(c => c.CanonicalUsername == username, ct))
             throw new InvalidOperationException("Username already exists on this auth server.");
+
+        var email = request.Email.Trim().ToLowerInvariant();
 
         string? generatedPrivateKey = null;
         string did;
@@ -82,7 +87,7 @@ public class AccountAuthService : IAccountAuthService
             PublicKeyMultibase = publicKeyMultibase,
             CanonicalUsername = username,
             DisplayName = request.DisplayName.Trim(),
-            Email = request.Email.Trim().ToLowerInvariant(),
+            Email = email,
             PrimaryAuthServerUrl = config.BaseUrl
         };
 
@@ -98,6 +103,8 @@ public class AccountAuthService : IAccountAuthService
         _db.AuthIdentities.Add(identity);
         _db.SettingsReplicas.Add(new UserSettingsReplica { PersonCluster = cluster });
         await _db.SaveChangesAsync(ct);
+
+        await _verification.EnsureVerifiedOrSendAsync(cluster, ct);
 
         var session = await _ring.CreateRingSessionAsync(identity, cluster, config, ct);
         return session with { GeneratedKeyPrivatePkcs8Base64 = generatedPrivateKey };
@@ -120,13 +127,15 @@ public class AccountAuthService : IAccountAuthService
         if (await _db.PersonClusters.AnyAsync(c => c.CanonicalUsername == username, ct))
             throw new InvalidOperationException("Username already exists on this auth server.");
 
+        var email = request.Email.Trim().ToLowerInvariant();
+
         var cluster = new PersonCluster
         {
             Did = subject.Id,
             PublicKeyMultibase = DidKey.PublicKeyMultibase(subject.Id),
             CanonicalUsername = username,
             DisplayName = request.DisplayName.Trim(),
-            Email = request.Email.Trim().ToLowerInvariant(),
+            Email = email,
             Bio = subject.Bio,
             DisambiguationTag = subject.DisambiguationTag,
             PrimaryAuthServerUrl = subject.PrimaryAuthServerUrl
@@ -145,22 +154,31 @@ public class AccountAuthService : IAccountAuthService
         _db.SettingsReplicas.Add(new UserSettingsReplica { PersonCluster = cluster });
         await _db.SaveChangesAsync(ct);
 
+        await _verification.EnsureVerifiedOrSendAsync(cluster, ct);
+
         return await _ring.CreateRingSessionAsync(identity, cluster, config, ct);
     }
 
     public async Task<RingSessionDto?> LoginAsync(LoginRequest request, CancellationToken ct = default)
     {
         var config = await _server.GetOrCreateAsync(ct);
-        var username = request.Username.Trim().ToLowerInvariant();
+        var email = request.Email.Trim().ToLowerInvariant();
 
-        var identity = await _db.AuthIdentities
+        var candidates = await _db.AuthIdentities
             .Include(i => i.PersonCluster)
             .ThenInclude(c => c!.Identities)
-            .FirstOrDefaultAsync(i =>
+            .Where(i =>
                 i.AuthServerUrl == config.BaseUrl &&
-                i.PersonCluster!.CanonicalUsername == username, ct);
+                i.PersonCluster!.Email == email)
+            .ToListAsync(ct);
 
-        if (identity?.PasswordHash is null || !BCrypt.Net.BCrypt.Verify(request.Password, identity.PasswordHash))
+        var identity = candidates
+            .Where(i => i.PasswordHash is not null && BCrypt.Net.BCrypt.Verify(request.Password, i.PasswordHash))
+            .OrderByDescending(i => i.PersonCluster!.EmailVerifiedAt != null)
+            .ThenByDescending(i => i.PersonCluster!.CreatedAt)
+            .FirstOrDefault();
+
+        if (identity is null)
             return null;
 
         return await _ring.CreateRingSessionAsync(identity, identity.PersonCluster!, config, ct);

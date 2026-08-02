@@ -17,6 +17,8 @@ public record ImportIdentityRequest(
 
 public record LoginRequest(string Username, string Password);
 
+public record DevResetPasswordRequest(string Username, string NewPassword);
+
 public record AuthIdentityDto(
     Guid Id,
     string AuthServerUrl,

@@ -9,8 +9,13 @@ namespace Snekl.Account.Api.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAccountAuthService _auth;
+    private readonly IConfiguration _configuration;
 
-    public AuthController(IAccountAuthService auth) => _auth = auth;
+    public AuthController(IAccountAuthService auth, IConfiguration configuration)
+    {
+        _auth = auth;
+        _configuration = configuration;
+    }
 
     [HttpPost("register")]
     public async Task<ActionResult<RingSessionDto>> Register(RegisterRequest request, CancellationToken ct)
@@ -43,5 +48,25 @@ public class AuthController : ControllerBase
     {
         var result = await _auth.LoginAsync(request, ct);
         return result is null ? Unauthorized(new { error = "Invalid credentials." }) : Ok(result);
+    }
+
+    /// <summary>
+    /// Development/test only. Set Auth:AllowDevPasswordReset to true (enabled by default in Development).
+    /// </summary>
+    [HttpPost("dev/reset-password")]
+    public async Task<IActionResult> DevResetPassword(DevResetPasswordRequest request, CancellationToken ct)
+    {
+        if (!_configuration.GetValue("Auth:AllowDevPasswordReset", false))
+            return NotFound();
+
+        try
+        {
+            await _auth.DevResetPasswordAsync(request, ct);
+            return Ok(new { message = "Password updated. You can log in with the new password." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 }

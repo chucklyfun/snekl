@@ -106,9 +106,11 @@ public static class StackOrchestrator
 
     public static async Task<int> RunAsync(string[] args, CancellationToken ct = default)
     {
-        var command = args.Length > 0 ? args[0].ToLowerInvariant() : "dev";
+        var command = ResolveCommand(args);
         var root = RepoPaths.FindRoot(Directory.GetCurrentDirectory());
         var withFrontend = !args.Contains("--no-frontend");
+
+        Console.WriteLine($"Snekl stack: running '{command}' (args: {(args.Length == 0 ? "(none — use -- up or --launch-profile up)" : string.Join(' ', args))})");
 
         return command switch
         {
@@ -122,6 +124,22 @@ public static class StackOrchestrator
         };
     }
 
+    private static string ResolveCommand(string[] args)
+    {
+        if (args.Length == 0)
+            return "dev";
+
+        foreach (var arg in args)
+        {
+            if (arg.StartsWith('-'))
+                continue;
+
+            return arg.ToLowerInvariant();
+        }
+
+        return "dev";
+    }
+
     private static int UnknownCommand(string command)
     {
         Console.Error.WriteLine($"Unknown command: {command}");
@@ -133,8 +151,12 @@ public static class StackOrchestrator
         Console.WriteLine("""
             Snekl stack orchestrator
 
-            Usage:
-              dotnet run --project src/Snekl.Server -- [command] [options]
+            Usage (pick one style):
+              dotnet run --project src/Snekl.Server --launch-profile up
+              dotnet run --project src/Snekl.Server -- up
+
+            Note: Without "--" before the command, dotnet may not pass "up" to this app
+            and you'll get "dev" instead. Prefer --launch-profile on Windows.
 
             Commands:
               dev         Start Redis + Postgres (Docker), then auth/content APIs locally
@@ -144,6 +166,9 @@ public static class StackOrchestrator
               deps-down   Stop Redis + Postgres
               help        Show this help
 
+            Launch profiles (same commands, no "--" needed):
+              --launch-profile dev | up | down | deps | deps-down
+
             Options:
               --no-frontend   Skip starting the React dev server during 'dev'
             """);
@@ -152,8 +177,35 @@ public static class StackOrchestrator
 
     private static int RunDockerCompose(string root, string composeFile, params string[] composeArgs)
     {
+        if (!IsDockerAvailable())
+        {
+            Console.Error.WriteLine("""
+                Docker is not available on PATH. The 'up', 'down', and 'deps' commands require Docker Desktop.
+
+                Install/start Docker Desktop, then retry:
+                  dotnet run --project src/Snekl.Server --launch-profile up
+
+                For local APIs without the full Docker stack, use:
+                  dotnet run --project src/Snekl.Server --launch-profile dev
+                """);
+            return 1;
+        }
+
         var args = string.Join(' ', composeArgs.Prepend("-f").Prepend(composeFile));
+        Console.WriteLine($"Running: docker compose {args}");
         return ProcessRunner.RunToCompletion("docker", $"compose {args}", root);
+    }
+
+    private static bool IsDockerAvailable()
+    {
+        try
+        {
+            return ProcessRunner.RunToCompletion("docker", "version --format '{{.Server.Version}}'", Directory.GetCurrentDirectory()) == 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static async Task<int> RunDevAsync(string root, bool withFrontend, CancellationToken ct)

@@ -61,6 +61,13 @@ From the repository root, with [Docker](https://docs.docker.com/get-docker/) run
 dotnet run --project src/Snekl.Server -- dev
 ```
 
+On Windows, if `dotnet run --project src/Snekl.Server -- up` starts the dev stack instead of Docker, use a launch profile (recommended) or ensure `--` appears before the command:
+
+```bash
+dotnet run --project src/Snekl.Server --launch-profile up
+dotnet run --project src/Snekl.Server -- up
+```
+
 This starts **Redis + PostgreSQL** in Docker, then launches locally:
 
 - **Auth:** http://localhost:5100
@@ -70,6 +77,7 @@ This starts **Redis + PostgreSQL** in Docker, then launches locally:
 Other commands:
 
 ```bash
+dotnet run --project src/Snekl.Server --launch-profile up   # full Docker stack (Windows-friendly)
 dotnet run --project src/Snekl.Server -- up          # full Docker stack
 dotnet run --project src/Snekl.Server -- down        # stop full stack
 dotnet run --project src/Snekl.Server -- deps        # Redis + Postgres only

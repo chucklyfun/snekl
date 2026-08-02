@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { api, authApi } from './api';
 import { buildRegisterChallenge, signMultibaseProof } from './did/didKey';
 import { clearDidKey, getOrCreateDidKey, getStoredDid } from './did/keyStore';
+import { useServerRegistry } from './ServerRegistryContext';
 import type { UserPresentation } from './types';
 
 interface AuthContextValue {
@@ -17,6 +18,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const { refresh: refreshServers } = useServerRegistry();
   const [user, setUser] = useState<UserPresentation | null>(null);
   const [did, setDid] = useState<string | null>(getStoredDid());
   const [loading, setLoading] = useState(true);
@@ -42,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const result = await authApi.login(username, password);
     localStorage.setItem('snekl_token', result.accessToken);
     setDid(result.person.did);
+    await refreshServers();
     await refreshMe();
   };
 
@@ -62,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     localStorage.setItem('snekl_token', result.accessToken);
     setDid(result.person.did);
+    await refreshServers();
     await refreshMe();
     return result.person.did;
   };
@@ -71,6 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     clearDidKey();
     setDid(null);
+    void refreshServers();
   };
 
   return (

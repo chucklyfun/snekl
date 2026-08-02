@@ -1,30 +1,44 @@
-import { type FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router';
-import { api } from '../api';
+import { type FormEvent, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router';
+import { createContentClient } from '../api';
 import { useAuth } from '../AuthContext';
+import { useServerRegistry } from '../ServerRegistryContext';
+import { decodeServerDid, forumPath, resolveServerBaseUrl } from '../serverDid';
 
 export function CreateForumPage() {
+  const { serverDid: encodedDid } = useParams<{ serverDid: string }>();
   const { user } = useAuth();
+  const { resolveBaseUrl } = useServerRegistry();
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [description, setDescription] = useState('');
   const [error, setError] = useState('');
 
+  const serverDid = encodedDid ? decodeServerDid(encodedDid) : '';
+  const baseUrl = resolveServerBaseUrl(serverDid, resolveBaseUrl);
+  const client = useMemo(() => (baseUrl ? createContentClient(baseUrl) : null), [baseUrl]);
+
   if (!user) {
     return (
       <div className="card">
-        <p>Please <a href="/login">log in</a> to create a forum.</p>
+        <p>
+          Please <a href="/login">log in</a> to create a forum.
+        </p>
       </div>
     );
+  }
+
+  if (!baseUrl || !client) {
+    return <div className="error-banner">Unknown content server.</div>;
   }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     try {
-      const forum = await api.createForum(name.trim(), slug.trim().toLowerCase(), description.trim());
-      navigate(`/forums/${forum.slug}`);
+      const forum = await client.createForum(name.trim(), slug.trim().toLowerCase(), description.trim());
+      navigate(forumPath(serverDid, forum.slug));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create forum');
     }
@@ -48,18 +62,29 @@ export function CreateForumPage() {
         </div>
         <div className="form-group">
           <label htmlFor="slug">URL slug</label>
-          <input id="slug" value={slug} onChange={(e) => setSlug(e.target.value)} required pattern="[a-z0-9-]+" />
+          <input
+            id="slug"
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            required
+            pattern="[a-z0-9-]+"
+          />
         </div>
         <div className="form-group">
           <label htmlFor="description">Description</label>
           <textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
-        <button type="submit" className="btn-primary">Create forum</button>
+        <button type="submit" className="btn-primary">
+          Create forum
+        </button>
       </form>
     </div>
   );
 }
 
 function slugify(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 }

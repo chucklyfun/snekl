@@ -26,8 +26,10 @@ public static class DependencyInjection
         services.AddScoped<INodeService, NodeService>();
         services.AddScoped<IFederationService, FederationService>();
         services.AddScoped<IPersonClusterMappingService, PersonClusterMappingService>();
+        services.AddScoped<ISiteAdminAuthService, SiteAdminAuthService>();
         services.AddHttpClient<IFederationClient, FederationClient>();
         services.AddSneklAuthentication(config);
+        services.AddSiteAdminAuthorization();
 
         return services;
     }

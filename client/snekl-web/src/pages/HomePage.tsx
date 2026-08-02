@@ -1,46 +1,121 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { api } from '../api';
-import type { Forum, NodeInfo } from '../types';
+import { aggregateForums, api } from '../api';
+import { useAuth } from '../AuthContext';
+import { useServerRegistry } from '../ServerRegistryContext';
+import { forumPath, shortServerDid } from '../serverDid';
+import type { AggregatedForum, Forum } from '../types';
+
+function toAggregated(forum: Forum): AggregatedForum {
+  return {
+    ...forum,
+    serverDid: '',
+    serverName: 'Local',
+    serverBaseUrl: '',
+    serverStatus: 'active',
+  };
+}
 
 export function HomePage() {
-  const [forums, setForums] = useState<Forum[]>([]);
-  const [node, setNode] = useState<NodeInfo | null>(null);
+  const { user } = useAuth();
+  const { activeServers, loading: serversLoading } = useServerRegistry();
+  const [forums, setForums] = useState<AggregatedForum[]>([]);
   const [error, setError] = useState('');
+  const [filterDid, setFilterDid] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.getForums(), api.getNode()])
-      .then(([forumList, nodeInfo]) => {
-        setForums(forumList);
-        setNode(nodeInfo);
-      })
-      .catch((err) => setError(err.message));
-  }, []);
+    setError('');
+    if (user && !serversLoading) {
+      if (activeServers.length === 0) {
+        setForums([]);
+        return;
+      }
+      aggregateForums(activeServers)
+        .then(setForums)
+        .catch((err) => setError(err.message));
+      return;
+    }
+
+    if (!user) {
+      api
+        .getForums()
+        .then((list) => setForums(list.map(toAggregated)))
+        .catch((err) => setError(err.message));
+    }
+  }, [user, activeServers, serversLoading]);
+
+  const serverFilters = [...new Map(forums.map((f) => [f.serverDid, f.serverName])).entries()].filter(
+    ([did]) => did,
+  );
+
+  const visibleForums = filterDid
+    ? forums.filter((f) => f.serverDid === filterDid)
+    : forums;
 
   return (
     <div>
       <h1 className="page-title">Forums</h1>
       <p className="page-subtitle">
-        {node ? (
-          <>Browsing <strong>{node.name}</strong> — federated content from peer nodes appears here automatically.</>
+        {user ? (
+          <>Mixed feed from {activeServers.length} subscribed server{activeServers.length === 1 ? '' : 's'}.</>
         ) : (
-          'Loading node...'
+          <>Browse forums on the default node. <Link to="/login">Log in</Link> to subscribe to more servers.</>
         )}
       </p>
 
       {error && <div className="error-banner">{error}</div>}
 
-      {forums.length === 0 && !error && (
-        <div className="card">
-          <p>No forums yet. Sign up and create the first one, or subscribe to a peer node in Federation.</p>
+      {user && serverFilters.length > 1 && (
+        <div className="filter-chips">
+          <button
+            type="button"
+            className={`filter-chip${filterDid === null ? ' filter-chip-active' : ''}`}
+            onClick={() => setFilterDid(null)}
+          >
+            All
+          </button>
+          {serverFilters.map(([did, name]) => (
+            <button
+              key={did}
+              type="button"
+              className={`filter-chip${filterDid === did ? ' filter-chip-active' : ''}`}
+              onClick={() => setFilterDid(did)}
+            >
+              {name}
+            </button>
+          ))}
         </div>
       )}
 
-      {forums.map((forum) => (
-        <Link key={forum.id} to={`/forums/${forum.slug}`} className="card card-link">
+      {visibleForums.length === 0 && !error && !serversLoading && (
+        <div className="card">
+          <p>
+            No forums yet.{' '}
+            {user ? (
+              <>
+                <Link to="/servers">Subscribe to a server</Link> or create a forum on one of your nodes.
+              </>
+            ) : (
+              'Sign up and create the first one.'
+            )}
+          </p>
+        </div>
+      )}
+
+      {visibleForums.map((forum) => (
+        <Link
+          key={`${forum.serverDid}:${forum.id}`}
+          to={forum.serverDid ? forumPath(forum.serverDid, forum.slug) : `/forums/${forum.slug}`}
+          className="card card-link"
+        >
           <h2 className="card-title">
             {forum.name}
             {forum.isFederated && <span className="badge badge-federated">federated</span>}
+            {forum.serverDid && (
+              <span className="badge badge-server" title={forum.serverDid}>
+                {forum.serverName} · {shortServerDid(forum.serverDid)}
+              </span>
+            )}
           </h2>
           <p>{forum.description || 'No description'}</p>
           <div className="card-meta">

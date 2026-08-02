@@ -82,3 +82,22 @@ public record PartnerTrustDto(string PartnerBaseUrl, bool IsMutual, DateTime Cre
 
 public record JwksResponse(IReadOnlyList<JwkKey> Keys);
 public record JwkKey(string Kty, string Use, string Kid, string Alg, string N, string E);
+
+public record ContentServerMembershipDto(
+    string ServerDid,
+    string BaseUrl,
+    string Name,
+    Guid? NodeId,
+    string Status,
+    DateTime SubscribedAt);
+
+public record SubscribeContentServerRequest(string BaseUrl);
+
+public record UpdateContentServerStatusRequest(string Status);
+
+public record ContentServerStatusPresetInfo(
+    string Preset,
+    string Label,
+    string Description,
+    bool IncludedInFeed,
+    bool SortFirst);

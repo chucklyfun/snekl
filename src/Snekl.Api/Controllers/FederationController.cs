@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Snekl.Domain.Dtos;
+using Snekl.Infrastructure.Security;
 using Snekl.Infrastructure.Services;
 
 namespace Snekl.Api.Controllers;
@@ -16,7 +18,7 @@ public class NodeController : ControllerBase
     public async Task<ActionResult<NodeInfoDto>> Get(CancellationToken ct)
     {
         var node = await _node.GetOrCreateAsync(ct);
-        return Ok(new NodeInfoDto(node.Id, node.Name, node.BaseUrl, node.Description, node.CreatedAt));
+        return Ok(new NodeInfoDto(node.Id, node.Did, node.Name, node.BaseUrl, node.Description, node.CreatedAt));
     }
 
     [HttpGet(".well-known/snekl")]
@@ -35,6 +37,7 @@ public class FederationController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<PeerDto>>> ListPeers(CancellationToken ct) =>
         Ok(await _federation.ListPeersAsync(ct));
 
+    [Authorize(Policy = SiteAdminAuthorization.SiteAdminPolicy)]
     [HttpPost("peers")]
     public async Task<ActionResult<PeerDto>> Subscribe(SubscribePeerRequest request, CancellationToken ct)
     {
@@ -48,6 +51,7 @@ public class FederationController : ControllerBase
         }
     }
 
+    [Authorize(Policy = SiteAdminAuthorization.SiteAdminPolicy)]
     [HttpDelete("peers/{peerId:guid}")]
     public async Task<IActionResult> Unsubscribe(Guid peerId, CancellationToken ct)
     {

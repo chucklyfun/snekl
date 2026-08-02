@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Snekl.Domain.Dtos;
+using Snekl.Infrastructure.Security;
 using Snekl.Infrastructure.Services;
 
 namespace Snekl.Api.Controllers;
@@ -31,7 +32,7 @@ public class CuratedListsController : ControllerBase
         return list is null ? NotFound() : Ok(list);
     }
 
-    [Authorize]
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpPost]
     public async Task<ActionResult<CuratedListDto>> Create(CreateCuratedListRequest request, CancellationToken ct)
     {
@@ -47,7 +48,7 @@ public class CuratedListsController : ControllerBase
         }
     }
 
-    [Authorize]
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpPost("{listId:guid}/entries")]
     public async Task<ActionResult<ListAnnotationDto>> AddEntry(Guid listId, AddListEntryRequest request, CancellationToken ct)
     {
@@ -62,7 +63,7 @@ public class CuratedListsController : ControllerBase
         }
     }
 
-    [Authorize]
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpPost("{listId:guid}/subscribe")]
     public async Task<IActionResult> Subscribe(Guid listId, SubscribeListRequest request, CancellationToken ct)
     {
@@ -78,7 +79,7 @@ public class CuratedListsController : ControllerBase
         }
     }
 
-    [Authorize]
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpDelete("{listId:guid}/subscribe")]
     public async Task<IActionResult> Unsubscribe(Guid listId, CancellationToken ct)
     {

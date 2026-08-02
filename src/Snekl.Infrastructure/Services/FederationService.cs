@@ -116,7 +116,7 @@ public class FederationService : IFederationService
             localNode.Id,
             localNode.BaseUrl,
             DateTime.UtcNow,
-            new NodeInfoDto(localNode.Id, localNode.Name, localNode.BaseUrl, localNode.Description, localNode.CreatedAt));
+            new NodeInfoDto(localNode.Id, localNode.Did, localNode.Name, localNode.BaseUrl, localNode.Description, localNode.CreatedAt));
 
         await _client.DeliverAsync(baseUrl, envelope, ct);
 

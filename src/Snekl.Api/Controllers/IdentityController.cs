@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Snekl.Domain.Identity;
+using Snekl.Infrastructure.Security;
 using Snekl.Infrastructure.Services;
 
 namespace Snekl.Api.Controllers;
@@ -34,6 +36,7 @@ public class IdentityController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<TrustedAuthIssuer>>> ListIssuers(CancellationToken ct) =>
         Ok(await _mapping.ListTrustedIssuersAsync(ct));
 
+    [Authorize(Policy = SiteAdminAuthorization.SiteAdminPolicy)]
     [HttpPost("issuers")]
     public async Task<ActionResult<TrustedAuthIssuer>> RegisterIssuer(RegisterTrustedIssuerRequest request, CancellationToken ct) =>
         Ok(await _mapping.RegisterTrustedIssuerAsync(request, ct));

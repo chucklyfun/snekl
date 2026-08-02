@@ -1,4 +1,7 @@
 import type {
+  AggregatedForum,
+  ContentServerMembership,
+  ContentServerStatusPreset,
   CuratedList,
   Forum,
   ListAnnotation,
@@ -11,8 +14,8 @@ import type {
   UserStatus,
 } from './types';
 
-const CONTENT_API = import.meta.env.VITE_API_URL ?? 'http://localhost:5001';
-const AUTH_API = import.meta.env.VITE_AUTH_URL ?? 'http://localhost:5100';
+export const CONTENT_API = import.meta.env.VITE_API_URL ?? 'http://localhost:5001';
+export const AUTH_API = import.meta.env.VITE_AUTH_URL ?? 'http://localhost:5100';
 
 function getToken(): string | null {
   return localStorage.getItem('snekl_token');
@@ -59,122 +62,189 @@ export const authApi = {
     }),
 
   me: () => request<RingSession['person']>(AUTH_API, '/api/me'),
-};
 
-export const api = {
-  register: authApi.register,
-  login: authApi.login,
+  getContentServers: () =>
+    request<ContentServerMembership[]>(AUTH_API, '/api/me/content-servers'),
 
-  me: () => request<UserPresentation>(CONTENT_API, '/api/auth/me'),
+  getContentServerPresets: () =>
+    request<ContentServerStatusPreset[]>(AUTH_API, '/api/me/content-servers/presets'),
 
-  getUser: (username: string) => request<UserPresentation>(CONTENT_API, `/api/users/${username}`),
-
-  updateFlair: (flair: {
-    emoji?: string;
-    iconUrl?: string;
-    label?: string;
-    nameColor?: string;
-    nameStyle?: string;
-  }) =>
-    request<UserPresentation>(CONTENT_API, '/api/users/me/flair', {
-      method: 'PUT',
-      body: JSON.stringify(flair),
-    }),
-
-  getStatusPresets: () => request<StatusPreset[]>(CONTENT_API, '/api/users/status/presets'),
-
-  setStatus: (status: {
-    preset: string;
-    message?: string;
-    emoji?: string;
-    iconUrl?: string;
-    linkUrl?: string;
-    eventName?: string;
-    expiresAt: string;
-    avatarOverlay?: {
-      kind: string;
-      emoji?: string;
-      color?: string;
-      ariaLabel?: string;
-    };
-    displayNameSuffix?: string;
-    nameColorOverride?: string;
-  }) =>
-    request<UserStatus>(CONTENT_API, '/api/users/me/status', {
-      method: 'PUT',
-      body: JSON.stringify(status),
-    }),
-
-  clearStatus: () => request<void>(CONTENT_API, '/api/users/me/status', { method: 'DELETE' }),
-
-  getNode: () => request<NodeInfo>(CONTENT_API, '/api/node'),
-
-  getForums: () => request<Forum[]>(CONTENT_API, '/api/forums'),
-
-  getForum: (slug: string) => request<Forum>(CONTENT_API, `/api/forums/${slug}`),
-
-  createForum: (name: string, slug: string, description: string) =>
-    request<Forum>(CONTENT_API, '/api/forums', {
-      method: 'POST',
-      body: JSON.stringify({ name, slug, description }),
-    }),
-
-  getForumThreads: (forumId: string) =>
-    request<Post[]>(CONTENT_API, `/api/posts/forum/${forumId}`),
-
-  getThread: (postId: string) => request<Post>(CONTENT_API, `/api/posts/${postId}`),
-
-  createPost: (forumId: string, message: string, parentPostId?: string) =>
-    request<Post>(CONTENT_API, '/api/posts', {
-      method: 'POST',
-      body: JSON.stringify({ forumId, message, parentPostId: parentPostId ?? null }),
-    }),
-
-  getPeers: () => request<Peer[]>(CONTENT_API, '/api/federation/peers'),
-
-  subscribePeer: (baseUrl: string) =>
-    request<Peer>(CONTENT_API, '/api/federation/peers', {
+  subscribeContentServer: (baseUrl: string) =>
+    request<ContentServerMembership>(AUTH_API, '/api/me/content-servers', {
       method: 'POST',
       body: JSON.stringify({ baseUrl }),
     }),
 
-  unsubscribePeer: (peerId: string) =>
-    request<void>(CONTENT_API, `/api/federation/peers/${peerId}`, { method: 'DELETE' }),
+  updateContentServerStatus: (serverDid: string, status: string) =>
+    request<ContentServerMembership>(
+      AUTH_API,
+      `/api/me/content-servers/${encodeURIComponent(serverDid)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ status }),
+      },
+    ),
 
-  getLists: () => request<CuratedList[]>(CONTENT_API, '/api/lists'),
-
-  createList: (data: {
-    name: string;
-    description: string;
-    defaultBehavior: string;
-    defaultFlairEmoji?: string;
-    isPublic: boolean;
-  }) =>
-    request<CuratedList>(CONTENT_API, '/api/lists', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  subscribeList: (listId: string, appliedBehavior: string) =>
-    request<void>(CONTENT_API, `/api/lists/${listId}/subscribe`, {
-      method: 'POST',
-      body: JSON.stringify({ appliedBehavior }),
-    }),
-
-  unsubscribeList: (listId: string) =>
-    request<void>(CONTENT_API, `/api/lists/${listId}/subscribe`, { method: 'DELETE' }),
-
-  addListEntry: (listId: string, data: {
-    targetUserId: string;
-    severity: number;
-    tooltipText: string;
-    flairEmoji?: string;
-    usernameColor?: string;
-  }) =>
-    request<ListAnnotation>(CONTENT_API, `/api/lists/${listId}/entries`, {
-      method: 'POST',
-      body: JSON.stringify(data),
+  unsubscribeContentServer: (serverDid: string) =>
+    request<void>(AUTH_API, `/api/me/content-servers/${encodeURIComponent(serverDid)}`, {
+      method: 'DELETE',
     }),
 };
 
-export { AUTH_API, CONTENT_API };
+export function createContentClient(baseUrl: string) {
+  const root = baseUrl.replace(/\/$/, '');
+  return {
+    me: () => request<UserPresentation>(root, '/api/auth/me'),
+    getUser: (username: string) => request<UserPresentation>(root, `/api/users/${username}`),
+    updateFlair: (flair: {
+      emoji?: string;
+      iconUrl?: string;
+      label?: string;
+      nameColor?: string;
+      nameStyle?: string;
+    }) =>
+      request<UserPresentation>(root, '/api/users/me/flair', {
+        method: 'PUT',
+        body: JSON.stringify(flair),
+      }),
+    getStatusPresets: () => request<StatusPreset[]>(root, '/api/users/status/presets'),
+    setStatus: (status: {
+      preset: string;
+      message?: string;
+      emoji?: string;
+      iconUrl?: string;
+      linkUrl?: string;
+      eventName?: string;
+      expiresAt: string;
+      avatarOverlay?: {
+        kind: string;
+        emoji?: string;
+        color?: string;
+        ariaLabel?: string;
+      };
+      displayNameSuffix?: string;
+      nameColorOverride?: string;
+    }) =>
+      request<UserStatus>(root, '/api/users/me/status', {
+        method: 'PUT',
+        body: JSON.stringify(status),
+      }),
+    clearStatus: () => request<void>(root, '/api/users/me/status', { method: 'DELETE' }),
+    getNode: () => request<NodeInfo>(root, '/api/node'),
+    getForums: () => request<Forum[]>(root, '/api/forums'),
+    getForum: (slug: string) => request<Forum>(root, `/api/forums/${slug}`),
+    createForum: (name: string, slug: string, description: string) =>
+      request<Forum>(root, '/api/forums', {
+        method: 'POST',
+        body: JSON.stringify({ name, slug, description }),
+      }),
+    getForumThreads: (forumId: string) => request<Post[]>(root, `/api/posts/forum/${forumId}`),
+    getThread: (postId: string) => request<Post>(root, `/api/posts/${postId}`),
+    createPost: (forumId: string, message: string, parentPostId?: string) =>
+      request<Post>(root, '/api/posts', {
+        method: 'POST',
+        body: JSON.stringify({ forumId, message, parentPostId: parentPostId ?? null }),
+      }),
+    getPeers: () => request<Peer[]>(root, '/api/federation/peers'),
+    subscribePeer: (peerBaseUrl: string) =>
+      request<Peer>(root, '/api/federation/peers', {
+        method: 'POST',
+        body: JSON.stringify({ baseUrl: peerBaseUrl }),
+      }),
+    unsubscribePeer: (peerId: string) =>
+      request<void>(root, `/api/federation/peers/${peerId}`, { method: 'DELETE' }),
+    getLists: () => request<CuratedList[]>(root, '/api/lists'),
+    createList: (data: {
+      name: string;
+      description: string;
+      defaultBehavior: string;
+      defaultFlairEmoji?: string;
+      isPublic: boolean;
+    }) =>
+      request<CuratedList>(root, '/api/lists', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    subscribeList: (listId: string, appliedBehavior: string) =>
+      request<void>(root, `/api/lists/${listId}/subscribe`, {
+        method: 'POST',
+        body: JSON.stringify({ appliedBehavior }),
+      }),
+    unsubscribeList: (listId: string) =>
+      request<void>(root, `/api/lists/${listId}/subscribe`, { method: 'DELETE' }),
+    addListEntry: (
+      listId: string,
+      data: {
+        targetUserId: string;
+        severity: number;
+        tooltipText: string;
+        flairEmoji?: string;
+        usernameColor?: string;
+      },
+    ) =>
+      request<ListAnnotation>(root, `/api/lists/${listId}/entries`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+  };
+}
+
+export async function aggregateForums(
+  servers: ContentServerMembership[],
+): Promise<AggregatedForum[]> {
+  const results = await Promise.allSettled(
+    servers.map(async (server) => {
+      const client = createContentClient(server.baseUrl);
+      const forums = await client.getForums();
+      return forums.map(
+        (forum): AggregatedForum => ({
+          ...forum,
+          serverDid: server.serverDid,
+          serverName: server.name,
+          serverBaseUrl: server.baseUrl,
+          serverStatus: server.status,
+        }),
+      );
+    }),
+  );
+
+  const merged: AggregatedForum[] = [];
+  for (const result of results) {
+    if (result.status === 'fulfilled') merged.push(...result.value);
+  }
+
+  return merged.sort((a, b) => {
+    const aFav = a.serverStatus === 'favorite' ? 0 : 1;
+    const bFav = b.serverStatus === 'favorite' ? 0 : 1;
+    if (aFav !== bFav) return aFav - bFav;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+}
+
+const defaultClient = createContentClient(CONTENT_API);
+
+export const api = {
+  register: authApi.register,
+  login: authApi.login,
+  me: () => defaultClient.me(),
+  getUser: (username: string) => defaultClient.getUser(username),
+  updateFlair: defaultClient.updateFlair,
+  getStatusPresets: defaultClient.getStatusPresets,
+  setStatus: defaultClient.setStatus,
+  clearStatus: defaultClient.clearStatus,
+  getNode: defaultClient.getNode,
+  getForums: defaultClient.getForums,
+  getForum: defaultClient.getForum,
+  createForum: defaultClient.createForum,
+  getForumThreads: defaultClient.getForumThreads,
+  getThread: defaultClient.getThread,
+  createPost: defaultClient.createPost,
+  getPeers: defaultClient.getPeers,
+  subscribePeer: defaultClient.subscribePeer,
+  unsubscribePeer: defaultClient.unsubscribePeer,
+  getLists: defaultClient.getLists,
+  createList: defaultClient.createList,
+  subscribeList: defaultClient.subscribeList,
+  unsubscribeList: defaultClient.unsubscribeList,
+  addListEntry: defaultClient.addListEntry,
+};

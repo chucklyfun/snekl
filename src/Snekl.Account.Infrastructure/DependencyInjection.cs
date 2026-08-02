@@ -25,6 +25,7 @@ public static class DependencyInjection
         services.AddScoped<IPartnerService, PartnerService>();
         services.AddScoped<IIdentityCredentialService, IdentityCredentialService>();
         services.AddHttpClient<IPartnerClient, PartnerClient>();
+        services.AddHttpClient<IContentServerMembershipService, ContentServerMembershipService>();
 
         return services;
     }

@@ -17,8 +17,6 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
 
 builder.Services.AddSneklInfrastructure(connectionString, builder.Configuration);
 
-builder.Services.AddAuthorization();
-
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -48,6 +46,11 @@ using (var scope = app.Services.CreateScope())
     }
 
     await SeedTrustedAuthIssuersAsync(db, builder.Configuration);
+
+    var adminAuth = scope.ServiceProvider.GetRequiredService<ISiteAdminAuthService>();
+    var adminUser = builder.Configuration["Admin:Username"] ?? "admin";
+    var adminPass = builder.Configuration["Admin:Password"] ?? "admin";
+    await adminAuth.EnsureSeedAdminAsync(adminUser, adminPass);
 }
 
 if (app.Environment.IsDevelopment())

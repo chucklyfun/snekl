@@ -2,6 +2,7 @@ namespace Snekl.Domain.Dtos;
 
 public record NodeInfoDto(
     Guid Id,
+    string Did,
     string Name,
     string BaseUrl,
     string Description,
@@ -49,6 +50,10 @@ public record PostDto(
 
 public record SubscribePeerRequest(string BaseUrl);
 public record PeerDto(Guid Id, string BaseUrl, string Name, Guid RemoteNodeId, bool IsActive, DateTime SubscribedAt);
+
+public record SiteAdminDto(Guid Id, string Username, DateTime CreatedAt);
+public record SiteAdminAuthResponse(string Token, SiteAdminDto Admin);
+public record UpdateNodeRequest(string Name, string BaseUrl, string Description);
 
 public record FederationEnvelope(
     string Type,

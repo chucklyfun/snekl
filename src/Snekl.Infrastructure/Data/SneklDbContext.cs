@@ -20,6 +20,7 @@ public class SneklDbContext : DbContext
     public DbSet<PersonClusterRecord> PersonClusterRecords => Set<PersonClusterRecord>();
     public DbSet<AuthorIdentityMap> AuthorIdentityMaps => Set<AuthorIdentityMap>();
     public DbSet<TrustedAuthIssuer> TrustedAuthIssuers => Set<TrustedAuthIssuer>();
+    public DbSet<SiteAdmin> SiteAdmins => Set<SiteAdmin>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -106,6 +107,12 @@ public class SneklDbContext : DbContext
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.IssuerUrl).IsUnique();
+        });
+
+        modelBuilder.Entity<SiteAdmin>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Username).IsUnique();
         });
     }
 }

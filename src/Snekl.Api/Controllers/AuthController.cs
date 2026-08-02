@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Snekl.Domain.Dtos;
+using Snekl.Infrastructure.Security;
 using Snekl.Infrastructure.Services;
 
 namespace Snekl.Api.Controllers;
@@ -39,7 +40,7 @@ public class AuthController : ControllerBase
         return result is null ? Unauthorized(new { error = "Invalid credentials." }) : Ok(result);
     }
 
-    [Authorize]
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpGet("me")]
     public async Task<ActionResult<UserPresentationDto>> Me(CancellationToken ct)
     {

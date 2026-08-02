@@ -40,6 +40,8 @@ export function LoginPage() {
       </form>
       <p style={{ marginTop: '1rem', color: 'var(--muted)' }}>
         No account? <Link to="/register">Sign up</Link>
+        {' · '}
+        <Link to="/admin/login">Site admin login</Link>
       </p>
     </div>
   );

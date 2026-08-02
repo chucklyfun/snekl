@@ -94,6 +94,7 @@ export interface Post {
 
 export interface NodeInfo {
   id: string;
+  did: string;
   name: string;
   baseUrl: string;
   description: string;
@@ -145,6 +146,30 @@ export interface RingSession {
   generatedKeyPrivatePkcs8Base64?: string | null;
 }
 
+export interface ContentServerMembership {
+  serverDid: string;
+  baseUrl: string;
+  name: string;
+  nodeId?: string | null;
+  status: string;
+  subscribedAt: string;
+}
+
+export interface ContentServerStatusPreset {
+  preset: string;
+  label: string;
+  description: string;
+  includedInFeed: boolean;
+  sortFirst: boolean;
+}
+
+export interface AggregatedForum extends Forum {
+  serverDid: string;
+  serverName: string;
+  serverBaseUrl: string;
+  serverStatus: string;
+}
+
 export interface StatusPreset {
   preset: string;
   label: string;
@@ -167,4 +192,10 @@ export interface CuratedList {
   subscriberCount: number;
   createdAt: string;
   isOwner: boolean;
+}
+
+export interface SiteAdmin {
+  id: string;
+  username: string;
+  createdAt: string;
 }

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Snekl.Domain.Dtos;
+using Snekl.Infrastructure.Security;
 using Snekl.Infrastructure.Services;
 
 namespace Snekl.Api.Controllers;
@@ -46,7 +47,7 @@ public class ForumsController : ControllerBase
         return forum is null ? NotFound() : Ok(forum);
     }
 
-    [Authorize]
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpPost]
     public async Task<ActionResult<ForumDto>> Create(CreateForumRequest request, CancellationToken ct)
     {

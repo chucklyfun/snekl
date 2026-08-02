@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Snekl.Domain.Dtos;
+using Snekl.Infrastructure.Security;
 using Snekl.Infrastructure.Services;
 
 namespace Snekl.Api.Controllers;
@@ -32,7 +33,7 @@ public class UsersController : ControllerBase
         return profile is null ? NotFound() : Ok(profile);
     }
 
-    [Authorize]
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpPut("me/flair")]
     public async Task<ActionResult<UserPresentationDto>> UpdateFlair(UpdateUserFlairRequest request, CancellationToken ct)
     {
@@ -45,7 +46,7 @@ public class UsersController : ControllerBase
     public ActionResult<IReadOnlyList<StatusPresetInfo>> GetPresets() =>
         Ok(_profile.GetStatusPresets());
 
-    [Authorize]
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpPut("me/status")]
     public async Task<ActionResult<UserStatusDto>> SetStatus(SetUserStatusRequest request, CancellationToken ct)
     {
@@ -60,7 +61,7 @@ public class UsersController : ControllerBase
         }
     }
 
-    [Authorize]
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpDelete("me/status")]
     public async Task<IActionResult> ClearStatus(CancellationToken ct)
     {

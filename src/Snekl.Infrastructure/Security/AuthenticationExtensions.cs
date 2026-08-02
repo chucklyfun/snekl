@@ -18,6 +18,7 @@ public class ExternalAuthClaimsTransformation : IClaimsTransformation
     {
         if (principal.Identity?.IsAuthenticated != true) return principal;
         if (principal.HasClaim("auth_source", "shadow")) return principal;
+        if (SiteAdminAuthorization.IsSiteAdmin(principal)) return principal;
 
         var did = principal.FindFirstValue("did");
         if (string.IsNullOrWhiteSpace(did)) return principal;
@@ -61,7 +62,7 @@ public static class AuthenticationExtensions
                     ValidateAudience = true,
                     ValidateLifetime = true,
                     ValidateIssuerSigningKey = true,
-                    ValidAudience = "snekl",
+                    ValidAudiences = ["snekl", SiteAdminClaims.Audience],
                     IssuerSigningKeyResolver = (_, securityToken, _, _) =>
                     {
                         // JwtBearer may pass JsonWebToken (default) or JwtSecurityToken.

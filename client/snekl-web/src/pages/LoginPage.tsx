@@ -68,7 +68,7 @@ export function LoginPage() {
           {!showDevReset ? (
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-ghost"
               onClick={() => {
                 setShowDevReset(true);
                 setError('');
@@ -95,7 +95,7 @@ export function LoginPage() {
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button type="submit" className="btn-primary">Set new password</button>
-                <button type="button" className="btn-secondary" onClick={() => setShowDevReset(false)}>
+                <button type="button" className="btn-ghost" onClick={() => setShowDevReset(false)}>
                   Cancel
                 </button>
               </div>

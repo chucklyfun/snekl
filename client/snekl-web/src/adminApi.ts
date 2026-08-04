@@ -14,7 +14,15 @@ async function adminRequest<T>(path: string, options: RequestInit = {}): Promise
   const token = getAdminToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(`${CONTENT_API}${path}`, { ...options, headers });
+  const url = `${CONTENT_API}${path}`;
+  let response: Response;
+  try {
+    response = await fetch(url, { ...options, headers });
+  } catch {
+    throw new Error(
+      `Can't reach ${CONTENT_API}. Is the content API running? Try: dotnet run --project src/Snekl.Server --no-launch-profile -- status`,
+    );
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));

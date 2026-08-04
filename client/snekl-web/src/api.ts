@@ -37,11 +37,19 @@ async function request<T>(baseUrl: string, path: string, options: RequestInit = 
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(`${baseUrl}${path}`, { ...options, headers });
+  const url = `${baseUrl}${path}`;
+  let response: Response;
+  try {
+    response = await fetch(url, { ...options, headers });
+  } catch {
+    throw new Error(
+      `Can't reach ${baseUrl}. Is the API running? Try: dotnet run --project src/Snekl.Server --no-launch-profile -- status`,
+    );
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.error ?? `Request failed (${response.status})`);
+    throw new Error(body.error ?? `Request failed (${response.status}) at ${url}`);
   }
 
   if (response.status === 204) return undefined as T;

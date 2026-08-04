@@ -16,6 +16,7 @@ public interface IAccountAuthService
     Task<RingSessionDto> RegisterAsync(RegisterRequest request, CancellationToken ct = default);
     Task<RingSessionDto> ImportAsync(ImportIdentityRequest request, CancellationToken ct = default);
     Task<RingSessionDto?> LoginAsync(LoginRequest request, CancellationToken ct = default);
+    Task<bool> EmailExistsAsync(string email, CancellationToken ct = default);
     Task DevResetPasswordAsync(DevResetPasswordRequest request, CancellationToken ct = default);
     Task<AuthIdentity?> GetIdentityAsync(Guid identityId, CancellationToken ct = default);
 }
@@ -164,41 +165,61 @@ public class AccountAuthService : IAccountAuthService
     {
         var config = await _server.GetOrCreateAsync(ct);
         var email = request.Email.Trim().ToLowerInvariant();
+        var serverUrl = config.BaseUrl.Trim().TrimEnd('/');
 
         var candidates = await _db.AuthIdentities
             .Include(i => i.PersonCluster)
-            .ThenInclude(c => c!.Identities)
-            .Where(i =>
-                i.AuthServerUrl == config.BaseUrl &&
-                i.PersonCluster!.Email == email)
+            .Where(i => i.PersonCluster!.Email == email && i.PasswordHash != null)
             .ToListAsync(ct);
 
         var identity = candidates
-            .Where(i => i.PasswordHash is not null && BCrypt.Net.BCrypt.Verify(request.Password, i.PasswordHash))
-            .OrderByDescending(i => i.PersonCluster!.EmailVerifiedAt != null)
+            .Where(i => BCrypt.Net.BCrypt.Verify(request.Password, i.PasswordHash!))
+            .OrderByDescending(i =>
+                string.Equals(i.AuthServerUrl?.Trim().TrimEnd('/'), serverUrl, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(i => i.PersonCluster!.EmailVerifiedAt != null)
             .ThenByDescending(i => i.PersonCluster!.CreatedAt)
             .FirstOrDefault();
 
         if (identity is null)
             return null;
 
+        if (!string.Equals(identity.AuthServerUrl?.Trim().TrimEnd('/'), serverUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            identity.AuthServerUrl = serverUrl;
+            await _db.SaveChangesAsync(ct);
+        }
+
         return await _ring.CreateRingSessionAsync(identity, identity.PersonCluster!, config, ct);
+    }
+
+    public Task<bool> EmailExistsAsync(string email, CancellationToken ct = default)
+    {
+        email = email.Trim().ToLowerInvariant();
+        return _db.PersonClusters.AnyAsync(c => c.Email == email, ct);
     }
 
     public async Task DevResetPasswordAsync(DevResetPasswordRequest request, CancellationToken ct = default)
     {
         var config = await _server.GetOrCreateAsync(ct);
-        var username = request.Username.Trim().ToLowerInvariant();
+        var email = request.Email.Trim().ToLowerInvariant();
+
+        if (string.IsNullOrWhiteSpace(email))
+            throw new InvalidOperationException("Email is required.");
 
         if (string.IsNullOrWhiteSpace(request.NewPassword) || request.NewPassword.Length < 6)
             throw new InvalidOperationException("New password must be at least 6 characters.");
 
-        var identity = await _db.AuthIdentities
+        var candidates = await _db.AuthIdentities
             .Include(i => i.PersonCluster)
-            .FirstOrDefaultAsync(i =>
-                i.AuthServerUrl == config.BaseUrl &&
-                i.PersonCluster!.CanonicalUsername == username, ct)
-            ?? throw new InvalidOperationException("User not found on this auth server.");
+            .Where(i => i.PersonCluster!.Email == email)
+            .ToListAsync(ct);
+
+        var identity = candidates
+            .OrderByDescending(i => i.AuthServerUrl == config.BaseUrl)
+            .ThenByDescending(i => i.PersonCluster!.CreatedAt)
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException(
+                "No account with that email. In dev the auth database is wiped when the auth server restarts — create a new account at /register, or use the exact email from signup.");
 
         identity.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
         await _db.SaveChangesAsync(ct);

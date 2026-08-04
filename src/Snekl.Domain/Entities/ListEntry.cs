@@ -11,6 +11,7 @@ public class ListEntry
     public Guid TargetUserId { get; set; }
     public User? TargetUser { get; set; }
     public AnnotationSeverity Severity { get; set; } = AnnotationSeverity.Notice;
+    public string Label { get; set; } = string.Empty;
     public string TooltipText { get; set; } = string.Empty;
     public string? FlairEmoji { get; set; }
     public string? FlairIconUrl { get; set; }

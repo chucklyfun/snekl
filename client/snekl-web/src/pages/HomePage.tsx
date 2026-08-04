@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { aggregateForums, api } from '../api';
+import { aggregateForums, api, CONTENT_API, fetchAggregatedRecentPosts } from '../api';
+import { UpvoteButton } from '../components/UpvoteButton';
+import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';
 import { useServerRegistry } from '../ServerRegistryContext';
-import { forumPath, shortServerDid } from '../serverDid';
-import type { AggregatedForum, Forum } from '../types';
+import { forumPath, shortServerDid, threadPath } from '../serverDid';
+import type { AggregatedForum, AggregatedPost, Forum } from '../types';
 
 function toAggregated(forum: Forum): AggregatedForum {
   return {
@@ -20,6 +22,7 @@ export function HomePage() {
   const { user } = useAuth();
   const { activeServers, loading: serversLoading } = useServerRegistry();
   const [forums, setForums] = useState<AggregatedForum[]>([]);
+  const [hotPosts, setHotPosts] = useState<AggregatedPost[]>([]);
   const [error, setError] = useState('');
   const [filterDid, setFilterDid] = useState<string | null>(null);
 
@@ -28,11 +31,15 @@ export function HomePage() {
     if (user && !serversLoading) {
       if (activeServers.length === 0) {
         setForums([]);
+        setHotPosts([]);
         return;
       }
       aggregateForums(activeServers)
         .then(setForums)
         .catch((err) => setError(err.message));
+      fetchAggregatedRecentPosts(activeServers, 'hot', 15)
+        .then(setHotPosts)
+        .catch(() => setHotPosts([]));
       return;
     }
 
@@ -41,6 +48,13 @@ export function HomePage() {
         .getForums()
         .then((list) => setForums(list.map(toAggregated)))
         .catch((err) => setError(err.message));
+      fetchAggregatedRecentPosts(
+        [{ serverDid: '', baseUrl: CONTENT_API, name: 'Local', status: 'active', subscribedAt: '' }],
+        'hot',
+        15,
+      )
+        .then(setHotPosts)
+        .catch(() => setHotPosts([]));
     }
   }, [user, activeServers, serversLoading]);
 
@@ -64,6 +78,62 @@ export function HomePage() {
       </p>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {hotPosts.length > 0 && (
+        <section style={{ marginBottom: '2rem' }}>
+          <h2 className="section-title">Hot posts</h2>
+          <p className="page-subtitle" style={{ marginTop: '-0.5rem' }}>
+            Owned posts from your selected servers — one query handles aggregation.
+          </p>
+          {hotPosts.map((post) => (
+            <div key={`${post.serverDid}:${post.id}`} className="card thread-card">
+              <div className="thread-card-main">
+                <UpvoteButton
+                  postId={post.id}
+                  baseUrl={post.serverBaseUrl}
+                  upvoteCount={post.upvoteCount}
+                  viewerHasUpvoted={post.viewerHasUpvoted}
+                  compact
+                />
+                <div className="thread-card-body">
+                  <div className="card-meta" style={{ marginBottom: '0.35rem' }}>
+                    {post.serverDid ? (
+                      <span className="badge badge-server" title={post.serverDid}>
+                        {post.serverName} · {shortServerDid(post.serverDid)}
+                      </span>
+                    ) : null}
+                    <Link
+                      to={
+                        post.serverDid
+                          ? forumPath(post.serverDid, post.forumSlug, post.parentForumSlug ?? undefined)
+                          : `/forums/${post.forumSlug}`
+                      }
+                      style={{ marginLeft: post.serverDid ? '0.5rem' : 0 }}
+                    >
+                      {post.forumName}
+                    </Link>
+                  </div>
+                  <Link
+                    to={
+                      post.serverDid
+                        ? threadPath(post.serverDid, post.id)
+                        : `/threads/${post.id}`
+                    }
+                    className="card-link"
+                  >
+                    <UserByline presentation={post.author} timestamp={post.createdAt} showStatus={false} />
+                    <p className="post-body">
+                      {post.message.slice(0, 180)}
+                      {post.message.length > 180 ? '…' : ''}
+                    </p>
+                  </Link>
+                  <div className="card-meta">{post.replyCount} replies</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
 
       {user && serverFilters.length > 1 && (
         <div className="filter-chips">

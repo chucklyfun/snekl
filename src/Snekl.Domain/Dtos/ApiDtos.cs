@@ -42,6 +42,26 @@ public record ForumDto(
     bool AllowAliases = true);
 
 public record CreatePostRequest(Guid ForumId, Guid? ParentPostId, string Message);
+public record UpdatePostRequest(string Message);
+
+public record PostViewerActionsDto(
+    bool CanEdit,
+    bool CanSoftDelete,
+    bool CanHardDelete,
+    bool CanViewHistory,
+    bool CanLock = false,
+    bool CanUnlock = false,
+    bool CanPin = false,
+    bool CanUnpin = false,
+    bool CanReport = false);
+
+public record PostRevisionDto(
+    Guid Id,
+    string Message,
+    Guid EditedByUserId,
+    string EditedByUsername,
+    DateTime CreatedAt);
+
 public record PostDto(
     Guid Id,
     Guid ForumId,
@@ -49,13 +69,37 @@ public record PostDto(
     UserPresentationDto Author,
     string Message,
     int ReplyCount,
+    int UpvoteCount,
+    bool ViewerHasUpvoted,
     string? OriginNodeUrl,
     bool IsFederated,
+    bool IsDeleted,
+    bool IsLocked,
+    bool IsPinned,
+    DateTime? EditedAt,
     DateTime CreatedAt,
-    List<PostDto> Replies);
+    List<PostDto> Replies,
+    PostViewerActionsDto? ViewerActions = null);
+
+public record UpvoteResultDto(int UpvoteCount, bool ViewerHasUpvoted);
+
+public record RecentThreadDto(
+    PostDto Post,
+    string ForumSlug,
+    string ForumName,
+    string? ParentForumSlug,
+    string OwnerBaseUrl,
+    string OwnerDid);
 
 public record SubscribePeerRequest(string BaseUrl);
 public record PeerDto(Guid Id, string BaseUrl, string Name, Guid RemoteNodeId, bool IsActive, DateTime SubscribedAt);
+
+public record NetworkServerDto(
+    string Did,
+    Guid NodeId,
+    string BaseUrl,
+    string Name,
+    bool IsSelf);
 
 public record SiteAdminDto(Guid Id, string Username, DateTime CreatedAt);
 public record SiteAdminAuthResponse(string Token, SiteAdminDto Admin);
@@ -66,7 +110,8 @@ public record FederationEnvelope(
     Guid SourceNodeId,
     string SourceNodeUrl,
     DateTime Timestamp,
-    object Payload);
+    object Payload,
+    string? Signature = null);
 
 public record FederatedPostPayload(
     Guid Id,
@@ -77,6 +122,15 @@ public record FederatedPostPayload(
     FederatedUserPayload Author,
     string Message,
     DateTime CreatedAt);
+
+public record FederatedPostUpdatePayload(
+    Guid Id,
+    string Message,
+    DateTime EditedAt);
+
+public record FederatedPostDeletePayload(
+    Guid Id,
+    DateTime DeletedAt);
 
 public record FederatedUserPayload(
     Guid Id,
@@ -201,3 +255,29 @@ public record UpdateForumSettingsRequest(
     string? Name,
     string? Description,
     bool? AllowAliases);
+
+public record BanForumMemberRequest(string Username, string? Reason, DateTime? ExpiresAt);
+
+public record ForumBanDto(
+    Guid Id,
+    Guid UserId,
+    string Username,
+    string DisplayName,
+    string? Reason,
+    DateTime? ExpiresAt,
+    string BannedByUsername,
+    DateTime CreatedAt);
+
+public record ReportPostRequest(string Reason);
+
+public record PostReportDto(
+    Guid Id,
+    Guid PostId,
+    string PostPreview,
+    string PostAuthorUsername,
+    Guid ReporterUserId,
+    string ReporterUsername,
+    string Reason,
+    string Status,
+    DateTime CreatedAt,
+    DateTime? ResolvedAt);

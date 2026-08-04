@@ -3,10 +3,11 @@ import { api, authApi } from './api';
 import { buildRegisterChallenge, signMultibaseProof } from './did/didKey';
 import { clearDidKey, getOrCreateDidKey, getStoredDid } from './did/keyStore';
 import { useServerRegistry } from './ServerRegistryContext';
-import type { UserPresentation } from './types';
+import type { PersonCluster, UserPresentation } from './types';
 
 interface AuthContextValue {
   user: UserPresentation | null;
+  person: PersonCluster | null;
   did: string | null;
   isSuperUser: boolean;
   serverPermissions: string[];
@@ -22,6 +23,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { refresh: refreshServers } = useServerRegistry();
   const [user, setUser] = useState<UserPresentation | null>(null);
+  const [person, setPerson] = useState<PersonCluster | null>(null);
   const [isSuperUser, setIsSuperUser] = useState(false);
   const [serverPermissions, setServerPermissions] = useState<string[]>([]);
   const [did, setDid] = useState<string | null>(getStoredDid());
@@ -31,15 +33,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = localStorage.getItem('snekl_token');
     if (!token) {
       setUser(null);
+      setPerson(null);
       setIsSuperUser(false);
       setServerPermissions([]);
       return;
     }
-    const me = await api.me();
-    setUser(me.user);
-    setIsSuperUser(me.isSuperUser);
-    setServerPermissions(me.serverPermissions);
-    setDid(getStoredDid());
+    try {
+      const me = await api.me();
+      setUser(me.user);
+      setIsSuperUser(me.isSuperUser);
+      setServerPermissions(me.serverPermissions);
+      setDid(getStoredDid());
+      try {
+        setPerson(await authApi.me());
+      } catch {
+        setPerson(null);
+      }
+    } catch {
+      // Drop stale tokens so anonymous views do not send broken auth headers.
+      localStorage.removeItem('snekl_token');
+      setUser(null);
+      setPerson(null);
+      setIsSuperUser(false);
+      setServerPermissions([]);
+    }
   };
 
   useEffect(() => {
@@ -81,6 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     localStorage.removeItem('snekl_token');
     setUser(null);
+    setPerson(null);
     setIsSuperUser(false);
     setServerPermissions([]);
     clearDidKey();
@@ -90,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, did, isSuperUser, serverPermissions, loading, login, register, logout, refreshMe }}
+      value={{ user, person, did, isSuperUser, serverPermissions, loading, login, register, logout, refreshMe }}
     >
       {children}
     </AuthContext.Provider>

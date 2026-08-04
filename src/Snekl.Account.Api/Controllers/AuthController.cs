@@ -12,17 +12,20 @@ public class AuthController : ControllerBase
     private readonly IPasswordResetService _passwordReset;
     private readonly IEmailVerificationService _emailVerification;
     private readonly IConfiguration _configuration;
+    private readonly IWebHostEnvironment _environment;
 
     public AuthController(
         IAccountAuthService auth,
         IPasswordResetService passwordReset,
         IEmailVerificationService emailVerification,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IWebHostEnvironment environment)
     {
         _auth = auth;
         _passwordReset = passwordReset;
         _emailVerification = emailVerification;
         _configuration = configuration;
+        _environment = environment;
     }
 
     [HttpPost("register")]
@@ -55,11 +58,26 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<RingSessionDto>> Login(LoginRequest request, CancellationToken ct)
     {
         var result = await _auth.LoginAsync(request, ct);
-        return result is null ? Unauthorized(new { error = "Invalid credentials." }) : Ok(result);
+        if (result is not null)
+            return Ok(result);
+
+        if (_environment.IsDevelopment())
+        {
+            var email = request.Email.Trim().ToLowerInvariant();
+            if (!await _auth.EmailExistsAsync(email, ct))
+            {
+                return Unauthorized(new
+                {
+                    error = "No account with that email. Create one at /register. If you used --reset-db or deleted Docker volumes, previous accounts are gone."
+                });
+            }
+        }
+
+        return Unauthorized(new { error = "Invalid credentials." });
     }
 
     [HttpPost("forgot-password")]
-    public async Task<ActionResult<MessageResponse>> ForgotPassword(ForgotPasswordRequest request, CancellationToken ct)
+    public async Task<ActionResult<ForgotPasswordResponse>> ForgotPassword(ForgotPasswordRequest request, CancellationToken ct)
     {
         return Ok(await _passwordReset.RequestResetAsync(request, ct));
     }

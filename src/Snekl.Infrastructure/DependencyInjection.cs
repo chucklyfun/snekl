@@ -23,6 +23,10 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IForumService, ForumService>();
         services.AddScoped<IPostService, PostService>();
+        services.AddScoped<IPostUpvoteService, PostUpvoteService>();
+        services.AddHttpClient<IPostAggregationService, PostAggregationService>();
+        services.AddScoped<IFederationEnvelopeValidator, FederationEnvelopeValidator>();
+        services.AddHttpClient<INodeDidResolver, NodeDidResolver>();
         services.AddScoped<INodeService, NodeService>();
         services.AddScoped<IFederationService, FederationService>();
         services.AddScoped<IPersonClusterMappingService, PersonClusterMappingService>();
@@ -33,6 +37,7 @@ public static class DependencyInjection
         services.AddScoped<IServerRoleService, ServerRoleService>();
         services.AddScoped<IForumRoleService, ForumRoleService>();
         services.AddScoped<IForumMemberService, ForumMemberService>();
+        services.AddScoped<IForumModerationService, ForumModerationService>();
         services.AddHttpClient<IFederationClient, FederationClient>();
         services.AddSneklAuthentication(config);
         services.AddSiteAdminAuthorization();

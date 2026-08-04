@@ -79,9 +79,9 @@ export function AnnotationTooltip({ annotation, children }: { annotation: ListAn
       {children}
       {open && (
         <span className="annotation-popover" role="tooltip">
-          <strong>{annotation.listName}</strong>
+          <strong>{annotation.label}</strong>
+          <span className="annotation-list-name">{annotation.listName}</span>
           <span>{annotation.tooltipText}</span>
-          <small>Severity {annotation.severity}</small>
         </span>
       )}
     </span>
@@ -91,6 +91,7 @@ export function AnnotationTooltip({ annotation, children }: { annotation: ListAn
 export function UserByline({
   presentation,
   timestamp,
+  editedAt,
   showStatus = true,
 }: {
   presentation: {
@@ -110,6 +111,7 @@ export function UserByline({
     avatarOverlay?: Overlay | null;
   };
   timestamp?: string;
+  editedAt?: string | null;
   showStatus?: boolean;
 }) {
   const nameStyle: CSSProperties = {
@@ -139,7 +141,7 @@ export function UserByline({
             ) : null}
             {presentation.annotations.map((a) => (
               <AnnotationTooltip key={a.listId} annotation={a}>
-                <FlairBadge emoji={a.flairEmoji} iconUrl={a.flairIconUrl} />
+                <FlairBadge emoji={a.flairEmoji} iconUrl={a.flairIconUrl} title={a.label} />
               </AnnotationTooltip>
             ))}
             {presentation.isFederated ? <span className="badge badge-federated">federated</span> : null}
@@ -147,6 +149,7 @@ export function UserByline({
           <div className="byline-meta">
             @{presentation.username}
             {timestamp ? <> · {new Date(timestamp).toLocaleString()}</> : null}
+            {editedAt ? <> · edited {new Date(editedAt).toLocaleString()}</> : null}
           </div>
           {showStatus && statusLine ? (
             <div className="status-line">

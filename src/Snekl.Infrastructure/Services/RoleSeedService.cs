@@ -88,6 +88,21 @@ public class RoleSeedService : IRoleSeedService
             RoleId = owner.Id
         });
         await _db.SaveChangesAsync(ct);
+
+        if (!await _db.ForumRoles.AnyAsync(r => r.ForumId == forumId && r.Name == "Moderator", ct))
+        {
+            _db.ForumRoles.Add(new ForumRole
+            {
+                ForumId = forumId,
+                Name = "Moderator",
+                Position = 50,
+                Color = "#43b581",
+                Permissions = ForumPermissions.ViewForum | ForumPermissions.CreateThread | ForumPermissions.Reply |
+                              ForumPermissions.EditOwnPost | ForumPermissions.DeleteOwnPost |
+                              ForumPermissions.ManagePosts | ForumPermissions.ManageMembers
+            });
+            await _db.SaveChangesAsync(ct);
+        }
     }
 
     public async Task InheritForumRolesFromParentAsync(Guid subforumId, Guid parentForumId, CancellationToken ct = default)

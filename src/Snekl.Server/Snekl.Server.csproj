@@ -9,4 +9,8 @@
     <AssemblyName>snekl</AssemblyName>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Snekl.DevSession\Snekl.DevSession.csproj" />
+  </ItemGroup>
+
 </Project>

@@ -11,7 +11,7 @@ Snekl lives under `src/` (`Snekl.Modern.sln`) and `client/snekl-web/`.
 See [README.md](README.md) for the canonical commands. Preferred local flow:
 
 ```bash
-dotnet run --project src/Snekl.Server -- dev
+dotnet run --project src/Snekl.Server --no-launch-profile -- dev
 ```
 
 That starts Redis + PostgreSQL via `docker-compose.deps.yml`, then Auth (`:5100`), Content (`:5001`), and the Vite frontend (`:5173`).
@@ -35,11 +35,17 @@ Node/npm come from nvm (`~/.nvm/versions/node/v22.22.2/bin`). That directory is 
 |------|---------|-------|
 | Frontend lint | `npm run lint` in `client/snekl-web` | oxlint; may report non-blocking warnings |
 | Frontend build | `npm run build` in `client/snekl-web` | `tsc -b && vite build` |
-| .NET build | `dotnet build Snekl.Modern.sln` | No unit-test projects yet |
+| Frontend unit tests | `npm test` in `client/snekl-web` | Vitest (`src/**/*.test.ts`) |
+| .NET build | `dotnet build Snekl.Modern.sln` | |
+| .NET tests | `dotnet test Snekl.Modern.sln` | xUnit; integration tests need Docker (Testcontainers Postgres) |
 
 ### Gotchas
 
-- Development APIs call `EnsureDeleted` + `EnsureCreated` on startup, so restarting Auth/Content wipes their databases.
+- Development APIs only wipe databases when `Snekl:ResetDb` is true (pass `--reset-db` to the orchestrator). Without it, accounts and content persist across restarts.
 - Content JWT validation trusts issuers via JWKS (`AuthIssuers` in `src/Snekl.Api/appsettings.json`). Signup/login go through Auth (`:5100`); content APIs expect that JWT.
 - Redis is optional functionally but started by `dev`/`deps`. Without Redis, caching falls back to in-memory and rate limiting is disabled.
 - Registration requires a `did:key` ownership proof (browser generates Ed25519 keys via `@noble/ed25519`).
+- Running Snekl APIs lock Debug build output. Check recent activity before stopping orphaned processes:
+  - `dotnet run --project src/Snekl.Server --no-launch-profile -- status`
+  - `dotnet run --project src/Snekl.Server --no-launch-profile -- stop --force` (only when you are sure nothing needs the API)
+- Optional: tag agent HTTP calls with header `X-Snekl-Dev-Client: cursor-agent` so activity shows up under "Last cursor" in `status`.

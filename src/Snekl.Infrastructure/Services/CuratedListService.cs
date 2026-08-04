@@ -83,11 +83,16 @@ public class CuratedListService : ICuratedListService
         OverlayKind? overlayKind = overlay is not null && Enum.TryParse<OverlayKind>(overlay.Kind, true, out var kind)
             ? kind : null;
 
+        var label = request.Label.Trim();
+        if (string.IsNullOrWhiteSpace(label))
+            throw new InvalidOperationException("Label is required.");
+
         var entry = new ListEntry
         {
             ListId = listId,
             TargetUserId = request.TargetUserId,
-            Severity = (AnnotationSeverity)Math.Clamp(request.Severity, 0, 4),
+            Label = label,
+            Severity = SeverityForBehavior(list.DefaultBehavior),
             TooltipText = request.TooltipText.Trim(),
             FlairEmoji = request.FlairEmoji,
             FlairIconUrl = request.FlairIconUrl,
@@ -133,6 +138,14 @@ public class CuratedListService : ICuratedListService
         _db.ListSubscriptions.Remove(sub);
         await _db.SaveChangesAsync(ct);
     }
+
+    private static AnnotationSeverity SeverityForBehavior(ListBehavior behavior) => behavior switch
+    {
+        ListBehavior.Verify or ListBehavior.Highlight => AnnotationSeverity.Highlight,
+        ListBehavior.Warn => AnnotationSeverity.Warn,
+        ListBehavior.Hide or ListBehavior.Mute => AnnotationSeverity.Restrict,
+        _ => AnnotationSeverity.Notice
+    };
 
     private static CuratedListDto ToDto(CuratedList list, Guid viewerId, int entryCount, int subCount) => new(
         list.Id,

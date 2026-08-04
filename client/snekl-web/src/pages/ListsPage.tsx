@@ -16,8 +16,8 @@ export function ListsPage() {
 
   const [entryListId, setEntryListId] = useState('');
   const [targetUsername, setTargetUsername] = useState('');
+  const [label, setLabel] = useState('');
   const [tooltip, setTooltip] = useState('');
-  const [severity, setSeverity] = useState(2);
 
   const load = () => {
     api.getLists().then(setLists).catch((e) => setError(e.message));
@@ -57,13 +57,13 @@ export function ListsPage() {
       const target = await api.getUser(targetUsername);
       await api.addListEntry(entryListId, {
         targetUserId: target.id,
-        severity,
+        label: label.trim(),
         tooltipText: tooltip,
         flairEmoji: emoji,
-        usernameColor: severity >= 3 ? '#f59e0b' : undefined,
       });
       setSuccess(`Added @${targetUsername} to list.`);
       setTargetUsername('');
+      setLabel('');
       setTooltip('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
@@ -129,12 +129,27 @@ export function ListsPage() {
               <input id="targetUser" value={targetUsername} onChange={(e) => setTargetUsername(e.target.value)} placeholder="username" required />
             </div>
             <div className="form-group">
-              <label htmlFor="severity">Severity (0–4)</label>
-              <input id="severity" type="number" min={0} max={4} value={severity} onChange={(e) => setSeverity(Number(e.target.value))} />
+              <label htmlFor="label">Label</label>
+              <input
+                id="label"
+                list="label-suggestions"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                required
+                placeholder="Verified, Celebrity, Warning…"
+              />
+              <datalist id="label-suggestions">
+                <option value="Verified" />
+                <option value="Celebrity" />
+                <option value="Public figure" />
+                <option value="Trusted contributor" />
+                <option value="Warning" />
+                <option value="Known scammer" />
+              </datalist>
             </div>
           </div>
           <div className="form-group">
-            <label htmlFor="tooltip">Tooltip explanation</label>
+            <label htmlFor="tooltip">Description</label>
             <input id="tooltip" value={tooltip} onChange={(e) => setTooltip(e.target.value)} required placeholder="Why this label applies" />
           </div>
           <button type="submit" className="btn-primary">Add entry</button>

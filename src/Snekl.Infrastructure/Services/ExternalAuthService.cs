@@ -1,8 +1,8 @@
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
-using BCrypt.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
@@ -23,6 +23,11 @@ public interface IExternalAuthService
 
 public class ExternalAuthService : IExternalAuthService
 {
+    private static readonly JsonSerializerOptions JwksJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly SneklDbContext _db;
     private readonly IPersonClusterMappingService _mapping;
     private readonly IHttpClientFactory _httpFactory;
@@ -72,7 +77,7 @@ public class ExternalAuthService : IExternalAuthService
         if (trusted is null) return [];
 
         var http = _httpFactory.CreateClient();
-        var jwks = await http.GetFromJsonAsync<JwksDocument>(trusted.JwksUrl, cancellationToken: ct);
+        var jwks = await http.GetFromJsonAsync<JwksDocument>(trusted.JwksUrl, JwksJsonOptions, ct);
         if (jwks?.Keys is null || jwks.Keys.Count == 0) return [];
 
         var keyStrings = jwks.Keys
@@ -105,6 +110,7 @@ public class ExternalAuthService : IExternalAuthService
         issuer = issuer.Trim().TrimEnd('/');
         var subjectId = Guid.Parse(sub);
         username = username!.Trim().ToLowerInvariant();
+        var normalizedEmail = email.Trim().ToLowerInvariant();
 
         var cacheKey = CacheKeys.ShadowUser(issuer, subjectId);
         var cachedUserId = await _cache.GetStringAsync(cacheKey, ct);
@@ -114,8 +120,7 @@ public class ExternalAuthService : IExternalAuthService
             if (cachedUser is not null) return cachedUser;
         }
 
-        var user = await _db.Users.FirstOrDefaultAsync(u =>
-            u.Did == did || (u.AuthIssuerUrl == issuer && u.AuthSubjectId == subjectId), ct);
+        var user = await FindShadowUserAsync(did, issuer, subjectId, normalizedEmail, ct);
 
         if (user is null)
         {
@@ -127,7 +132,7 @@ public class ExternalAuthService : IExternalAuthService
             {
                 Username = username,
                 DisplayName = displayName.Trim(),
-                Email = email.Trim().ToLowerInvariant(),
+                Email = normalizedEmail,
                 Bio = string.Empty,
                 Did = did,
                 AuthIssuerUrl = issuer,
@@ -135,7 +140,16 @@ public class ExternalAuthService : IExternalAuthService
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString("N"))
             };
             _db.Users.Add(user);
-            await _db.SaveChangesAsync(ct);
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException)
+            {
+                _db.ChangeTracker.Clear();
+                user = await FindShadowUserAsync(did, issuer, subjectId, normalizedEmail, ct)
+                    ?? throw new InvalidOperationException("Failed to provision shadow user.");
+            }
         }
         else
         {
@@ -143,7 +157,7 @@ public class ExternalAuthService : IExternalAuthService
             user.Did = did;
             user.AuthIssuerUrl = issuer;
             user.AuthSubjectId = subjectId;
-            user.Email = email.Trim().ToLowerInvariant();
+            user.Email = normalizedEmail;
 
             if (!string.Equals(user.Username, username, StringComparison.Ordinal))
             {
@@ -157,15 +171,22 @@ public class ExternalAuthService : IExternalAuthService
 
         if (Guid.TryParse(clusterIdClaim, out var clusterId))
         {
-            await _mapping.MapIdentityAsync(new MapIdentityRequest(
-                clusterId,
-                did,
-                user.Username,
-                user.DisplayName,
-                issuer,
-                null,
-                issuer,
-                subjectId), ct);
+            try
+            {
+                await _mapping.MapIdentityAsync(new MapIdentityRequest(
+                    clusterId,
+                    did,
+                    user.Username,
+                    user.DisplayName,
+                    issuer,
+                    null,
+                    issuer,
+                    subjectId), ct);
+            }
+            catch (DbUpdateException)
+            {
+                // Another request may have mapped the same identity concurrently.
+            }
         }
 
         await _cache.SetStringAsync(cacheKey, user.Id.ToString(), new DistributedCacheEntryOptions
@@ -176,6 +197,23 @@ public class ExternalAuthService : IExternalAuthService
         return user;
     }
 
+    /// <summary>
+    /// Match an existing content user for an external auth identity. Email is included so
+    /// re-registration (new did:key / auth subject, same email) reuses the shadow user.
+    /// </summary>
+    private Task<User?> FindShadowUserAsync(
+        string did,
+        string issuer,
+        Guid subjectId,
+        string normalizedEmail,
+        CancellationToken ct) =>
+        _db.Users.FirstOrDefaultAsync(u =>
+            u.Did == did ||
+            (u.AuthIssuerUrl == issuer && u.AuthSubjectId == subjectId) ||
+            (u.Email == normalizedEmail && (u.AuthIssuerUrl == issuer || u.AuthIssuerUrl == null)), ct);
+
     private sealed record JwksDocument([property: JsonPropertyName("keys")] IReadOnlyList<JwkDocumentKey> Keys);
-    private sealed record JwkDocumentKey(string Kty, string? N);
+    private sealed record JwkDocumentKey(
+        [property: JsonPropertyName("kty")] string Kty,
+        [property: JsonPropertyName("n")] string? N);
 }

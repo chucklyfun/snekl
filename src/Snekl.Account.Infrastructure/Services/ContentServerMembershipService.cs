@@ -56,18 +56,21 @@ public class ContentServerMembershipService : IContentServerMembershipService
 
     public async Task<IReadOnlyList<ContentServerMembershipDto>> ListAsync(Guid clusterId, CancellationToken ct = default)
     {
+        await EnsureClusterExistsAsync(clusterId, ct);
         var settings = await GetOrCreateSettingsAsync(clusterId, ct);
         return Deserialize(settings.ContentServerMembershipsJson);
     }
 
     public async Task<ContentServerMembershipDto> SubscribeAsync(Guid clusterId, string baseUrl, CancellationToken ct = default)
     {
-        baseUrl = baseUrl.Trim().TrimEnd('/');
+        await EnsureClusterExistsAsync(clusterId, ct);
+        baseUrl = NormalizeContentServerUrl(baseUrl);
         if (string.IsNullOrWhiteSpace(baseUrl))
             throw new InvalidOperationException("Base URL is required.");
 
-        var remote = await FetchNodeInfoAsync(baseUrl, ct)
-            ?? throw new InvalidOperationException("Unable to reach content server.");
+        var (remote, fetchError) = await FetchNodeInfoAsync(baseUrl, ct);
+        if (remote is null)
+            throw new InvalidOperationException(fetchError ?? "Unable to reach content server.");
 
         var serverDid = !string.IsNullOrWhiteSpace(remote.Did)
             ? remote.Did
@@ -98,6 +101,7 @@ public class ContentServerMembershipService : IContentServerMembershipService
         string status,
         CancellationToken ct = default)
     {
+        await EnsureClusterExistsAsync(clusterId, ct);
         var normalized = ContentServerStatusPresets.Normalize(status);
         var settings = await GetOrCreateSettingsAsync(clusterId, ct);
         var memberships = Deserialize(settings.ContentServerMembershipsJson).ToList();
@@ -114,6 +118,7 @@ public class ContentServerMembershipService : IContentServerMembershipService
 
     public async Task UnsubscribeAsync(Guid clusterId, string serverDid, CancellationToken ct = default)
     {
+        await EnsureClusterExistsAsync(clusterId, ct);
         var settings = await GetOrCreateSettingsAsync(clusterId, ct);
         var memberships = Deserialize(settings.ContentServerMembershipsJson).ToList();
         var removed = memberships.RemoveAll(m => m.ServerDid.Equals(serverDid, StringComparison.OrdinalIgnoreCase));
@@ -123,6 +128,12 @@ public class ContentServerMembershipService : IContentServerMembershipService
         await SaveAsync(settings, memberships, ct);
     }
 
+    private async Task EnsureClusterExistsAsync(Guid clusterId, CancellationToken ct)
+    {
+        if (!await _db.PersonClusters.AnyAsync(c => c.Id == clusterId, ct))
+            throw new UnauthorizedAccessException("Session expired. Please log in again.");
+    }
+
     private async Task<UserSettingsReplica> GetOrCreateSettingsAsync(Guid clusterId, CancellationToken ct)
     {
         var settings = await _db.SettingsReplicas.FirstOrDefaultAsync(s => s.PersonClusterId == clusterId, ct);
@@ -130,8 +141,22 @@ public class ContentServerMembershipService : IContentServerMembershipService
 
         settings = new UserSettingsReplica { PersonClusterId = clusterId };
         _db.SettingsReplicas.Add(settings);
-        await _db.SaveChangesAsync(ct);
-        return settings;
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+            return settings;
+        }
+        catch (DbUpdateException)
+        {
+            _db.ChangeTracker.Clear();
+            settings = await _db.SettingsReplicas.FirstOrDefaultAsync(s => s.PersonClusterId == clusterId, ct);
+            if (settings is not null) return settings;
+
+            if (!await _db.PersonClusters.AnyAsync(c => c.Id == clusterId, ct))
+                throw new UnauthorizedAccessException("Session expired. Please log in again.");
+
+            throw new InvalidOperationException("Failed to load account settings.");
+        }
     }
 
     private async Task SaveAsync(
@@ -159,16 +184,57 @@ public class ContentServerMembershipService : IContentServerMembershipService
         }
     }
 
-    private async Task<NodeInfoDto?> FetchNodeInfoAsync(string baseUrl, CancellationToken ct)
+    private async Task<(NodeInfoDto? Node, string? Error)> FetchNodeInfoAsync(string baseUrl, CancellationToken ct)
     {
+        var url = $"{baseUrl.TrimEnd('/')}/api/node";
         try
         {
-            var url = $"{baseUrl.TrimEnd('/')}/api/node";
-            return await _http.GetFromJsonAsync<NodeInfoDto>(url, JsonOptions, ct);
+            var node = await _http.GetFromJsonAsync<NodeInfoDto>(url, JsonOptions, ct);
+            if (node is null)
+                return (null, $"Content server at {baseUrl} returned an empty response.");
+            return (node, null);
         }
-        catch
+        catch (HttpRequestException ex) when (ex.InnerException is System.Net.Sockets.SocketException)
         {
-            return null;
+            return (null,
+                $"Could not connect to {baseUrl}. Use http:// (not https://) for local dev, and ensure the content server is running (e.g. Snekl Beta on port 5002).");
         }
+        catch (HttpRequestException ex)
+        {
+            var hint = baseUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
+                       (baseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase) ||
+                        baseUrl.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+                ? " Local dev servers use http://, not https://."
+                : string.Empty;
+            return (null, $"Could not reach {baseUrl}: {ex.Message}.{hint}");
+        }
+        catch (TaskCanceledException)
+        {
+            return (null, $"Timed out connecting to {baseUrl}. Ensure the content server is running.");
+        }
+        catch (Exception ex)
+        {
+            return (null, $"Failed to reach {baseUrl}: {ex.Message}");
+        }
+    }
+
+    internal static string NormalizeContentServerUrl(string baseUrl)
+    {
+        baseUrl = baseUrl.Trim().TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(baseUrl))
+            return baseUrl;
+
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
+            return baseUrl;
+
+        if (uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) &&
+            (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+             uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)))
+        {
+            var builder = new UriBuilder(uri) { Scheme = "http" };
+            return builder.Uri.ToString().TrimEnd('/');
+        }
+
+        return baseUrl;
     }
 }

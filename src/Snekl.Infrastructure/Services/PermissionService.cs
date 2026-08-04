@@ -28,7 +28,7 @@ public class PermissionService : IPermissionService
     public async Task<ServerPermissions> GetServerPermissionsAsync(Guid? userId, CancellationToken ct = default)
     {
         if (userId.HasValue && await IsSuperUserAsync(userId, ct))
-            return ServerPermissions.CreateForum |
+            return ServerPermissions.ViewServer | ServerPermissions.CreateForum |
                    ServerPermissions.ManageServerMembers | ServerPermissions.ManageServerRoles |
                    ServerPermissions.ManageServerSettings;
 

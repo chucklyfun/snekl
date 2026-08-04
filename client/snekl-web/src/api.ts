@@ -1,17 +1,22 @@
 import type {
   AggregatedForum,
+  AggregatedPost,
   AuthMeResponse,
   ContentServerMembership,
   ContentServerStatusPreset,
   CuratedList,
   Forum,
+  ForumBan,
   ForumFlairTemplate,
   ForumMember,
   ForumRole,
   ListAnnotation,
   NodeInfo,
+  NetworkServer,
   Peer,
   Post,
+  PostReport,
+  RecentThread,
   RingSession,
   ServerMember,
   ServerPermissionsInfo,
@@ -20,9 +25,22 @@ import type {
   UserPresentation,
   UserStatus,
 } from './types';
+import { type PostSort } from './ranking';
 
-export const CONTENT_API = import.meta.env.VITE_API_URL ?? 'http://localhost:5001';
-export const AUTH_API = import.meta.env.VITE_AUTH_URL ?? 'http://localhost:5100';
+function recentThreadsPath(sort: PostSort, page: number, pageSize: number, servers?: string[]): string {
+  const params = new URLSearchParams({
+    sort,
+    page: String(page),
+    pageSize: String(pageSize),
+  });
+  for (const server of servers ?? []) {
+    params.append('servers', server);
+  }
+  return `/api/posts/recent?${params}`;
+}
+
+export const CONTENT_API = (import.meta.env.VITE_API_URL || 'http://localhost:5001').replace(/\/$/, '');
+export const AUTH_API = (import.meta.env.VITE_AUTH_URL || 'http://localhost:5100').replace(/\/$/, '');
 
 function getToken(): string | null {
   return localStorage.getItem('snekl_token');
@@ -81,7 +99,7 @@ export const authApi = {
     }),
 
   forgotPassword: (email: string) =>
-    request<{ message: string }>(AUTH_API, '/api/auth/forgot-password', {
+    request<{ message: string; resetUrl?: string | null }>(AUTH_API, '/api/auth/forgot-password', {
       method: 'POST',
       body: JSON.stringify({ email }),
     }),
@@ -98,10 +116,10 @@ export const authApi = {
       body: JSON.stringify({ token }),
     }),
 
-  devResetPassword: (username: string, newPassword: string) =>
+  devResetPassword: (email: string, newPassword: string) =>
     request<{ message: string }>(AUTH_API, '/api/auth/dev/reset-password', {
       method: 'POST',
-      body: JSON.stringify({ username, newPassword }),
+      body: JSON.stringify({ email, newPassword }),
     }),
 
   me: () => request<RingSession['person']>(AUTH_API, '/api/me'),
@@ -161,9 +179,12 @@ export const authApi = {
 export function createContentClient(baseUrl: string) {
   const root = baseUrl.replace(/\/$/, '');
 
-  function forumBase(slug: string, parentSlug?: string) {
-    const qs = parentSlug ? `?parentSlug=${encodeURIComponent(parentSlug)}` : '';
-    return `/api/forums/${slug}${qs}`;
+  function forumApiPath(slug: string, suffix = '') {
+    return `/api/forums/${slug}${suffix}`;
+  }
+
+  function forumParentQuery(parentSlug?: string) {
+    return parentSlug ? `?parentSlug=${encodeURIComponent(parentSlug)}` : '';
   }
 
   return {
@@ -207,14 +228,41 @@ export function createContentClient(baseUrl: string) {
     getNode: () => request<NodeInfo>(root, '/api/node'),
     getForums: () => request<Forum[]>(root, '/api/forums'),
     getForum: (slug: string, parentSlug?: string) =>
-      request<Forum>(root, forumBase(slug, parentSlug)),
+      request<Forum>(root, `${forumApiPath(slug)}${forumParentQuery(parentSlug)}`),
     createForum: (name: string, slug: string, description: string, parentForumId?: string) =>
       request<Forum>(root, '/api/forums', {
         method: 'POST',
         body: JSON.stringify({ name, slug, description, parentForumId: parentForumId ?? null }),
       }),
-    getForumThreads: (forumId: string) => request<Post[]>(root, `/api/posts/forum/${forumId}`),
+    getForumThreads: (forumId: string, sort: PostSort = 'hot') =>
+      request<Post[]>(root, `/api/posts/forum/${forumId}?sort=${sort}`),
+    getRecentThreads: (sort: PostSort = 'hot', page = 1, pageSize = 20, servers?: string[]) =>
+      request<RecentThread[]>(root, recentThreadsPath(sort, page, pageSize, servers)),
+    getNetworkServers: () => request<NetworkServer[]>(root, '/api/network/servers'),
     getThread: (postId: string) => request<Post>(root, `/api/posts/${postId}`),
+    getPostRevisions: (postId: string) => request<import('./types').PostRevision[]>(root, `/api/posts/${postId}/revisions`),
+    updatePost: (postId: string, message: string) =>
+      request<Post>(root, `/api/posts/${postId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ message }),
+      }),
+    deletePost: (postId: string, hard = false) =>
+      request<Post | void>(root, `/api/posts/${postId}${hard ? '?hard=true' : ''}`, {
+        method: 'DELETE',
+      }),
+    setThreadLocked: (postId: string, locked: boolean) =>
+      request<Post>(root, `/api/posts/${postId}/lock?locked=${locked}`, { method: 'PUT' }),
+    setThreadPinned: (postId: string, pinned: boolean) =>
+      request<Post>(root, `/api/posts/${postId}/pin?pinned=${pinned}`, { method: 'PUT' }),
+    reportPost: (postId: string, reason: string) =>
+      request<PostReport>(root, `/api/posts/${postId}/report`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    toggleUpvote: (postId: string) =>
+      request<{ upvoteCount: number; viewerHasUpvoted: boolean }>(root, `/api/posts/${postId}/upvote`, {
+        method: 'POST',
+      }),
     createPost: (forumId: string, message: string, parentPostId?: string) =>
       request<Post>(root, '/api/posts', {
         method: 'POST',
@@ -251,7 +299,7 @@ export function createContentClient(baseUrl: string) {
       listId: string,
       data: {
         targetUserId: string;
-        severity: number;
+        label: string;
         tooltipText: string;
         flairEmoji?: string;
         usernameColor?: string;
@@ -282,29 +330,58 @@ export function createContentClient(baseUrl: string) {
       }),
 
     getForumRoles: (slug: string, parentSlug?: string) =>
-      request<ForumRole[]>(root, `${forumBase(slug, parentSlug)}/roles`),
+      request<ForumRole[]>(root, `${forumApiPath(slug, '/roles')}${forumParentQuery(parentSlug)}`),
     createForumRole: (slug: string, data: { name: string; color?: string; position: number; permissions: string[] }, parentSlug?: string) =>
-      request<ForumRole>(root, `${forumBase(slug, parentSlug)}/roles`, { method: 'POST', body: JSON.stringify(data) }),
+      request<ForumRole>(root, `${forumApiPath(slug, '/roles')}${forumParentQuery(parentSlug)}`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
     getForumMembers: (slug: string, parentSlug?: string) =>
-      request<ForumMember[]>(root, `${forumBase(slug, parentSlug)}/members`),
+      request<ForumMember[]>(root, `${forumApiPath(slug, '/members')}${forumParentQuery(parentSlug)}`),
     assignForumRoles: (slug: string, userId: string, roleIds: string[], parentSlug?: string) =>
-      request<void>(root, `${forumBase(slug, parentSlug)}/members/${userId}/roles`, {
+      request<void>(root, `${forumApiPath(slug, `/members/${userId}/roles`)}${forumParentQuery(parentSlug)}`, {
         method: 'PUT',
         body: JSON.stringify({ roleIds }),
       }),
+    assignForumRolesByUsername: (slug: string, username: string, roleIds: string[], parentSlug?: string) =>
+      request<void>(root, `${forumApiPath(slug, `/members/by-username/${encodeURIComponent(username)}/roles`)}${forumParentQuery(parentSlug)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ roleIds }),
+      }),
+    getForumBans: (slug: string, parentSlug?: string) =>
+      request<ForumBan[]>(root, `${forumApiPath(slug, '/bans')}${forumParentQuery(parentSlug)}`),
+    banForumMember: (slug: string, data: { username: string; reason?: string; expiresAt?: string }, parentSlug?: string) =>
+      request<void>(root, `${forumApiPath(slug, '/bans')}${forumParentQuery(parentSlug)}`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    unbanForumMember: (slug: string, userId: string, parentSlug?: string) =>
+      request<void>(root, `${forumApiPath(slug, `/bans/${userId}`)}${forumParentQuery(parentSlug)}`, {
+        method: 'DELETE',
+      }),
+    getForumReports: (slug: string, parentSlug?: string) =>
+      request<PostReport[]>(root, `${forumApiPath(slug, '/reports')}${forumParentQuery(parentSlug)}`),
+    dismissForumReport: (slug: string, reportId: string, parentSlug?: string) =>
+      request<void>(root, `${forumApiPath(slug, `/reports/${reportId}/dismiss`)}${forumParentQuery(parentSlug)}`, {
+        method: 'POST',
+      }),
+    resolveForumReport: (slug: string, reportId: string, parentSlug?: string) =>
+      request<void>(root, `${forumApiPath(slug, `/reports/${reportId}/resolve`)}${forumParentQuery(parentSlug)}`, {
+        method: 'POST',
+      }),
     getFlairTemplates: (slug: string, parentSlug?: string) =>
-      request<ForumFlairTemplate[]>(root, `${forumBase(slug, parentSlug)}/flair-templates`),
+      request<ForumFlairTemplate[]>(root, `${forumApiPath(slug, '/flair-templates')}${forumParentQuery(parentSlug)}`),
     createFlairTemplate: (
       slug: string,
       data: { emoji?: string; label?: string; nameColor?: string; position: number },
       parentSlug?: string,
     ) =>
-      request<ForumFlairTemplate>(root, `${forumBase(slug, parentSlug)}/flair-templates`, {
+      request<ForumFlairTemplate>(root, `${forumApiPath(slug, '/flair-templates')}${forumParentQuery(parentSlug)}`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
     setMyAlias: (slug: string, alias: string, parentSlug?: string) =>
-      request<void>(root, `${forumBase(slug, parentSlug)}/members/me/alias`, {
+      request<void>(root, `${forumApiPath(slug, '/members/me/alias')}${forumParentQuery(parentSlug)}`, {
         method: 'PUT',
         body: JSON.stringify({ alias }),
       }),
@@ -313,7 +390,7 @@ export function createContentClient(baseUrl: string) {
       data: { name?: string; description?: string; allowAliases?: boolean },
       parentSlug?: string,
     ) =>
-      request<void>(root, `${forumBase(slug, parentSlug)}/settings`, {
+      request<void>(root, `${forumApiPath(slug, '/settings')}${forumParentQuery(parentSlug)}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
@@ -352,6 +429,36 @@ export async function aggregateForums(
   });
 }
 
+/** Query one server with the list of servers the user cares about; it aggregates owned posts. */
+export async function fetchAggregatedRecentPosts(
+  memberships: ContentServerMembership[],
+  sort: PostSort = 'hot',
+  pageSize = 20,
+): Promise<AggregatedPost[]> {
+  if (memberships.length === 0) return [];
+
+  const servers = memberships.map((s) => s.baseUrl);
+  const client = createContentClient(servers[0]);
+  const nameByDid = new Map(memberships.map((s) => [s.serverDid, s.name]));
+  const nameByUrl = new Map(memberships.map((s) => [s.baseUrl.replace(/\/$/, ''), s.name]));
+
+  const threads = await client.getRecentThreads(sort, 1, pageSize, servers);
+  return threads.map(
+    (thread): AggregatedPost => ({
+      ...thread.post,
+      serverDid: thread.ownerDid,
+      serverName:
+        nameByDid.get(thread.ownerDid) ??
+        nameByUrl.get(thread.ownerBaseUrl.replace(/\/$/, '')) ??
+        thread.ownerBaseUrl,
+      serverBaseUrl: thread.ownerBaseUrl,
+      forumSlug: thread.forumSlug,
+      forumName: thread.forumName,
+      parentForumSlug: thread.parentForumSlug,
+    }),
+  );
+}
+
 const defaultClient = createContentClient(CONTENT_API);
 
 export const api = {
@@ -368,7 +475,10 @@ export const api = {
   getForum: defaultClient.getForum,
   createForum: defaultClient.createForum,
   getForumThreads: defaultClient.getForumThreads,
+  getRecentThreads: defaultClient.getRecentThreads,
+  getNetworkServers: defaultClient.getNetworkServers,
   getThread: defaultClient.getThread,
+  toggleUpvote: defaultClient.toggleUpvote,
   createPost: defaultClient.createPost,
   getPeers: defaultClient.getPeers,
   subscribePeer: defaultClient.subscribePeer,

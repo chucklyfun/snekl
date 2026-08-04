@@ -30,6 +30,7 @@ public record UserStatusDto(
 public record ListAnnotationDto(
     Guid ListId,
     string ListName,
+    string Label,
     int Severity,
     string TooltipText,
     string? FlairEmoji,
@@ -96,7 +97,7 @@ public record CuratedListDto(
 
 public record AddListEntryRequest(
     Guid TargetUserId,
-    int Severity,
+    string Label,
     string TooltipText,
     string? FlairEmoji,
     string? FlairIconUrl,

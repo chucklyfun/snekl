@@ -5,6 +5,7 @@ using Snekl.Infrastructure;
 using Snekl.Infrastructure.Data;
 using Snekl.Infrastructure.Services;
 using Snekl.Redis;
+using Snekl.DevSession;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,14 +26,35 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+if (app.Environment.IsDevelopment())
+    app.UseDevSessionTracking("Snekl.Api");
+
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<SneklDbContext>();
-    if (app.Environment.IsDevelopment())
+    if (app.Environment.IsDevelopment() && builder.Configuration.GetValue("Snekl:ResetDb", false))
     {
         await db.Database.EnsureDeletedAsync();
     }
     await db.Database.EnsureCreatedAsync();
+    await db.Database.ExecuteSqlRawAsync("""
+        ALTER TABLE "ListEntries" ADD COLUMN IF NOT EXISTS "Label" text NOT NULL DEFAULT '';
+        ALTER TABLE "Posts" ADD COLUMN IF NOT EXISTS "IsDeleted" boolean NOT NULL DEFAULT false;
+        ALTER TABLE "Posts" ADD COLUMN IF NOT EXISTS "DeletedAt" timestamp with time zone NULL;
+        ALTER TABLE "Posts" ADD COLUMN IF NOT EXISTS "EditedAt" timestamp with time zone NULL;
+        ALTER TABLE "NodeConfig" ADD COLUMN IF NOT EXISTS "VerificationKeyMultibase" text NOT NULL DEFAULT '';
+        ALTER TABLE "NodeConfig" ADD COLUMN IF NOT EXISTS "VerificationPrivateKeyPkcs8" text NOT NULL DEFAULT '';
+        ALTER TABLE "PeerNodes" ADD COLUMN IF NOT EXISTS "RemoteDid" text NOT NULL DEFAULT '';
+        ALTER TABLE "PeerNodes" ADD COLUMN IF NOT EXISTS "VerificationKeyMultibase" text NOT NULL DEFAULT '';
+        CREATE TABLE IF NOT EXISTS "PostRevisions" (
+            "Id" uuid NOT NULL PRIMARY KEY,
+            "PostId" uuid NOT NULL REFERENCES "Posts"("Id") ON DELETE CASCADE,
+            "EditedByUserId" uuid NOT NULL REFERENCES "Users"("Id"),
+            "Message" text NOT NULL,
+            "CreatedAt" timestamp with time zone NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS "IX_PostRevisions_PostId_CreatedAt" ON "PostRevisions" ("PostId", "CreatedAt");
+        """);
 
     var nodeService = scope.ServiceProvider.GetRequiredService<INodeService>();
     var node = await nodeService.GetOrCreateAsync();
@@ -105,3 +127,5 @@ static async Task SeedTrustedAuthIssuersAsync(SneklDbContext db, ConfigurationMa
 
     await db.SaveChangesAsync();
 }
+
+public partial class Program;

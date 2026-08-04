@@ -138,6 +138,11 @@
   color: var(--accent);
 }
 
+.annotation-list-name {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .annotation-popover small {
   color: var(--muted);
 }

@@ -71,6 +71,7 @@ public static class PresentationMapper
     public static ListAnnotationDto ToAnnotationDto(ListEntry entry, CuratedList list) => new(
         list.Id,
         list.Name,
+        string.IsNullOrWhiteSpace(entry.Label) ? list.Name : entry.Label,
         (int)entry.Severity,
         entry.TooltipText,
         entry.FlairEmoji ?? list.DefaultFlairEmoji,

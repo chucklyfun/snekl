@@ -4,8 +4,18 @@ import { authApi } from '../api';
 import { useAuth } from '../AuthContext';
 import type { PersonCluster } from '../types';
 
+function applyPersonToForm(person: PersonCluster) {
+  return {
+    username: person.canonicalUsername,
+    email: person.email,
+    displayName: person.displayName,
+    bio: person.bio,
+    disambiguationTag: person.disambiguationTag ?? '',
+  };
+}
+
 export function AccountSettingsPage() {
-  const { user, refreshMe } = useAuth();
+  const { user, person, refreshMe, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [account, setAccount] = useState<PersonCluster | null>(null);
   const [username, setUsername] = useState('');
@@ -17,21 +27,48 @@ export function AccountSettingsPage() {
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [resending, setResending] = useState(false);
+  const [loadingAccount, setLoadingAccount] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setAccount(null);
+      setLoadingAccount(false);
+      return;
+    }
+
+    if (person) {
+      setAccount(person);
+      const fields = applyPersonToForm(person);
+      setUsername(fields.username);
+      setEmail(fields.email);
+      setDisplayName(fields.displayName);
+      setBio(fields.bio);
+      setDisambiguationTag(fields.disambiguationTag);
+      setLoadingAccount(false);
+      return;
+    }
+
+    if (authLoading) return;
+
+    setLoadingAccount(true);
+    setError('');
     authApi
       .me()
-      .then((person) => {
-        setAccount(person);
-        setUsername(person.canonicalUsername);
-        setEmail(person.email);
-        setDisplayName(person.displayName);
-        setBio(person.bio);
-        setDisambiguationTag(person.disambiguationTag ?? '');
+      .then((loaded) => {
+        setAccount(loaded);
+        const fields = applyPersonToForm(loaded);
+        setUsername(fields.username);
+        setEmail(fields.email);
+        setDisplayName(fields.displayName);
+        setBio(fields.bio);
+        setDisambiguationTag(fields.disambiguationTag);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load account'));
-  }, [user]);
+      .catch((err) => {
+        setAccount(null);
+        setError(err instanceof Error ? err.message : 'Failed to load account');
+      })
+      .finally(() => setLoadingAccount(false));
+  }, [user, person, authLoading]);
 
   const handleResendVerification = async () => {
     setError('');
@@ -62,11 +99,12 @@ export function AccountSettingsPage() {
       });
       localStorage.setItem('snekl_token', result.accessToken);
       setAccount(result.person);
-      setUsername(result.person.canonicalUsername);
-      setEmail(result.person.email);
-      setDisplayName(result.person.displayName);
-      setBio(result.person.bio);
-      setDisambiguationTag(result.person.disambiguationTag ?? '');
+      const fields = applyPersonToForm(result.person);
+      setUsername(fields.username);
+      setEmail(fields.email);
+      setDisplayName(fields.displayName);
+      setBio(fields.bio);
+      setDisambiguationTag(fields.disambiguationTag);
       await refreshMe();
       setMessage('Account updated.');
       if (result.person.canonicalUsername !== user?.username) {
@@ -89,8 +127,24 @@ export function AccountSettingsPage() {
     );
   }
 
-  if (!account) {
+  if (authLoading || loadingAccount) {
     return <p>Loading account…</p>;
+  }
+
+  if (!account) {
+    return (
+      <div className="card" style={{ maxWidth: 520, margin: '0 auto' }}>
+        <h1 className="page-title">Account settings</h1>
+        {error && <div className="error-banner">{error}</div>}
+        <p style={{ color: 'var(--muted)' }}>
+          Could not load your auth profile. This usually means your session is out of sync — log out and sign in again
+          with your email and password.
+        </p>
+        <p style={{ marginTop: '1rem' }}>
+          <Link to="/login">Go to login</Link>
+        </p>
+      </div>
+    );
   }
 
   return (

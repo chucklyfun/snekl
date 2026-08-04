@@ -27,6 +27,12 @@ public enum StatusPreset
     Preparing = 5
 }
 
+public enum PostSort
+{
+    Hot = 0,
+    New = 1
+}
+
 public enum ListBehavior
 {
     Highlight = 0,

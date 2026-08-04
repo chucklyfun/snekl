@@ -58,7 +58,7 @@ When a user creates a forum or post locally, the node broadcasts an envelope to 
 From the repository root, with [Docker](https://docs.docker.com/get-docker/) running:
 
 ```bash
-dotnet run --project src/Snekl.Server -- dev
+dotnet run --project src/Snekl.Server --no-launch-profile -- dev
 ```
 
 This starts **Redis + PostgreSQL** in Docker, then launches locally:
@@ -70,10 +70,10 @@ This starts **Redis + PostgreSQL** in Docker, then launches locally:
 Other commands:
 
 ```bash
-dotnet run --project src/Snekl.Server -- up          # full Docker stack
-dotnet run --project src/Snekl.Server -- down        # stop full stack
-dotnet run --project src/Snekl.Server -- deps        # Redis + Postgres only
-dotnet run --project src/Snekl.Server -- dev --no-frontend
+dotnet run --project src/Snekl.Server --no-launch-profile -- up          # full Docker stack
+dotnet run --project src/Snekl.Server --no-launch-profile -- down        # stop full stack
+dotnet run --project src/Snekl.Server --no-launch-profile -- deps        # Redis + Postgres only
+dotnet run --project src/Snekl.Server --no-launch-profile -- dev --no-frontend
 ```
 
 ### Manual setup
@@ -112,6 +112,16 @@ npm run dev
 ```
 
 Open `http://localhost:5173`.
+
+### Tests
+
+```bash
+# .NET unit + integration (integration tests pull Postgres via Testcontainers; Docker required)
+dotnet test Snekl.Modern.sln
+
+# Frontend unit tests
+cd client/snekl-web && npm test
+```
 
 ### 4. Run two federated nodes (Docker)
 
@@ -157,7 +167,7 @@ Auth API listens on `http://localhost:5100`.
 | GET | `/api/users/{username}` | Public profile with presentation |
 | GET | `/api/lists` | Curated highlight/warn lists |
 | POST | `/api/lists` | Create a curated list |
-| POST | `/api/lists/{id}/entries` | Add user to list with severity + tooltip |
+| POST | `/api/lists/{id}/entries` | Add user to list with label + description |
 | POST | `/api/lists/{id}/subscribe` | Subscribe to a list |
 | GET | `/api/forums` | List forums |
 | POST | `/api/forums` | Create forum (auth required) |
@@ -214,7 +224,7 @@ Snekl.Modern.sln         # Solution entrypoint
 - **Personal flair** — emoji, optional icon, username color/style
 - **Temporary status** — live, at event, supporting cause, safe, preparing (with avatar overlays and auto-expiry)
 - **Curated lists** — community-managed highlight, verify, and warning lists
-- **Severity-based annotations** — username color/style, flair badges, hover tooltips
+- **Label-based annotations** — flair badges with labels like Verified or Celebrity, hover descriptions, username color/style
 - **Avatar overlays** — rings, corner badges, pulse for live streaming
 
 Subscribe to lists you trust on the **Lists** page; annotations appear on posts and profiles when you browse while logged in.

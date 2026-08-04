@@ -5,6 +5,7 @@ import { authApi } from '../api';
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
+  const [resetUrl, setResetUrl] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -12,10 +13,12 @@ export function ForgotPasswordPage() {
     e.preventDefault();
     setError('');
     setMessage('');
+    setResetUrl(null);
     setSubmitting(true);
     try {
       const result = await authApi.forgotPassword(email);
       setMessage(result.message);
+      setResetUrl(result.resetUrl ?? null);
       setEmail('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Request failed');
@@ -33,6 +36,15 @@ export function ForgotPasswordPage() {
       {error && <div className="error-banner">{error}</div>}
       {message && (
         <div style={{ marginBottom: '1rem', color: 'var(--accent)' }}>{message}</div>
+      )}
+      {resetUrl && (
+        <div className="card profile-section" style={{ marginBottom: '1rem', padding: '1rem' }}>
+          <strong>Dev reset link</strong>
+          <p style={{ color: 'var(--muted)', margin: '0.5rem 0 0.75rem', fontSize: '0.9rem' }}>
+            Test mode returns the link directly — no email needed.
+          </p>
+          <a href={resetUrl} style={{ wordBreak: 'break-all' }}>{resetUrl}</a>
+        </div>
       )}
       <form onSubmit={handleSubmit}>
         <div className="form-group">

@@ -35,7 +35,7 @@ export function LoginPage() {
     setError('');
     setSuccess('');
     try {
-      const result = await authApi.devResetPassword(username.trim(), newPassword);
+      const result = await authApi.devResetPassword(email.trim(), newPassword);
       setSuccess(result.message);
       setPassword(newPassword);
       setNewPassword('');
@@ -49,7 +49,7 @@ export function LoginPage() {
     <div className="card" style={{ maxWidth: 420, margin: '0 auto' }}>
       <h1 className="page-title">Log in</h1>
       <p style={{ color: 'var(--muted)', marginBottom: '1rem' }}>
-        Sign in via the auth server. Your content node trusts the returned token.
+        Sign in with the email and password from signup (auth server at {import.meta.env.VITE_AUTH_URL ?? 'http://localhost:5100'}).
       </p>
       {successMessage && (
         <div style={{ marginBottom: '1rem', color: 'var(--accent)' }}>{successMessage}</div>
@@ -88,7 +88,8 @@ export function LoginPage() {
           ) : (
             <form onSubmit={handleDevReset}>
               <p style={{ color: 'var(--muted)', marginBottom: '0.75rem', fontSize: '0.9rem' }}>
-                Test-only reset. No email required. Uses the username above.
+                Test-only reset. No email verification required. Uses the email above — must match signup exactly.
+                If login says no account exists, sign up again at /register.
               </p>
               <div className="form-group">
                 <label htmlFor="newPassword">New password</label>

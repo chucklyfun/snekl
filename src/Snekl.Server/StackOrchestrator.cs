@@ -23,17 +23,19 @@ public sealed class ProcessRunner : IDisposable
 {
     private readonly List<Process> _processes = [];
 
-    public Process Start(string fileName, string arguments, string workingDirectory, IDictionary<string, string>? environment = null)
+    public Process Start(string fileName, IReadOnlyList<string> arguments, string workingDirectory, IDictionary<string, string>? environment = null)
     {
         var psi = new ProcessStartInfo
         {
             FileName = fileName,
-            Arguments = arguments,
             WorkingDirectory = workingDirectory,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
+
+        foreach (var argument in arguments)
+            psi.ArgumentList.Add(argument);
 
         if (environment is not null)
         {
@@ -57,18 +59,30 @@ public sealed class ProcessRunner : IDisposable
         return process;
     }
 
-    public static int RunToCompletion(string fileName, string arguments, string workingDirectory)
+    public static int RunToCompletion(string fileName, IReadOnlyList<string> arguments, string workingDirectory)
     {
         var psi = new ProcessStartInfo
         {
             FileName = fileName,
-            Arguments = arguments,
             WorkingDirectory = workingDirectory,
-            UseShellExecute = false
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
 
+        foreach (var argument in arguments)
+            psi.ArgumentList.Add(argument);
+
         using var process = Process.Start(psi)!;
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
         process.WaitForExit();
+
+        if (!string.IsNullOrWhiteSpace(stdout))
+            Console.Write(stdout);
+        if (!string.IsNullOrWhiteSpace(stderr))
+            Console.Error.Write(stderr);
+
         return process.ExitCode;
     }
 
@@ -101,22 +115,27 @@ public sealed class ProcessRunner : IDisposable
 public static class StackOrchestrator
 {
     private const string ContentUrl = "http://localhost:5001";
+    private const string ContentBetaUrl = "http://localhost:5002";
     private const string AuthUrl = "http://localhost:5100";
     private const string FrontendUrl = "http://localhost:5173";
 
     public static async Task<int> RunAsync(string[] args, CancellationToken ct = default)
     {
-        var command = args.Length > 0 ? args[0].ToLowerInvariant() : "dev";
+        var command = args.FirstOrDefault(a => !a.StartsWith('-'))?.ToLowerInvariant() ?? "dev";
         var root = RepoPaths.FindRoot(Directory.GetCurrentDirectory());
         var withFrontend = !args.Contains("--no-frontend");
+        var resetDb = args.Contains("--reset-db");
+        var force = args.Contains("--force");
 
         return command switch
         {
-            "dev" => await RunDevAsync(root, withFrontend, ct),
-            "up" => RunDockerCompose(root, "docker-compose.yml", "up", "--build"),
-            "down" => RunDockerCompose(root, "docker-compose.yml", "down"),
-            "deps" => RunDockerCompose(root, "docker-compose.deps.yml", "up", "-d"),
-            "deps-down" => RunDockerCompose(root, "docker-compose.deps.yml", "down"),
+            "dev" => await RunDevAsync(root, withFrontend, resetDb, ct),
+            "status" => DevProcessCommands.RunStatus(root),
+            "stop" => DevProcessCommands.RunStop(root, force),
+            "up" => RunDockerCompose(root, "docker-compose.yml", ["up", "--build"]),
+            "down" => RunDockerCompose(root, "docker-compose.yml", ["down"]),
+            "deps" => RunDockerCompose(root, "docker-compose.deps.yml", ["up", "-d"]),
+            "deps-down" => RunDockerCompose(root, "docker-compose.deps.yml", ["down"]),
             "help" or "--help" or "-h" => PrintHelp(),
             _ => UnknownCommand(command)
         };
@@ -134,10 +153,12 @@ public static class StackOrchestrator
             Snekl stack orchestrator
 
             Usage:
-              dotnet run --project src/Snekl.Server -- [command] [options]
+              dotnet run --project src/Snekl.Server --no-launch-profile -- [command] [options]
 
             Commands:
-              dev         Start Redis + Postgres (Docker), then auth/content APIs locally
+              dev         Start Redis + Postgres (Docker), auth, content alpha/beta, and frontend locally
+              status      Show running Snekl APIs and recent request activity
+              stop        List running APIs; add --force to stop them
               up          Start the full Docker stack (docker compose up --build)
               down        Stop the full Docker stack
               deps        Start only Redis + Postgres for local development
@@ -146,20 +167,35 @@ public static class StackOrchestrator
 
             Options:
               --no-frontend   Skip starting the React dev server during 'dev'
+              --reset-db      Wipe auth/content databases before starting (fresh dev state)
+              --force         With 'stop', kill running Snekl API processes
             """);
         return 0;
     }
 
-    private static int RunDockerCompose(string root, string composeFile, params string[] composeArgs)
+    private static int RunDockerCompose(string root, string composeFile, IReadOnlyList<string> composeArgs)
     {
-        var args = string.Join(' ', composeArgs.Prepend("-f").Prepend(composeFile));
-        return ProcessRunner.RunToCompletion("docker", $"compose {args}", root);
+        var composePath = Path.Combine(root, composeFile);
+        if (!File.Exists(composePath))
+        {
+            Console.Error.WriteLine($"Compose file not found: {composePath}");
+            return 1;
+        }
+
+        var arguments = new List<string> { "compose", "-f", composePath };
+        arguments.AddRange(composeArgs);
+        return ProcessRunner.RunToCompletion("docker", arguments, root);
     }
 
-    private static async Task<int> RunDevAsync(string root, bool withFrontend, CancellationToken ct)
+    private static async Task<int> RunDevAsync(string root, bool withFrontend, bool resetDb, CancellationToken ct)
     {
-        if (RunDockerCompose(root, "docker-compose.deps.yml", "up", "-d") != 0)
+        if (resetDb)
+            Console.WriteLine("Resetting dev databases (--reset-db)...");
+        if (RunDockerCompose(root, "docker-compose.deps.yml", ["up", "-d"]) != 0)
+        {
+            Console.Error.WriteLine("Failed to start Redis/PostgreSQL. Is Docker running?");
             return 1;
+        }
 
         Console.WriteLine("Waiting for Redis and PostgreSQL...");
         if (!await WaitForPortAsync("127.0.0.1", 6379, TimeSpan.FromSeconds(60), ct) ||
@@ -168,6 +204,24 @@ public static class StackOrchestrator
             Console.Error.WriteLine("Dependencies did not become ready in time.");
             return 1;
         }
+
+        Console.WriteLine("Building API projects...");
+        if (ProcessRunner.RunToCompletion("dotnet", ["build", "src/Snekl.Account.Api/Snekl.Account.Api.csproj", "-c", "Debug"], root) != 0 ||
+            ProcessRunner.RunToCompletion("dotnet", ["build", "src/Snekl.Api/Snekl.Api.csproj", "-c", "Debug"], root) != 0)
+        {
+            Console.Error.WriteLine("Build failed. A running Snekl API may be locking build output.");
+            Console.Error.WriteLine("Check activity: dotnet run --project src/Snekl.Server --no-launch-profile -- status");
+            Console.Error.WriteLine("Stop when safe:  dotnet run --project src/Snekl.Server --no-launch-profile -- stop --force");
+            return 1;
+        }
+
+        if (IsPortInUse(5100) || IsPortInUse(5001) || IsPortInUse(5002))
+        {
+            Console.Error.WriteLine("Ports 5100, 5001, or 5002 are already in use. Stop the previous Snekl dev session first.");
+            return 1;
+        }
+
+        EnsurePostgresDatabase(root, "snekl_beta");
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         Console.CancelKeyPress += (_, e) =>
@@ -185,6 +239,9 @@ public static class StackOrchestrator
             ["ConnectionStrings__Redis"] = "localhost:6379"
         };
 
+        if (resetDb)
+            sharedEnv["Snekl__ResetDb"] = "true";
+
         var authEnv = new Dictionary<string, string>(sharedEnv)
         {
             ["ConnectionStrings__Default"] = "Host=localhost;Port=5432;Database=snekl_auth;Username=snekl;Password=snekl",
@@ -195,28 +252,42 @@ public static class StackOrchestrator
         var contentEnv = new Dictionary<string, string>(sharedEnv)
         {
             ["ConnectionStrings__Default"] = "Host=localhost;Port=5432;Database=snekl;Username=snekl;Password=snekl",
+            ["Node__Name"] = "Snekl Alpha",
             ["Node__BaseUrl"] = ContentUrl,
             ["DOTNET_URLS"] = ContentUrl
         };
 
-        Console.WriteLine($"Starting auth server at {AuthUrl}");
-        runner.Start("dotnet", "run --project src/Snekl.Account.Api --no-launch-profile", root, authEnv);
+        var contentBetaEnv = new Dictionary<string, string>(sharedEnv)
+        {
+            ["ConnectionStrings__Default"] = "Host=localhost;Port=5432;Database=snekl_beta;Username=snekl;Password=snekl",
+            ["Node__Name"] = "Snekl Beta",
+            ["Node__BaseUrl"] = ContentBetaUrl,
+            ["Node__Description"] = "Secondary federated forum node",
+            ["DOTNET_URLS"] = ContentBetaUrl
+        };
 
-        Console.WriteLine($"Starting content server at {ContentUrl}");
-        runner.Start("dotnet", "run --project src/Snekl.Api --no-launch-profile", root, contentEnv);
+        Console.WriteLine($"Starting auth server at {AuthUrl}");
+        runner.Start("dotnet", ["run", "--project", "src/Snekl.Account.Api", "--no-launch-profile", "--no-build"], root, authEnv);
+
+        Console.WriteLine($"Starting content server (alpha) at {ContentUrl}");
+        runner.Start("dotnet", ["run", "--project", "src/Snekl.Api", "--no-launch-profile", "--no-build"], root, contentEnv);
+
+        Console.WriteLine($"Starting content server (beta) at {ContentBetaUrl}");
+        runner.Start("dotnet", ["run", "--project", "src/Snekl.Api", "--no-launch-profile", "--no-build"], root, contentBetaEnv);
 
         if (withFrontend && Directory.Exists(Path.Combine(root, "client/snekl-web")))
         {
             EnsureFrontendEnv(root);
-            Console.WriteLine($"Starting frontend at {FrontendUrl}");
-            runner.Start("npm", "run dev -- --host 0.0.0.0 --port 5173", Path.Combine(root, "client/snekl-web"));
+            if (!TryStartFrontend(runner, root))
+                return 1;
         }
 
         Console.WriteLine();
         Console.WriteLine("Snekl dev stack is running:");
-        Console.WriteLine($"  Auth:     {AuthUrl}");
-        Console.WriteLine($"  Content:  {ContentUrl}");
-        if (withFrontend) Console.WriteLine($"  Frontend: {FrontendUrl}");
+        Console.WriteLine($"  Auth:           {AuthUrl}");
+        Console.WriteLine($"  Content alpha:  {ContentUrl}");
+        Console.WriteLine($"  Content beta:   {ContentBetaUrl}");
+        if (withFrontend) Console.WriteLine($"  Frontend:       {FrontendUrl}");
         Console.WriteLine("Press Ctrl+C to stop.");
 
         try
@@ -231,6 +302,22 @@ public static class StackOrchestrator
         return 0;
     }
 
+    private static bool TryStartFrontend(ProcessRunner runner, string root)
+    {
+        var webRoot = Path.Combine(root, "client/snekl-web");
+        var viteBin = Path.Combine(webRoot, "node_modules/vite/bin/vite.js");
+        if (!File.Exists(viteBin))
+        {
+            Console.Error.WriteLine("Frontend dependencies are missing. Run: npm install in client/snekl-web");
+            return false;
+        }
+
+        // Invoke Vite via node directly — nvm's npm.cmd resolves npm relative to cwd and breaks in subfolders.
+        Console.WriteLine($"Starting frontend at {FrontendUrl}");
+        runner.Start("node", [viteBin, "--host", "0.0.0.0", "--port", "5173"], webRoot);
+        return true;
+    }
+
     private static void EnsureFrontendEnv(string root)
     {
         var envPath = Path.Combine(root, "client/snekl-web/.env");
@@ -241,6 +328,30 @@ public static class StackOrchestrator
             File.Copy(examplePath, envPath);
         else
             File.WriteAllText(envPath, "VITE_API_URL=http://localhost:5001\nVITE_AUTH_URL=http://localhost:5100\n");
+    }
+
+    private static void EnsurePostgresDatabase(string root, string databaseName)
+    {
+        var composePath = Path.Combine(root, "docker-compose.deps.yml");
+        ProcessRunner.RunToCompletion("docker", [
+            "compose", "-f", composePath, "exec", "-T", "postgres",
+            "psql", "-U", "snekl", "-d", "postgres", "-v", "ON_ERROR_STOP=0",
+            "-c", $"CREATE DATABASE {databaseName};"
+        ], root);
+    }
+
+    private static bool IsPortInUse(int port)
+    {
+        try
+        {
+            using var client = new TcpClient();
+            client.Connect("127.0.0.1", port);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static async Task<bool> WaitForPortAsync(string host, int port, TimeSpan timeout, CancellationToken ct)

@@ -12,6 +12,8 @@ public class SneklDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<Forum> Forums => Set<Forum>();
     public DbSet<Post> Posts => Set<Post>();
+    public DbSet<PostUpvote> PostUpvotes => Set<PostUpvote>();
+    public DbSet<PostRevision> PostRevisions => Set<PostRevision>();
     public DbSet<PeerNode> PeerNodes => Set<PeerNode>();
     public DbSet<UserStatus> UserStatuses => Set<UserStatus>();
     public DbSet<CuratedList> CuratedLists => Set<CuratedList>();
@@ -29,6 +31,8 @@ public class SneklDbContext : DbContext
     public DbSet<ForumFlairTemplate> ForumFlairTemplates => Set<ForumFlairTemplate>();
     public DbSet<ForumMemberFlair> ForumMemberFlairs => Set<ForumMemberFlair>();
     public DbSet<ForumMemberAlias> ForumMemberAliases => Set<ForumMemberAlias>();
+    public DbSet<ForumMemberBan> ForumMemberBans => Set<ForumMemberBan>();
+    public DbSet<PostReport> PostReports => Set<PostReport>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -67,6 +71,22 @@ public class SneklDbContext : DbContext
             e.HasOne(x => x.Forum).WithMany(x => x.Posts).HasForeignKey(x => x.ForumId);
             e.HasOne(x => x.Author).WithMany(x => x.Posts).HasForeignKey(x => x.AuthorUserId);
             e.HasOne(x => x.ParentPost).WithMany(x => x.Replies).HasForeignKey(x => x.ParentPostId);
+        });
+
+        modelBuilder.Entity<PostUpvote>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.PostId, x.UserId }).IsUnique();
+            e.HasOne(x => x.Post).WithMany(x => x.Upvotes).HasForeignKey(x => x.PostId);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
+        });
+
+        modelBuilder.Entity<PostRevision>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.PostId, x.CreatedAt });
+            e.HasOne(x => x.Post).WithMany(x => x.Revisions).HasForeignKey(x => x.PostId);
+            e.HasOne(x => x.EditedBy).WithMany().HasForeignKey(x => x.EditedByUserId);
         });
 
         modelBuilder.Entity<PeerNode>(e =>
@@ -185,6 +205,26 @@ public class SneklDbContext : DbContext
             e.HasIndex(x => new { x.ForumId, x.UserId }).IsUnique();
             e.HasOne(x => x.Forum).WithMany().HasForeignKey(x => x.ForumId);
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
+        });
+
+        modelBuilder.Entity<ForumMemberBan>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ForumId, x.UserId }).IsUnique();
+            e.HasOne(x => x.Forum).WithMany().HasForeignKey(x => x.ForumId);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
+            e.HasOne(x => x.BannedBy).WithMany().HasForeignKey(x => x.BannedByUserId);
+        });
+
+        modelBuilder.Entity<PostReport>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ForumId, x.Status });
+            e.HasIndex(x => new { x.PostId, x.ReporterUserId, x.Status });
+            e.HasOne(x => x.Post).WithMany().HasForeignKey(x => x.PostId);
+            e.HasOne(x => x.Forum).WithMany().HasForeignKey(x => x.ForumId);
+            e.HasOne(x => x.Reporter).WithMany().HasForeignKey(x => x.ReporterUserId);
+            e.HasOne(x => x.ResolvedBy).WithMany().HasForeignKey(x => x.ResolvedByUserId);
         });
     }
 }

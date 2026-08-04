@@ -15,5 +15,27 @@ public class Post : ExternalEntity
     /// <summary>Total number of descendant replies in this post's subtree (not direct-only).</summary>
     public int ReplyCount { get; set; }
 
+    public int UpvoteCount { get; set; }
+
+    public bool IsDeleted { get; set; }
+
+    public DateTime? DeletedAt { get; set; }
+
+    public DateTime? EditedAt { get; set; }
+
+    public bool IsLocked { get; set; }
+
+    public bool IsPinned { get; set; }
+
+    public DateTime? LockedAt { get; set; }
+
+    public DateTime? PinnedAt { get; set; }
+
+    public ICollection<PostUpvote> Upvotes { get; set; } = new List<PostUpvote>();
+
+    public ICollection<PostRevision> Revisions { get; set; } = new List<PostRevision>();
+
     public ICollection<Post> Replies { get; set; } = new List<Post>();
+
+    public bool IsLocallyOwned => !OriginNodeId.HasValue;
 }

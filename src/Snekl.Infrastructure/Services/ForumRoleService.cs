@@ -14,6 +14,7 @@ public interface IForumRoleService
     Task DeleteRoleAsync(Guid forumId, Guid roleId, CancellationToken ct = default);
     Task<IReadOnlyList<ForumMemberDto>> ListMembersAsync(Guid forumId, CancellationToken ct = default);
     Task AssignRolesAsync(Guid forumId, Guid userId, IReadOnlyList<Guid> roleIds, CancellationToken ct = default);
+    Task AssignRolesByUsernameAsync(Guid forumId, string username, IReadOnlyList<Guid> roleIds, CancellationToken ct = default);
 }
 
 public class ForumRoleService : IForumRoleService
@@ -142,6 +143,14 @@ public class ForumRoleService : IForumRoleService
         }
 
         await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task AssignRolesByUsernameAsync(Guid forumId, string username, IReadOnlyList<Guid> roleIds, CancellationToken ct = default)
+    {
+        var normalized = username.Trim().ToLowerInvariant();
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Username == normalized, ct)
+            ?? throw new InvalidOperationException("User not found.");
+        await AssignRolesAsync(forumId, user.Id, roleIds, ct);
     }
 
     private static ForumRoleDto ToDto(ForumRole role) => new(

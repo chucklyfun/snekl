@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Snekl.Domain.Dtos;
+using Snekl.Domain.Identity.Did;
 using Snekl.Infrastructure.Security;
 using Snekl.Infrastructure.Services;
 
@@ -23,6 +24,30 @@ public class NodeController : ControllerBase
 
     [HttpGet(".well-known/snekl")]
     public Task<ActionResult<NodeInfoDto>> WellKnown(CancellationToken ct) => Get(ct);
+}
+
+[ApiController]
+public class ContentDidController : ControllerBase
+{
+    private readonly INodeService _node;
+
+    public ContentDidController(INodeService node) => _node = node;
+
+    [HttpGet(".well-known/did.json")]
+    public async Task<ActionResult<DidDocument>> DidDocument(CancellationToken ct)
+    {
+        var node = await _node.GetOrCreateAsync(ct);
+        var vmId = _node.GetVerificationMethodId(node);
+        return Ok(new DidDocument(
+            [
+                "https://www.w3.org/ns/did/v1",
+                "https://w3id.org/security/suites/ed25519-2020/v1"
+            ],
+            node.Did,
+            [new DidVerificationMethod(vmId, "Ed25519VerificationKey2020", node.Did, node.VerificationKeyMultibase)],
+            [vmId],
+            [vmId]));
+    }
 }
 
 [ApiController]
@@ -69,7 +94,14 @@ public class FederationController : ControllerBase
     [HttpPost("inbox")]
     public async Task<IActionResult> Inbox(FederationEnvelope envelope, CancellationToken ct)
     {
-        await _federation.ReceiveAsync(envelope, ct);
-        return Accepted();
+        try
+        {
+            await _federation.ReceiveAsync(envelope, ct);
+            return Accepted();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 }

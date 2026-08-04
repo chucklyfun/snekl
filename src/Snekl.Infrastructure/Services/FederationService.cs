@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Snekl.Domain.Dtos;
 using Snekl.Domain.Entities;
+using Snekl.Domain.Security;
 using Snekl.Infrastructure.Caching;
 using Snekl.Infrastructure.Data;
 using Snekl.Redis;
@@ -55,8 +56,11 @@ public interface IFederationService
 {
     Task<PeerDto> SubscribeAsync(string baseUrl, CancellationToken ct = default);
     Task<IReadOnlyList<PeerDto>> ListPeersAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<NetworkServerDto>> ListNetworkServersAsync(CancellationToken ct = default);
     Task UnsubscribeAsync(Guid peerId, CancellationToken ct = default);
     Task BroadcastPostAsync(Post post, Forum forum, User author, CancellationToken ct = default);
+    Task BroadcastPostUpdateAsync(Post post, CancellationToken ct = default);
+    Task BroadcastPostDeleteAsync(Post post, CancellationToken ct = default);
     Task BroadcastForumAsync(Forum forum, User author, CancellationToken ct = default);
     Task ReceiveAsync(FederationEnvelope envelope, CancellationToken ct = default);
 }
@@ -66,23 +70,29 @@ public class FederationService : IFederationService
     private readonly SneklDbContext _db;
     private readonly IFederationClient _client;
     private readonly INodeService _nodeService;
+    private readonly INodeDidResolver _didResolver;
     private readonly IForumService _forumService;
     private readonly IPostService _postService;
+    private readonly IFederationEnvelopeValidator _validator;
     private readonly IRedisDedupService? _dedup;
 
     public FederationService(
         SneklDbContext db,
         IFederationClient client,
         INodeService nodeService,
+        INodeDidResolver didResolver,
         IForumService forumService,
         IPostService postService,
+        IFederationEnvelopeValidator validator,
         IServiceProvider services)
     {
         _db = db;
         _client = client;
         _nodeService = nodeService;
+        _didResolver = didResolver;
         _forumService = forumService;
         _postService = postService;
+        _validator = validator;
         _dedup = services.GetService(typeof(IRedisDedupService)) as IRedisDedupService;
     }
 
@@ -100,24 +110,28 @@ public class FederationService : IFederationService
         if (await _db.PeerNodes.AnyAsync(p => p.BaseUrl == baseUrl, ct))
             throw new InvalidOperationException("Already subscribed to this node.");
 
+        var verificationKey = await _didResolver.ResolveVerificationKeyMultibaseAsync(remoteInfo.Did, baseUrl, ct);
+
         var peer = new PeerNode
         {
             BaseUrl = baseUrl,
             Name = remoteInfo.Name,
-            RemoteNodeId = remoteInfo.Id
+            RemoteNodeId = remoteInfo.Id,
+            RemoteDid = remoteInfo.Did,
+            VerificationKeyMultibase = verificationKey ?? string.Empty
         };
 
         _db.PeerNodes.Add(peer);
         await _db.SaveChangesAsync(ct);
 
-        // Notify remote node of our subscription
-        var envelope = new FederationEnvelope(
-            "node.subscribe",
+        var payload = new NodeInfoDto(
             localNode.Id,
+            localNode.Did,
+            localNode.Name,
             localNode.BaseUrl,
-            DateTime.UtcNow,
-            new NodeInfoDto(localNode.Id, localNode.Did, localNode.Name, localNode.BaseUrl, localNode.Description, localNode.CreatedAt));
-
+            localNode.Description,
+            localNode.CreatedAt);
+        var envelope = await CreateSignedEnvelopeAsync("node.subscribe", payload, ct);
         await _client.DeliverAsync(baseUrl, envelope, ct);
 
         return ToDto(peer);
@@ -127,6 +141,29 @@ public class FederationService : IFederationService
     {
         var peers = await _db.PeerNodes.OrderBy(p => p.Name).ToListAsync(ct);
         return peers.Select(ToDto).ToList();
+    }
+
+    public async Task<IReadOnlyList<NetworkServerDto>> ListNetworkServersAsync(CancellationToken ct = default)
+    {
+        var localNode = await _nodeService.GetOrCreateAsync(ct);
+        var servers = new List<NetworkServerDto>
+        {
+            new(localNode.Did, localNode.Id, localNode.BaseUrl, localNode.Name, true)
+        };
+
+        var peers = await _db.PeerNodes.Where(p => p.IsActive).OrderBy(p => p.Name).ToListAsync(ct);
+        foreach (var peer in peers)
+        {
+            var remote = await _client.FetchNodeInfoAsync(peer.BaseUrl, ct);
+            servers.Add(new NetworkServerDto(
+                remote?.Did ?? Domain.Identity.Did.DidWeb.FromBaseUrl(peer.BaseUrl),
+                remote?.Id ?? peer.RemoteNodeId,
+                peer.BaseUrl,
+                remote?.Name ?? peer.Name,
+                false));
+        }
+
+        return servers;
     }
 
     public async Task UnsubscribeAsync(Guid peerId, CancellationToken ct = default)
@@ -150,8 +187,19 @@ public class FederationService : IFederationService
             post.Message,
             post.CreatedAt);
 
-        var envelope = new FederationEnvelope("post.create", localNode.Id, localNode.BaseUrl, DateTime.UtcNow, payload);
-        await DeliverToPeersAsync(envelope, ct);
+        await DeliverToPeersAsync(await CreateSignedEnvelopeAsync("post.create", payload, ct), ct);
+    }
+
+    public async Task BroadcastPostUpdateAsync(Post post, CancellationToken ct = default)
+    {
+        var payload = new FederatedPostUpdatePayload(post.Id, post.Message, post.EditedAt ?? DateTime.UtcNow);
+        await DeliverToPeersAsync(await CreateSignedEnvelopeAsync("post.update", payload, ct), ct);
+    }
+
+    public async Task BroadcastPostDeleteAsync(Post post, CancellationToken ct = default)
+    {
+        var payload = new FederatedPostDeletePayload(post.Id, post.DeletedAt ?? DateTime.UtcNow);
+        await DeliverToPeersAsync(await CreateSignedEnvelopeAsync("post.delete", payload, ct), ct);
     }
 
     public async Task BroadcastForumAsync(Forum forum, User author, CancellationToken ct = default)
@@ -165,12 +213,13 @@ public class FederationService : IFederationService
             new FederatedUserPayload(author.Id, author.Username, author.DisplayName, author.Bio, localNode.BaseUrl),
             forum.CreatedAt);
 
-        var envelope = new FederationEnvelope("forum.create", localNode.Id, localNode.BaseUrl, DateTime.UtcNow, payload);
-        await DeliverToPeersAsync(envelope, ct);
+        await DeliverToPeersAsync(await CreateSignedEnvelopeAsync("forum.create", payload, ct), ct);
     }
 
     public async Task ReceiveAsync(FederationEnvelope envelope, CancellationToken ct = default)
     {
+        await _validator.ValidateAsync(envelope, ct);
+
         if (_dedup is not null && TryGetEntityId(envelope, out var entityId))
         {
             var dedupKey = CacheKeys.FederationEnvelope(envelope.SourceNodeId, envelope.Type, entityId);
@@ -185,6 +234,14 @@ public class FederationService : IFederationService
                 var postPayload = JsonSerializer.Deserialize<FederatedPostPayload>(json, FederationClient.JsonOptions)!;
                 await _postService.UpsertFederatedAsync(postPayload, envelope.SourceNodeId, envelope.SourceNodeUrl, ct);
                 break;
+            case "post.update":
+                var updatePayload = JsonSerializer.Deserialize<FederatedPostUpdatePayload>(json, FederationClient.JsonOptions)!;
+                await _postService.ApplyFederatedUpdateAsync(updatePayload, ct);
+                break;
+            case "post.delete":
+                var deletePayload = JsonSerializer.Deserialize<FederatedPostDeletePayload>(json, FederationClient.JsonOptions)!;
+                await _postService.ApplyFederatedDeleteAsync(deletePayload, ct);
+                break;
             case "forum.create":
                 var forumPayload = JsonSerializer.Deserialize<FederatedForumPayload>(json, FederationClient.JsonOptions)!;
                 await _forumService.UpsertFederatedAsync(forumPayload, envelope.SourceNodeId, envelope.SourceNodeUrl, ct);
@@ -194,6 +251,22 @@ public class FederationService : IFederationService
                 await UpsertPeerFromSubscriptionAsync(nodeInfo, ct);
                 break;
         }
+    }
+
+    private async Task<FederationEnvelope> CreateSignedEnvelopeAsync(string type, object payload, CancellationToken ct)
+    {
+        var localNode = await _nodeService.GetOrCreateAsync(ct);
+        var timestamp = DateTime.UtcNow;
+        var privateKey = _nodeService.GetSigningPrivateKey(localNode);
+        var signature = FederationEnvelopeSigner.Sign(
+            privateKey,
+            type,
+            localNode.Id,
+            localNode.BaseUrl,
+            timestamp,
+            payload);
+
+        return new FederationEnvelope(type, localNode.Id, localNode.BaseUrl, timestamp, payload, signature);
     }
 
     private static bool TryGetEntityId(FederationEnvelope envelope, out Guid entityId)
@@ -217,11 +290,14 @@ public class FederationService : IFederationService
         var existing = await _db.PeerNodes.FirstOrDefaultAsync(p => p.BaseUrl == nodeInfo.BaseUrl, ct);
         if (existing is not null) return;
 
+        var verificationKey = await _didResolver.ResolveVerificationKeyMultibaseAsync(nodeInfo.Did, nodeInfo.BaseUrl, ct);
         _db.PeerNodes.Add(new PeerNode
         {
             BaseUrl = nodeInfo.BaseUrl,
             Name = nodeInfo.Name,
-            RemoteNodeId = nodeInfo.Id
+            RemoteNodeId = nodeInfo.Id,
+            RemoteDid = nodeInfo.Did,
+            VerificationKeyMultibase = verificationKey ?? string.Empty
         });
         await _db.SaveChangesAsync(ct);
     }

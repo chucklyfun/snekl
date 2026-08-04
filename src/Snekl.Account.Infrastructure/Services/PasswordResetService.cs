@@ -10,7 +10,7 @@ namespace Snekl.Account.Infrastructure.Services;
 
 public interface IPasswordResetService
 {
-    Task<MessageResponse> RequestResetAsync(ForgotPasswordRequest request, CancellationToken ct = default);
+    Task<ForgotPasswordResponse> RequestResetAsync(ForgotPasswordRequest request, CancellationToken ct = default);
     Task<MessageResponse> ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default);
 }
 
@@ -36,26 +36,31 @@ public class PasswordResetService : IPasswordResetService
         _config = config;
     }
 
-    public async Task<MessageResponse> RequestResetAsync(ForgotPasswordRequest request, CancellationToken ct = default)
+    public async Task<ForgotPasswordResponse> RequestResetAsync(ForgotPasswordRequest request, CancellationToken ct = default)
     {
         const string responseMessage =
             "If an account exists with that email, a password reset link has been sent.";
 
         var email = request.Email.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(email))
-            return new MessageResponse(responseMessage);
+            return new ForgotPasswordResponse(responseMessage);
 
         var config = await _server.GetOrCreateAsync(ct);
+        var devMode = _config.GetValue("Auth:AllowDevPasswordReset", false);
 
-        var identity = await _db.AuthIdentities
+        var identityQuery = _db.AuthIdentities
             .Include(i => i.PersonCluster)
-            .FirstOrDefaultAsync(i =>
+            .Where(i =>
                 i.AuthServerUrl == config.BaseUrl &&
-                i.PersonCluster!.Email == email &&
-                i.PersonCluster.EmailVerifiedAt != null, ct);
+                i.PersonCluster!.Email == email);
+
+        if (!devMode)
+            identityQuery = identityQuery.Where(i => i.PersonCluster!.EmailVerifiedAt != null);
+
+        var identity = await identityQuery.FirstOrDefaultAsync(ct);
 
         if (identity is null)
-            return new MessageResponse(responseMessage);
+            return new ForgotPasswordResponse(responseMessage);
 
         var rawToken = SecureTokenHelper.GenerateToken();
         var tokenHash = SecureTokenHelper.HashToken(rawToken);
@@ -80,7 +85,10 @@ public class PasswordResetService : IPasswordResetService
         var resetUrl = $"{frontendBase}/reset-password?token={Uri.EscapeDataString(rawToken)}";
         await _email.SendPasswordResetAsync(email, resetUrl, ct);
 
-        return new MessageResponse(responseMessage);
+        if (_config.GetValue("Auth:AllowDevPasswordReset", false))
+            return new ForgotPasswordResponse(responseMessage, resetUrl);
+
+        return new ForgotPasswordResponse(responseMessage);
     }
 
     public async Task<MessageResponse> ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default)

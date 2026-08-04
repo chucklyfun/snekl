@@ -38,9 +38,13 @@ public class MeController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<PersonClusterDto>> Get(CancellationToken ct)
     {
-        var clusterId = Guid.Parse(User.FindFirstValue("cluster_id")!);
+        if (!User.TryGetClusterId(out var clusterId))
+            return Unauthorized(new { error = "Invalid session. Please log in again." });
+
         var cluster = await _clusters.GetAsync(clusterId, ct);
-        return cluster is null ? NotFound() : Ok(cluster);
+        return cluster is null
+            ? NotFound(new { error = "Account not found. Log out and sign in again." })
+            : Ok(cluster);
     }
 
     [HttpPost("export")]

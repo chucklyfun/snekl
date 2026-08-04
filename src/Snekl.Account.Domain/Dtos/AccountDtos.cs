@@ -25,7 +25,9 @@ public record VerifyEmailRequest(string Token);
 
 public record MessageResponse(string Message);
 
-public record DevResetPasswordRequest(string Username, string NewPassword);
+public record ForgotPasswordResponse(string Message, string? ResetUrl = null);
+
+public record DevResetPasswordRequest(string Email, string NewPassword);
 
 public record AuthIdentityDto(
     Guid Id,

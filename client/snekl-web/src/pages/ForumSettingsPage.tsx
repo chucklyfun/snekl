@@ -8,8 +8,9 @@ import {
   decodeServerDid,
   forumPath,
   resolveServerBaseUrl,
+  threadPath,
 } from '../serverDid';
-import type { Forum, ForumFlairTemplate, ForumMember, ForumRole } from '../types';
+import type { Forum, ForumBan, ForumFlairTemplate, ForumMember, ForumRole, PostReport } from '../types';
 
 const FORUM_PERMISSION_OPTIONS = [
   'ViewForum',
@@ -36,15 +37,21 @@ export function ForumSettingsPage() {
   const [roles, setRoles] = useState<ForumRole[]>([]);
   const [members, setMembers] = useState<ForumMember[]>([]);
   const [flairs, setFlairs] = useState<ForumFlairTemplate[]>([]);
+  const [bans, setBans] = useState<ForumBan[]>([]);
+  const [reports, setReports] = useState<PostReport[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   const [roleName, setRoleName] = useState('');
-  const [roleColor] = useState('#43b581');
+  const [roleColor, setRoleColor] = useState('#43b581');
   const [rolePerms, setRolePerms] = useState<string[]>(['ViewForum']);
   const [flairEmoji, setFlairEmoji] = useState('');
   const [flairLabel, setFlairLabel] = useState('');
   const [myAlias, setMyAlias] = useState('');
+  const [assignUsername, setAssignUsername] = useState('');
+  const [assignRoleIds, setAssignRoleIds] = useState<string[]>([]);
+  const [banUsername, setBanUsername] = useState('');
+  const [banReason, setBanReason] = useState('');
 
   const serverDid = encodedDid ? decodeServerDid(encodedDid) : '';
   const baseUrl = resolveServerBaseUrl(serverDid, resolveBaseUrl);
@@ -54,28 +61,55 @@ export function ForumSettingsPage() {
   const canManageRoles = hasPermission(forum?.viewerPermissions, 'ManageRoles');
   const canManageMembers = hasPermission(forum?.viewerPermissions, 'ManageMembers');
   const canManageForum = hasPermission(forum?.viewerPermissions, 'ManageForum');
+  const canManagePosts = hasPermission(forum?.viewerPermissions, 'ManagePosts');
+  const canListRoles = canManageRoles || canManageMembers;
+  const canAccess = canManageRoles || canManageMembers || canManageForum || canManagePosts;
 
-  const load = () => {
+  const loadForum = () => {
     if (!slug || !client) return;
     client
       .getForum(slug, effectiveParentSlug)
-      .then((f) => {
-        setForum(f);
-        return Promise.all([
-          client.getForumRoles(slug, effectiveParentSlug),
-          client.getForumMembers(slug, effectiveParentSlug),
-          client.getFlairTemplates(slug, effectiveParentSlug),
-        ]);
-      })
-      .then(([r, m, fl]) => {
-        setRoles(r);
-        setMembers(m);
-        setFlairs(fl);
-      })
+      .then(setForum)
       .catch((err) => setError(err.message));
   };
 
-  useEffect(load, [slug, client, effectiveParentSlug]);
+  const loadRoles = () => {
+    if (!slug || !client || !canListRoles) return;
+    client.getForumRoles(slug, effectiveParentSlug).then(setRoles).catch((err) => setError(err.message));
+  };
+
+  const loadMembers = () => {
+    if (!slug || !client || !canManageMembers) return;
+    client.getForumMembers(slug, effectiveParentSlug).then(setMembers).catch((err) => setError(err.message));
+  };
+
+  const loadFlairs = () => {
+    if (!slug || !client || !(canManageMembers || canManageRoles)) return;
+    client.getFlairTemplates(slug, effectiveParentSlug).then(setFlairs).catch((err) => setError(err.message));
+  };
+
+  const loadBans = () => {
+    if (!slug || !client || !canManageMembers) return;
+    client.getForumBans(slug, effectiveParentSlug).then(setBans).catch((err) => setError(err.message));
+  };
+
+  const loadReports = () => {
+    if (!slug || !client || !canManagePosts) return;
+    client.getForumReports(slug, effectiveParentSlug).then(setReports).catch((err) => setError(err.message));
+  };
+
+  useEffect(() => {
+    loadForum();
+  }, [slug, client, effectiveParentSlug]);
+
+  useEffect(() => {
+    if (!forum) return;
+    loadRoles();
+    loadMembers();
+    loadFlairs();
+    loadBans();
+    loadReports();
+  }, [forum?.id, forum?.viewerPermissions?.join(',')]);
 
   if (!user) {
     return (
@@ -87,7 +121,7 @@ export function ForumSettingsPage() {
 
   if (!forum && !error) return <p>Loading...</p>;
 
-  if (forum && !canManageRoles && !canManageMembers && !canManageForum) {
+  if (forum && !canAccess) {
     return <div className="error-banner">You do not have permission to manage this forum.</div>;
   }
 
@@ -103,7 +137,77 @@ export function ForumSettingsPage() {
       );
       setRoleName('');
       setSuccess('Forum role created.');
-      load();
+      loadRoles();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    }
+  };
+
+  const assignRoles = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!client || !slug) return;
+    setError('');
+    try {
+      await client.assignForumRolesByUsername(slug, assignUsername.trim().toLowerCase(), assignRoleIds, effectiveParentSlug);
+      setAssignUsername('');
+      setAssignRoleIds([]);
+      setSuccess('Roles assigned.');
+      loadMembers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to assign roles');
+    }
+  };
+
+  const banMember = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!client || !slug) return;
+    setError('');
+    try {
+      await client.banForumMember(
+        slug,
+        { username: banUsername.trim().toLowerCase(), reason: banReason.trim() || undefined },
+        effectiveParentSlug,
+      );
+      setBanUsername('');
+      setBanReason('');
+      setSuccess('Member banned.');
+      loadBans();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to ban member');
+    }
+  };
+
+  const unbanMember = async (userId: string) => {
+    if (!client || !slug) return;
+    setError('');
+    try {
+      await client.unbanForumMember(slug, userId, effectiveParentSlug);
+      setSuccess('Ban removed.');
+      loadBans();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to unban');
+    }
+  };
+
+  const dismissReport = async (reportId: string) => {
+    if (!client || !slug) return;
+    setError('');
+    try {
+      await client.dismissForumReport(slug, reportId, effectiveParentSlug);
+      setSuccess('Report dismissed.');
+      loadReports();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    }
+  };
+
+  const resolveReport = async (reportId: string) => {
+    if (!client || !slug) return;
+    setError('');
+    try {
+      await client.resolveForumReport(slug, reportId, effectiveParentSlug);
+      setSuccess('Report resolved.');
+      loadReports();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
     }
@@ -122,7 +226,7 @@ export function ForumSettingsPage() {
       setFlairEmoji('');
       setFlairLabel('');
       setSuccess('Flair template added.');
-      load();
+      loadFlairs();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
     }
@@ -192,6 +296,15 @@ export function ForumSettingsPage() {
               <label htmlFor="forum-role-name">Role name</label>
               <input id="forum-role-name" value={roleName} onChange={(e) => setRoleName(e.target.value)} required />
             </div>
+            <div className="form-group">
+              <label htmlFor="forum-role-color">Color</label>
+              <input
+                id="forum-role-color"
+                type="color"
+                value={roleColor}
+                onChange={(e) => setRoleColor(e.target.value)}
+              />
+            </div>
             <div className="permission-grid">
               {FORUM_PERMISSION_OPTIONS.map((p) => (
                 <label key={p} className="permission-check">
@@ -218,11 +331,119 @@ export function ForumSettingsPage() {
       {canManageMembers && (
         <section className="card">
           <h2 className="card-title">Members</h2>
+          {members.length === 0 && <p className="card-meta">No members with assigned roles yet.</p>}
           {members.map((m) => (
             <div key={m.userId} className="server-row">
               <strong>{m.alias ?? m.displayName}</strong>
               <div className="card-meta">
-                @{m.username} · {m.roles.map((r) => r.name).join(', ')}
+                @{m.username} · {m.roles.map((r) => r.name).join(', ') || 'no roles'}
+              </div>
+            </div>
+          ))}
+
+          {canListRoles && roles.length > 0 && (
+            <form onSubmit={assignRoles} style={{ marginTop: '1rem' }}>
+              <div className="form-group">
+                <label htmlFor="assign-forum-user">Username</label>
+                <input
+                  id="assign-forum-user"
+                  value={assignUsername}
+                  onChange={(e) => setAssignUsername(e.target.value)}
+                  placeholder="alice"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Roles to assign</label>
+                <div className="permission-grid">
+                  {roles
+                    .filter((r) => !r.isEveryone)
+                    .map((r) => (
+                      <label key={r.id} className="permission-check">
+                        <input
+                          type="checkbox"
+                          checked={assignRoleIds.includes(r.id)}
+                          onChange={(e) =>
+                            setAssignRoleIds((prev) =>
+                              e.target.checked ? [...prev, r.id] : prev.filter((x) => x !== r.id),
+                            )
+                          }
+                        />
+                        {r.name}
+                      </label>
+                    ))}
+                </div>
+              </div>
+              <button type="submit" className="btn-primary">
+                Assign roles
+              </button>
+            </form>
+          )}
+        </section>
+      )}
+
+      {canManageMembers && (
+        <section className="card">
+          <h2 className="card-title">Banned members</h2>
+          {bans.length === 0 && <p className="card-meta">No active bans.</p>}
+          {bans.map((ban) => (
+            <div key={ban.id} className="server-row">
+              <div>
+                <strong>{ban.displayName}</strong>
+                <div className="card-meta">
+                  @{ban.username}
+                  {ban.reason ? ` · ${ban.reason}` : ''}
+                  {ban.expiresAt ? ` · until ${new Date(ban.expiresAt).toLocaleString()}` : ' · permanent'}
+                </div>
+              </div>
+              <button type="button" className="btn-ghost" onClick={() => unbanMember(ban.userId)}>
+                Unban
+              </button>
+            </div>
+          ))}
+          <form onSubmit={banMember} style={{ marginTop: '1rem' }}>
+            <div className="inline-form">
+              <input
+                value={banUsername}
+                onChange={(e) => setBanUsername(e.target.value)}
+                placeholder="Username"
+                required
+              />
+              <input
+                value={banReason}
+                onChange={(e) => setBanReason(e.target.value)}
+                placeholder="Reason (optional)"
+              />
+              <button type="submit" className="btn-primary">
+                Ban
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
+      {canManagePosts && (
+        <section className="card">
+          <h2 className="card-title">Report queue</h2>
+          {reports.length === 0 && <p className="card-meta">No open reports.</p>}
+          {reports.map((report) => (
+            <div key={report.id} className="server-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+              <div className="card-meta">
+                Reported by @{report.reporterUsername} · post by @{report.postAuthorUsername} ·{' '}
+                {new Date(report.createdAt).toLocaleString()}
+              </div>
+              <p className="post-body">{report.postPreview}</p>
+              <p className="card-meta">Reason: {report.reason}</p>
+              <div className="post-actions">
+                <Link to={threadPath(serverDid, report.postId)} className="btn-ghost">
+                  View thread
+                </Link>
+                <button type="button" className="btn-ghost" onClick={() => dismissReport(report.id)}>
+                  Dismiss
+                </button>
+                <button type="button" className="btn-primary" onClick={() => resolveReport(report.id)}>
+                  Resolve
+                </button>
               </div>
             </div>
           ))}

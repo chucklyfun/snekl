@@ -49,7 +49,11 @@ export function ServerRegistryProvider({ children }: { children: ReactNode }) {
         list = await authApi.getContentServers();
       }
       setServers(list);
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '';
+      if (message.includes('(401)')) {
+        localStorage.removeItem('snekl_token');
+      }
       setServers([]);
     } finally {
       setLoading(false);

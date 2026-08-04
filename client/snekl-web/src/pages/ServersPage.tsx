@@ -69,7 +69,10 @@ export function ServersPage() {
 
       <form onSubmit={handleSubscribe} className="card">
         <h2 className="card-title">Add a server</h2>
-        <p className="card-meta">Enter the base URL of a Snekl content node (e.g. http://localhost:5002)</p>
+        <p className="card-meta">
+          Enter the base URL of a Snekl content node. Local dev uses <code>http://</code> (not https).
+          Beta node: <code>http://localhost:5002</code>
+        </p>
         <div className="inline-form">
           <input
             value={baseUrl}

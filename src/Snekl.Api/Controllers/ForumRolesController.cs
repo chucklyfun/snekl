@@ -15,17 +15,20 @@ public class ForumRolesController : ControllerBase
     private readonly IForumRoleService _roles;
     private readonly IForumMemberService _members;
     private readonly IPermissionService _permissions;
+    private readonly IForumModerationService _moderation;
 
     public ForumRolesController(
         IForumService forums,
         IForumRoleService roles,
         IForumMemberService members,
-        IPermissionService permissions)
+        IPermissionService permissions,
+        IForumModerationService moderation)
     {
         _forums = forums;
         _roles = roles;
         _members = members;
         _permissions = permissions;
+        _moderation = moderation;
     }
 
     private async Task<(Guid ForumId, ForumDto Forum)> ResolveForumAsync(string slug, string? parentSlug, Guid? viewerId, CancellationToken ct)
@@ -46,7 +49,9 @@ public class ForumRolesController : ControllerBase
         {
             var viewerId = this.RequireUserId();
             var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
-            await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageRoles, ct);
+            var perms = await _permissions.GetForumPermissionsAsync(viewerId, forumId, ct);
+            if (!perms.HasFlag(ForumPermissions.ManageRoles) && !perms.HasFlag(ForumPermissions.ManageMembers))
+                throw new PermissionDeniedException(ForumPermissions.ManageMembers.ToString(), "forum");
             return Ok(await _roles.ListRolesAsync(forumId, ct));
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
@@ -140,6 +145,136 @@ public class ForumRolesController : ControllerBase
             var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
             await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageMembers, ct);
             await _roles.AssignRolesAsync(forumId, userId, request.RoleIds, ct);
+            return NoContent();
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPut("members/by-username/{username}/roles")]
+    public async Task<IActionResult> AssignRolesByUsername(
+        string slug,
+        string username,
+        AssignForumRolesRequest request,
+        [FromQuery] string? parentSlug,
+        CancellationToken ct)
+    {
+        try
+        {
+            var viewerId = this.RequireUserId();
+            var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
+            await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageMembers, ct);
+            await _roles.AssignRolesByUsernameAsync(forumId, username, request.RoleIds, ct);
+            return NoContent();
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpGet("bans")]
+    public async Task<ActionResult<IReadOnlyList<ForumBanDto>>> ListBans(
+        string slug,
+        [FromQuery] string? parentSlug,
+        CancellationToken ct)
+    {
+        try
+        {
+            var viewerId = this.RequireUserId();
+            var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
+            await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageMembers, ct);
+            return Ok(await _moderation.ListBansAsync(forumId, ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("bans")]
+    public async Task<IActionResult> BanMember(
+        string slug,
+        BanForumMemberRequest request,
+        [FromQuery] string? parentSlug,
+        CancellationToken ct)
+    {
+        try
+        {
+            var viewerId = this.RequireUserId();
+            var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
+            await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageMembers, ct);
+            await _moderation.BanUserAsync(forumId, viewerId, request.Username, request.Reason, request.ExpiresAt, ct);
+            return NoContent();
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpDelete("bans/{userId:guid}")]
+    public async Task<IActionResult> UnbanMember(
+        string slug,
+        Guid userId,
+        [FromQuery] string? parentSlug,
+        CancellationToken ct)
+    {
+        try
+        {
+            var viewerId = this.RequireUserId();
+            var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
+            await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageMembers, ct);
+            await _moderation.UnbanUserAsync(forumId, userId, ct);
+            return NoContent();
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpGet("reports")]
+    public async Task<ActionResult<IReadOnlyList<PostReportDto>>> ListReports(
+        string slug,
+        [FromQuery] string? parentSlug,
+        CancellationToken ct)
+    {
+        try
+        {
+            var viewerId = this.RequireUserId();
+            var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
+            await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManagePosts, ct);
+            return Ok(await _moderation.ListOpenReportsAsync(forumId, ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("reports/{reportId:guid}/dismiss")]
+    public async Task<IActionResult> DismissReport(
+        string slug,
+        Guid reportId,
+        [FromQuery] string? parentSlug,
+        CancellationToken ct)
+    {
+        try
+        {
+            var viewerId = this.RequireUserId();
+            var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
+            await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManagePosts, ct);
+            await _moderation.DismissReportAsync(viewerId, reportId, ct);
+            return NoContent();
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("reports/{reportId:guid}/resolve")]
+    public async Task<IActionResult> ResolveReport(
+        string slug,
+        Guid reportId,
+        [FromQuery] string? parentSlug,
+        CancellationToken ct)
+    {
+        try
+        {
+            var viewerId = this.RequireUserId();
+            var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
+            await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManagePosts, ct);
+            await _moderation.ResolveReportAsync(viewerId, reportId, ct);
             return NoContent();
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }

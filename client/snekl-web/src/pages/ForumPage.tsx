@@ -1,9 +1,12 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { createContentClient, hasPermission } from '../api';
+import { UpvoteButton } from '../components/UpvoteButton';
 import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';
 import { useServerRegistry } from '../ServerRegistryContext';
+import { postOwnerBaseUrl } from '../postOwner';
+import type { PostSort } from '../ranking';
 import {
   decodeServerDid,
   forumPath,
@@ -14,16 +17,41 @@ import {
 } from '../serverDid';
 import type { Forum, Post } from '../types';
 
-function ThreadPreview({ post, serverDid }: { post: Post; serverDid: string }) {
+function ThreadPreview({
+  post,
+  serverDid,
+  baseUrl,
+}: {
+  post: Post;
+  serverDid: string;
+  baseUrl: string;
+}) {
   return (
-    <Link to={threadPath(serverDid, post.id)} className="card card-link">
-      <UserByline presentation={post.author} timestamp={post.createdAt} showStatus={false} />
-      <p className="post-body">
-        {post.message.slice(0, 200)}
-        {post.message.length > 200 ? '…' : ''}
-      </p>
-      <div className="card-meta">{post.replyCount} replies</div>
-    </Link>
+    <div className="card thread-card">
+      <div className="thread-card-main">
+        <UpvoteButton
+          postId={post.id}
+          baseUrl={postOwnerBaseUrl(post, baseUrl)}
+          upvoteCount={post.upvoteCount}
+          viewerHasUpvoted={post.viewerHasUpvoted}
+          compact
+        />
+        <Link to={threadPath(serverDid, post.id)} className="thread-card-body card-link">
+          <UserByline presentation={post.author} timestamp={post.createdAt} showStatus={false} />
+          {(post.isPinned || post.isLocked) && (
+            <div className="thread-badges">
+              {post.isPinned && <span className="thread-badge thread-badge-pinned">Pinned</span>}
+              {post.isLocked && <span className="thread-badge thread-badge-locked">Locked</span>}
+            </div>
+          )}
+          <p className="post-body">
+            {post.message.slice(0, 200)}
+            {post.message.length > 200 ? '…' : ''}
+          </p>
+          <div className="card-meta">{post.replyCount} replies</div>
+        </Link>
+      </div>
+    </div>
   );
 }
 
@@ -37,6 +65,7 @@ export function ForumPage() {
   const { resolveBaseUrl } = useServerRegistry();
   const [forum, setForum] = useState<Forum | null>(null);
   const [threads, setThreads] = useState<Post[]>([]);
+  const [sort, setSort] = useState<PostSort>('hot');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -45,9 +74,11 @@ export function ForumPage() {
   const client = useMemo(() => (baseUrl ? createContentClient(baseUrl) : null), [baseUrl]);
 
   const canCreateThread = hasPermission(forum?.viewerPermissions, 'CreateThread');
-  const canManageForum =
+  const canAccessSettings =
     hasPermission(forum?.viewerPermissions, 'ManageForum') ||
-    hasPermission(forum?.viewerPermissions, 'ManageRoles');
+    hasPermission(forum?.viewerPermissions, 'ManageRoles') ||
+    hasPermission(forum?.viewerPermissions, 'ManageMembers') ||
+    hasPermission(forum?.viewerPermissions, 'ManagePosts');
 
   const load = () => {
     if (!slug || !client) return;
@@ -55,13 +86,13 @@ export function ForumPage() {
       .getForum(slug, parentSlug)
       .then((f) => {
         setForum(f);
-        return client.getForumThreads(f.id);
+        return client.getForumThreads(f.id, sort);
       })
       .then(setThreads)
       .catch((err) => setError(err.message));
   };
 
-  useEffect(load, [slug, parentSlug, client]);
+  useEffect(load, [slug, parentSlug, client, sort]);
 
   const handleNewThread = async (e: FormEvent) => {
     e.preventDefault();
@@ -97,7 +128,7 @@ export function ForumPage() {
           <h1 className="page-title">{forum?.name}</h1>
           <p className="page-subtitle">{forum?.description}</p>
         </div>
-        {user && canManageForum && forum && (
+        {user && canAccessSettings && forum && (
           <Link to={forumSettingsPath(serverDid, forum.slug, parentSlug ?? forum.parentSlug ?? undefined)} className="btn-ghost">
             Settings
           </Link>
@@ -152,9 +183,27 @@ export function ForumPage() {
         </div>
       )}
 
-      <div style={{ marginTop: '1.5rem' }}>
+      <div className="sort-bar">
+        <span className="sort-bar-label">Sort</span>
+        <button
+          type="button"
+          className={`filter-chip${sort === 'hot' ? ' filter-chip-active' : ''}`}
+          onClick={() => setSort('hot')}
+        >
+          Hot
+        </button>
+        <button
+          type="button"
+          className={`filter-chip${sort === 'new' ? ' filter-chip-active' : ''}`}
+          onClick={() => setSort('new')}
+        >
+          New
+        </button>
+      </div>
+
+      <div style={{ marginTop: '1rem' }}>
         {threads.map((thread) => (
-          <ThreadPreview key={thread.id} post={thread} serverDid={serverDid} />
+          <ThreadPreview key={thread.id} post={thread} serverDid={serverDid} baseUrl={baseUrl} />
         ))}
       </div>
     </div>

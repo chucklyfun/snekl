@@ -31,6 +31,7 @@ export interface UserStatus {
 export interface ListAnnotation {
   listId: string;
   listName: string;
+  label: string;
   severity: number;
   tooltipText: string;
   flairEmoji?: string | null;
@@ -147,6 +148,30 @@ export interface ForumMember {
   alias?: string | null;
 }
 
+export interface ForumBan {
+  id: string;
+  userId: string;
+  username: string;
+  displayName: string;
+  reason?: string | null;
+  expiresAt?: string | null;
+  bannedByUsername: string;
+  createdAt: string;
+}
+
+export interface PostReport {
+  id: string;
+  postId: string;
+  postPreview: string;
+  postAuthorUsername: string;
+  reporterUserId: string;
+  reporterUsername: string;
+  reason: string;
+  status: string;
+  createdAt: string;
+  resolvedAt?: string | null;
+}
+
 export interface ForumFlairTemplate {
   id: string;
   forumId: string;
@@ -159,6 +184,26 @@ export interface ForumFlairTemplate {
   inheritFromTemplateId?: string | null;
 }
 
+export interface PostViewerActions {
+  canEdit: boolean;
+  canSoftDelete: boolean;
+  canHardDelete: boolean;
+  canViewHistory: boolean;
+  canLock?: boolean;
+  canUnlock?: boolean;
+  canPin?: boolean;
+  canUnpin?: boolean;
+  canReport?: boolean;
+}
+
+export interface PostRevision {
+  id: string;
+  message: string;
+  editedByUserId: string;
+  editedByUsername: string;
+  createdAt: string;
+}
+
 export interface Post {
   id: string;
   forumId: string;
@@ -166,10 +211,43 @@ export interface Post {
   author: UserPresentation;
   message: string;
   replyCount: number;
+  upvoteCount: number;
+  viewerHasUpvoted: boolean;
   originNodeUrl?: string | null;
   isFederated: boolean;
+  isDeleted: boolean;
+  isLocked: boolean;
+  isPinned: boolean;
+  editedAt?: string | null;
   createdAt: string;
   replies: Post[];
+  viewerActions?: PostViewerActions | null;
+}
+
+export interface RecentThread {
+  post: Post;
+  forumSlug: string;
+  forumName: string;
+  parentForumSlug?: string | null;
+  ownerBaseUrl: string;
+  ownerDid: string;
+}
+
+export interface NetworkServer {
+  did: string;
+  nodeId: string;
+  baseUrl: string;
+  name: string;
+  isSelf: boolean;
+}
+
+export interface AggregatedPost extends Post {
+  serverDid: string;
+  serverName: string;
+  serverBaseUrl: string;
+  forumSlug: string;
+  forumName: string;
+  parentForumSlug?: string | null;
 }
 
 export interface NodeInfo {

@@ -8,6 +8,7 @@ using Snekl.Account.Infrastructure.Security;
 using Snekl.Account.Infrastructure.Services;
 
 using Snekl.Redis;
+using Snekl.DevSession;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -48,10 +49,13 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+if (app.Environment.IsDevelopment())
+    app.UseDevSessionTracking("Snekl.Account.Api");
+
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
-    if (app.Environment.IsDevelopment())
+    if (app.Environment.IsDevelopment() && builder.Configuration.GetValue("Snekl:ResetDb", false))
     {
         await db.Database.EnsureDeletedAsync();
     }
@@ -81,3 +85,5 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+public partial class Program;

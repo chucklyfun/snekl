@@ -250,3 +250,11 @@ paket-files/
 # JetBrains Rider
 .idea/
 *.sln.iml
+
+# Modern stack
+client/snekl-web/dist/
+client/snekl-web/node_modules/
+client/snekl-web/.env
+.snekl/
+**/obj/
+**/bin/

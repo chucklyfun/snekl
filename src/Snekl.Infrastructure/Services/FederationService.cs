@@ -74,6 +74,7 @@ public class FederationService : IFederationService
     private readonly IForumService _forumService;
     private readonly IPostService _postService;
     private readonly IFederationEnvelopeValidator _validator;
+    private readonly IRealtimePublisher _realtime;
     private readonly IRedisDedupService? _dedup;
 
     public FederationService(
@@ -84,6 +85,7 @@ public class FederationService : IFederationService
         IForumService forumService,
         IPostService postService,
         IFederationEnvelopeValidator validator,
+        IRealtimePublisher realtime,
         IServiceProvider services)
     {
         _db = db;
@@ -93,6 +95,7 @@ public class FederationService : IFederationService
         _forumService = forumService;
         _postService = postService;
         _validator = validator;
+        _realtime = realtime;
         _dedup = services.GetService(typeof(IRedisDedupService)) as IRedisDedupService;
     }
 
@@ -233,14 +236,17 @@ public class FederationService : IFederationService
             case "post.create":
                 var postPayload = JsonSerializer.Deserialize<FederatedPostPayload>(json, FederationClient.JsonOptions)!;
                 await _postService.UpsertFederatedAsync(postPayload, envelope.SourceNodeId, envelope.SourceNodeUrl, ct);
+                await PublishFederatedPostAsync(postPayload.Id, "post.created", ct: ct);
                 break;
             case "post.update":
                 var updatePayload = JsonSerializer.Deserialize<FederatedPostUpdatePayload>(json, FederationClient.JsonOptions)!;
                 await _postService.ApplyFederatedUpdateAsync(updatePayload, ct);
+                await PublishFederatedPostAsync(updatePayload.Id, "post.updated", ct: ct);
                 break;
             case "post.delete":
                 var deletePayload = JsonSerializer.Deserialize<FederatedPostDeletePayload>(json, FederationClient.JsonOptions)!;
                 await _postService.ApplyFederatedDeleteAsync(deletePayload, ct);
+                await PublishFederatedPostAsync(deletePayload.Id, "post.deleted", isDeleted: true, ct: ct);
                 break;
             case "forum.create":
                 var forumPayload = JsonSerializer.Deserialize<FederatedForumPayload>(json, FederationClient.JsonOptions)!;
@@ -251,6 +257,36 @@ public class FederationService : IFederationService
                 await UpsertPeerFromSubscriptionAsync(nodeInfo, ct);
                 break;
         }
+    }
+
+    private async Task PublishFederatedPostAsync(
+        Guid postId,
+        string type,
+        bool isDeleted = false,
+        CancellationToken ct = default)
+    {
+        var post = await _postService.GetEntityAsync(postId, ct);
+        if (post is null) return;
+
+        Guid threadId;
+        try
+        {
+            threadId = await _postService.GetThreadRootIdAsync(postId, ct);
+        }
+        catch
+        {
+            return;
+        }
+
+        await _realtime.PublishPostEventAsync(
+            new RealtimePostEvent(
+                type,
+                threadId,
+                post.ForumId,
+                post.Id,
+                post.ParentPostId,
+                IsDeleted: isDeleted || post.IsDeleted),
+            ct);
     }
 
     private async Task<FederationEnvelope> CreateSignedEnvelopeAsync(string type, object payload, CancellationToken ct)

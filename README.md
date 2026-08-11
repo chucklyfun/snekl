@@ -249,11 +249,12 @@ Local Redis: `docker run -d -p 6379:6379 redis:7-alpine`
 
 ## Roadmap
 
-- Signed federation envelopes (node key pairs)
+- [x] Signed federation envelopes (node key pairs)
+- [x] Moderation tools per forum
+- [x] Real-time updates via SignalR
+- Full-text search across local + federated content (OpenSearch)
+- Reliable federation delivery (async outbox)
 - ActivityPub compatibility layer
-- Moderation tools per forum
-- Full-text search across local + federated content
-- Real-time updates via SignalR
 - Mobile-friendly PWA
 
 ## License

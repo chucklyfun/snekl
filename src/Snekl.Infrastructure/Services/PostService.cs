@@ -16,6 +16,7 @@ public interface IPostService
     Task HardDeleteAsync(Guid userId, Guid postId, CancellationToken ct = default);
     Task<IReadOnlyList<PostRevisionDto>> GetRevisionsAsync(Guid userId, Guid postId, CancellationToken ct = default);
     Task<Post?> GetEntityAsync(Guid postId, CancellationToken ct = default);
+    Task<Guid> GetThreadRootIdAsync(Guid postId, CancellationToken ct = default);
     Task<IReadOnlyList<PostDto>> GetForumThreadsAsync(
         Guid forumId,
         int page,
@@ -246,6 +247,9 @@ public class PostService : IPostService
 
     public Task<Post?> GetEntityAsync(Guid postId, CancellationToken ct = default) =>
         _db.Posts.Include(p => p.Author).Include(p => p.Forum).FirstOrDefaultAsync(p => p.Id == postId, ct);
+
+    public Task<Guid> GetThreadRootIdAsync(Guid postId, CancellationToken ct = default) =>
+        ResolveThreadRootIdAsync(postId, ct);
 
     public async Task<IReadOnlyList<PostDto>> GetForumThreadsAsync(
         Guid forumId,
@@ -624,7 +628,7 @@ public class PostService : IPostService
         return await ToDtoAsync(post, presentations[post.AuthorUserId], childDtos, viewerUpvotes, viewerUserId, ct);
     }
 
-    private async Task<Guid> GetThreadRootIdAsync(Guid postId, CancellationToken ct)
+    private async Task<Guid> ResolveThreadRootIdAsync(Guid postId, CancellationToken ct)
     {
         var currentId = postId;
         while (true)

@@ -16,6 +16,7 @@ import {
   threadPath,
 } from '../serverDid';
 import type { Forum, Post } from '../types';
+import { usePostRealtime } from '../usePostRealtime';
 
 function ThreadPreview({
   post,
@@ -93,6 +94,23 @@ export function ForumPage() {
   };
 
   useEffect(load, [slug, parentSlug, client, sort]);
+
+  usePostRealtime({
+    baseUrl,
+    forumId: forum?.id,
+    onEvent: (evt) => {
+      if (
+        evt.type === 'post.created' ||
+        evt.type === 'post.deleted' ||
+        evt.type === 'post.hardDeleted' ||
+        evt.type === 'thread.locked' ||
+        evt.type === 'thread.pinned' ||
+        evt.type === 'post.upvoted'
+      ) {
+        load();
+      }
+    },
+  });
 
   const handleNewThread = async (e: FormEvent) => {
     e.preventDefault();

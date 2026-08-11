@@ -8,6 +8,7 @@ import { useServerRegistry } from '../ServerRegistryContext';
 import { postOwnerBaseUrl } from '../postOwner';
 import { decodeServerDid, resolveServerBaseUrl } from '../serverDid';
 import type { Post, PostRevision } from '../types';
+import { usePostRealtime } from '../usePostRealtime';
 
 const isDev = import.meta.env.DEV;
 
@@ -362,6 +363,12 @@ export function ThreadPage() {
   };
 
   useEffect(load, [postId, client]);
+
+  usePostRealtime({
+    baseUrl,
+    threadId: postId,
+    onEvent: () => load(),
+  });
 
   const handleDelete = async (targetPostId: string, hard?: boolean) => {
     if (!client) return;

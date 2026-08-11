@@ -44,6 +44,21 @@ public record ForumDto(
 public record CreatePostRequest(Guid ForumId, Guid? ParentPostId, string Message);
 public record UpdatePostRequest(string Message);
 
+/// <summary>
+/// Lightweight SignalR payload for live thread/forum updates.
+/// Types: post.created, post.updated, post.deleted, post.hardDeleted, post.upvoted, thread.locked, thread.pinned.
+/// </summary>
+public record RealtimePostEvent(
+    string Type,
+    Guid ThreadId,
+    Guid ForumId,
+    Guid PostId,
+    Guid? ParentPostId = null,
+    int? UpvoteCount = null,
+    bool? IsLocked = null,
+    bool? IsPinned = null,
+    bool? IsDeleted = null);
+
 public record PostViewerActionsDto(
     bool CanEdit,
     bool CanSoftDelete,

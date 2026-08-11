@@ -1,5 +1,5 @@
-using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Snekl.Api.Realtime;
 using Snekl.Domain.Identity;
 using Snekl.Infrastructure;
 using Snekl.Infrastructure.Data;
@@ -18,10 +18,24 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
 
 builder.Services.AddSneklInfrastructure(connectionString, builder.Configuration);
 
+var signalRBuilder = builder.Services.AddSignalR();
+var redisConnection = builder.Configuration.GetConnectionString("Redis");
+if (!string.IsNullOrWhiteSpace(redisConnection))
+{
+    signalRBuilder.AddStackExchangeRedis(redisConnection);
+}
+
+builder.Services.AddSingleton<IRealtimePublisher, SignalRRealtimePublisher>();
+
 builder.Services.AddCors(options =>
 {
+    // SignalR's JS client sends credentials on negotiate; AllowAnyOrigin (*) is
+    // incompatible with that. Reflect the request origin instead.
     options.AddDefaultPolicy(policy =>
-        policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
+        policy.SetIsOriginAllowed(_ => true)
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials());
 });
 
 var app = builder.Build();
@@ -89,6 +103,7 @@ app.UseSneklRateLimiting(builder.Configuration);
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<ThreadHub>("/hubs/thread");
 
 app.Run();
 

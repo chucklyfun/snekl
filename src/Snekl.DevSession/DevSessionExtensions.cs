@@ -10,11 +10,18 @@ public sealed class DevSessionMiddleware(RequestDelegate next, DevSessionStore s
     {
         await next(context);
 
-        var client = context.Request.Headers["X-Snekl-Dev-Client"].FirstOrDefault()?.Trim();
-        if (string.IsNullOrWhiteSpace(client))
-            client = "unknown";
+        try
+        {
+            var client = context.Request.Headers["X-Snekl-Dev-Client"].FirstOrDefault()?.Trim();
+            if (string.IsNullOrWhiteSpace(client))
+                client = "unknown";
 
-        store.RecordRequest(pid, context.Request.Method, context.Request.Path.Value ?? "/", client);
+            store.RecordRequest(pid, context.Request.Method, context.Request.Path.Value ?? "/", client);
+        }
+        catch
+        {
+            // Dev session tracking must never fail a request.
+        }
     }
 }
 
@@ -30,8 +37,28 @@ public static class DevSessionExtensions
         var pid = Environment.ProcessId;
         var urls = app.Configuration["DOTNET_URLS"] ?? app.Configuration["ASPNETCORE_URLS"];
 
-        app.Lifetime.ApplicationStarted.Register(() => store.Register(pid, serviceName, urls));
-        app.Lifetime.ApplicationStopping.Register(() => store.Unregister(pid));
+        app.Lifetime.ApplicationStarted.Register(() =>
+        {
+            try
+            {
+                store.Register(pid, serviceName, urls);
+            }
+            catch
+            {
+                // Tracking is best-effort; never fail host startup.
+            }
+        });
+        app.Lifetime.ApplicationStopping.Register(() =>
+        {
+            try
+            {
+                store.Unregister(pid);
+            }
+            catch
+            {
+                // Best-effort cleanup.
+            }
+        });
         app.UseMiddleware<DevSessionMiddleware>(store, pid);
 
         return app;

@@ -548,3 +548,7 @@ button,
     gap: 1rem;
   }
 }
+
+.flair-select {
+  font-family: 'Segoe UI', system-ui, 'Segoe UI Emoji', 'Segoe UI Symbol', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+}

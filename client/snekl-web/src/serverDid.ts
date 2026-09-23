@@ -1,3 +1,5 @@
+import { rewriteLoopbackForPage } from './hosts';
+
 export function encodeServerDid(did: string): string {
   const bytes = new TextEncoder().encode(did);
   let binary = '';
@@ -35,12 +37,48 @@ export function serverSettingsPath(serverDid: string): string {
   return `/s/${encodeServerDid(serverDid)}/settings`;
 }
 
+export function serverOwnerSettingsPath(serverDid: string): string {
+  return `/s/${encodeServerDid(serverDid)}/owner`;
+}
+
 export function threadPath(serverDid: string, postId: string): string {
   return `/s/${encodeServerDid(serverDid)}/posts/${postId}`;
 }
 
 export function createForumPath(serverDid: string): string {
   return `/s/${encodeServerDid(serverDid)}/forums/new`;
+}
+
+export function watercoolerPath(
+  serverDid: string,
+  slug: string,
+  parentForumSlug?: string,
+  forumParentSlug?: string,
+): string {
+  if (parentForumSlug) {
+    const forum = forumPath(serverDid, parentForumSlug, forumParentSlug);
+    return `${forum}/coolers/${slug}`;
+  }
+  return `/s/${encodeServerDid(serverDid)}/coolers/${slug}`;
+}
+
+export function createWatercoolerPath(serverDid: string, parentForumId?: string): string {
+  const base = `/s/${encodeServerDid(serverDid)}/coolers/new`;
+  return parentForumId ? `${base}?parent=${parentForumId}` : base;
+}
+
+export function watercoolerSettingsPath(
+  serverDid: string,
+  slug: string,
+  parentForumSlug?: string,
+  forumParentSlug?: string,
+): string {
+  return `${watercoolerPath(serverDid, slug, parentForumSlug, forumParentSlug)}/settings`;
+}
+
+/** Create-forum page when no content server is in the URL context. */
+export function createForumChooserPath(): string {
+  return '/forums/new';
 }
 
 export function shortServerDid(did: string): string {
@@ -55,20 +93,23 @@ export function baseUrlFromServerDid(did: string): string | undefined {
   const hostPart = did.slice(prefix.length);
   if (!hostPart) return undefined;
   if (hostPart.includes('%3A') || hostPart.includes(':')) {
-    const decoded = decodeURIComponent(hostPart);
-    const colon = decoded.lastIndexOf(':');
-    if (colon > 0) {
-      const host = decoded.slice(0, colon);
-      const port = decoded.slice(colon + 1);
-      return `http://${host}:${port}`;
+      const decoded = decodeURIComponent(hostPart);
+      const colon = decoded.lastIndexOf(':');
+      if (colon > 0) {
+        const host = decoded.slice(0, colon);
+        const port = decoded.slice(colon + 1);
+        const scheme = host === 'localhost' || host === '127.0.0.1' ? 'http' : 'https';
+        return `${scheme}://${host}:${port}`;
+      }
     }
-  }
-  return `http://${hostPart}`;
+    const scheme = hostPart.startsWith('localhost') || hostPart.startsWith('127.0.0.1') ? 'http' : 'https';
+    return `${scheme}://${hostPart}`;
 }
 
 export function resolveServerBaseUrl(
   serverDid: string,
   registryLookup: (did: string) => string | undefined,
 ): string | undefined {
-  return registryLookup(serverDid) ?? baseUrlFromServerDid(serverDid);
+  const raw = registryLookup(serverDid) ?? baseUrlFromServerDid(serverDid);
+  return raw ? rewriteLoopbackForPage(raw) : undefined;
 }

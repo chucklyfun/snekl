@@ -16,6 +16,7 @@ public interface IAccountAuthService
     Task<RingSessionDto> RegisterAsync(RegisterRequest request, CancellationToken ct = default);
     Task<RingSessionDto> ImportAsync(ImportIdentityRequest request, CancellationToken ct = default);
     Task<RingSessionDto?> LoginAsync(LoginRequest request, CancellationToken ct = default);
+    Task<RingSessionDto?> ReauthenticateAsync(Guid identityId, string password, CancellationToken ct = default);
     Task<bool> EmailExistsAsync(string email, CancellationToken ct = default);
     Task DevResetPasswordAsync(DevResetPasswordRequest request, CancellationToken ct = default);
     Task<AuthIdentity?> GetIdentityAsync(Guid identityId, CancellationToken ct = default);
@@ -108,7 +109,7 @@ public class AccountAuthService : IAccountAuthService
 
         await _verification.EnsureVerifiedOrSendAsync(cluster, ct);
 
-        var session = await _ring.CreateRingSessionAsync(identity, cluster, config, ct);
+        var session = await _ring.CreateRingSessionAsync(identity, cluster, config, ct, DateTimeOffset.UtcNow);
         return session with { GeneratedKeyPrivatePkcs8Base64 = generatedPrivateKey };
     }
 
@@ -158,7 +159,7 @@ public class AccountAuthService : IAccountAuthService
 
         await _verification.EnsureVerifiedOrSendAsync(cluster, ct);
 
-        return await _ring.CreateRingSessionAsync(identity, cluster, config, ct);
+        return await _ring.CreateRingSessionAsync(identity, cluster, config, ct, DateTimeOffset.UtcNow);
     }
 
     public async Task<RingSessionDto?> LoginAsync(LoginRequest request, CancellationToken ct = default)
@@ -189,7 +190,23 @@ public class AccountAuthService : IAccountAuthService
             await _db.SaveChangesAsync(ct);
         }
 
-        return await _ring.CreateRingSessionAsync(identity, identity.PersonCluster!, config, ct);
+        return await _ring.CreateRingSessionAsync(identity, identity.PersonCluster!, config, ct, DateTimeOffset.UtcNow);
+    }
+
+    public async Task<RingSessionDto?> ReauthenticateAsync(Guid identityId, string password, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(password))
+            return null;
+
+        var identity = await GetIdentityAsync(identityId, ct);
+        if (identity?.PasswordHash is null || identity.PersonCluster is null)
+            return null;
+
+        if (!BCrypt.Net.BCrypt.Verify(password, identity.PasswordHash))
+            return null;
+
+        var config = await _server.GetOrCreateAsync(ct);
+        return await _ring.CreateRingSessionAsync(identity, identity.PersonCluster, config, ct, DateTimeOffset.UtcNow);
     }
 
     public Task<bool> EmailExistsAsync(string email, CancellationToken ct = default)
@@ -231,7 +248,12 @@ public class AccountAuthService : IAccountAuthService
 
 public interface IRingLoginService
 {
-    Task<RingSessionDto> CreateRingSessionAsync(AuthIdentity identity, PersonCluster cluster, AuthServerConfig config, CancellationToken ct = default);
+    Task<RingSessionDto> CreateRingSessionAsync(
+        AuthIdentity identity,
+        PersonCluster cluster,
+        AuthServerConfig config,
+        CancellationToken ct = default,
+        DateTimeOffset? authTime = null);
 }
 
 public class RingLoginService : IRingLoginService
@@ -251,10 +273,15 @@ public class RingLoginService : IRingLoginService
         AuthIdentity identity,
         PersonCluster cluster,
         AuthServerConfig config,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        DateTimeOffset? authTime = null)
     {
         var expiry = DateTime.UtcNow.AddDays(7);
-        var localToken = _tokens.IssueToken(identity, cluster, config.BaseUrl);
+        var localToken = _tokens.IssueToken(
+            identity,
+            cluster,
+            config.BaseUrl,
+            authTime.HasValue ? new TokenIssueOptions(AuthTime: authTime) : null);
 
         var ringSession = new RingSession
         {

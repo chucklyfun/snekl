@@ -16,19 +16,25 @@ public class ForumRolesController : ControllerBase
     private readonly IForumMemberService _members;
     private readonly IPermissionService _permissions;
     private readonly IForumModerationService _moderation;
+    private readonly IChangeLogService _changeLog;
+    private readonly IOwnershipService _ownership;
 
     public ForumRolesController(
         IForumService forums,
         IForumRoleService roles,
         IForumMemberService members,
         IPermissionService permissions,
-        IForumModerationService moderation)
+        IForumModerationService moderation,
+        IChangeLogService changeLog,
+        IOwnershipService ownership)
     {
         _forums = forums;
         _roles = roles;
         _members = members;
         _permissions = permissions;
         _moderation = moderation;
+        _changeLog = changeLog;
+        _ownership = ownership;
     }
 
     private async Task<(Guid ForumId, ForumDto Forum)> ResolveForumAsync(string slug, string? parentSlug, Guid? viewerId, CancellationToken ct)
@@ -36,6 +42,29 @@ public class ForumRolesController : ControllerBase
         var forum = await _forums.GetBySlugAsync(slug, viewerId, parentSlug, ct)
             ?? throw new InvalidOperationException("Forum not found.");
         return (forum.Id, forum);
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("transfer-ownership")]
+    public async Task<ActionResult<ForumDto>> TransferOwnership(
+        string slug,
+        TransferOwnershipRequest request,
+        [FromQuery] string? parentSlug,
+        CancellationToken ct)
+    {
+        if (RecentPasswordAuth.RejectIfStale(this) is { } rejected)
+            return rejected;
+
+        try
+        {
+            var viewerId = this.RequireUserId();
+            var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
+            await _ownership.TransferForumOwnershipAsync(forumId, viewerId, request.Username, ct);
+            var updated = await _forums.GetBySlugAsync(slug, viewerId, parentSlug, ct)
+                ?? throw new InvalidOperationException("Forum not found.");
+            return Ok(updated);
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }
 
     [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
@@ -58,6 +87,23 @@ public class ForumRolesController : ControllerBase
     }
 
     [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpGet("history")]
+    public async Task<ActionResult<IReadOnlyList<ChangeLogEntryDto>>> ListHistory(
+        string slug,
+        [FromQuery] string? parentSlug,
+        CancellationToken ct)
+    {
+        try
+        {
+            var viewerId = this.RequireUserId();
+            var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
+            await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ViewHistory, ct);
+            return Ok(await _changeLog.ListForumAsync(forumId, 100, ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpPost("roles")]
     public async Task<ActionResult<ForumRoleDto>> CreateRole(
         string slug,
@@ -70,7 +116,7 @@ public class ForumRolesController : ControllerBase
             var viewerId = this.RequireUserId();
             var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
             await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageRoles, ct);
-            return Ok(await _roles.CreateRoleAsync(forumId, request, ct));
+            return Ok(await _roles.CreateRoleAsync(forumId, request, viewerId, ct));
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }
@@ -89,7 +135,7 @@ public class ForumRolesController : ControllerBase
             var viewerId = this.RequireUserId();
             var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
             await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageRoles, ct);
-            return Ok(await _roles.UpdateRoleAsync(forumId, roleId, request, ct));
+            return Ok(await _roles.UpdateRoleAsync(forumId, roleId, request, viewerId, ct));
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }
@@ -107,7 +153,7 @@ public class ForumRolesController : ControllerBase
             var viewerId = this.RequireUserId();
             var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
             await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageRoles, ct);
-            await _roles.DeleteRoleAsync(forumId, roleId, ct);
+            await _roles.DeleteRoleAsync(forumId, roleId, viewerId, ct);
             return NoContent();
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
@@ -144,7 +190,7 @@ public class ForumRolesController : ControllerBase
             var viewerId = this.RequireUserId();
             var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
             await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageMembers, ct);
-            await _roles.AssignRolesAsync(forumId, userId, request.RoleIds, ct);
+            await _roles.AssignRolesAsync(forumId, userId, request.RoleIds, viewerId, ct);
             return NoContent();
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
@@ -164,7 +210,7 @@ public class ForumRolesController : ControllerBase
             var viewerId = this.RequireUserId();
             var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
             await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageMembers, ct);
-            await _roles.AssignRolesByUsernameAsync(forumId, username, request.RoleIds, ct);
+            await _roles.AssignRolesByUsernameAsync(forumId, username, request.RoleIds, viewerId, ct);
             return NoContent();
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
@@ -219,7 +265,7 @@ public class ForumRolesController : ControllerBase
             var viewerId = this.RequireUserId();
             var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
             await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageMembers, ct);
-            await _moderation.UnbanUserAsync(forumId, userId, ct);
+            await _moderation.UnbanUserAsync(forumId, userId, viewerId, ct);
             return NoContent();
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
@@ -315,6 +361,25 @@ public class ForumRolesController : ControllerBase
     }
 
     [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPut("flair-templates/{templateId:guid}")]
+    public async Task<ActionResult<ForumFlairTemplateDto>> UpdateFlairTemplate(
+        string slug,
+        Guid templateId,
+        UpdateForumFlairTemplateRequest request,
+        [FromQuery] string? parentSlug,
+        CancellationToken ct)
+    {
+        try
+        {
+            var viewerId = this.RequireUserId();
+            var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
+            await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageMembers, ct);
+            return Ok(await _members.UpdateFlairTemplateAsync(forumId, templateId, request, ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpDelete("flair-templates/{templateId:guid}")]
     public async Task<IActionResult> DeleteFlairTemplate(
         string slug,
@@ -404,7 +469,7 @@ public class ForumRolesController : ControllerBase
             var viewerId = this.RequireUserId();
             var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
             await _permissions.RequireForumPermissionAsync(viewerId, forumId, ForumPermissions.ManageForum, ct);
-            await _members.UpdateForumSettingsAsync(forumId, request, ct);
+            await _members.UpdateForumSettingsAsync(forumId, request, viewerId, ct);
             return NoContent();
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }

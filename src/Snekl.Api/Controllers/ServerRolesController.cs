@@ -13,11 +13,22 @@ public class ServerRolesController : ControllerBase
 {
     private readonly IServerRoleService _roles;
     private readonly IPermissionService _permissions;
+    private readonly INsfwAgeCheckService _nsfwAge;
+    private readonly IChangeLogService _changeLog;
+    private readonly IOwnershipService _ownership;
 
-    public ServerRolesController(IServerRoleService roles, IPermissionService permissions)
+    public ServerRolesController(
+        IServerRoleService roles,
+        IPermissionService permissions,
+        INsfwAgeCheckService nsfwAge,
+        IChangeLogService changeLog,
+        IOwnershipService ownership)
     {
         _roles = roles;
         _permissions = permissions;
+        _nsfwAge = nsfwAge;
+        _changeLog = changeLog;
+        _ownership = ownership;
     }
 
     private async Task RequireManageRolesAsync(Guid userId, CancellationToken ct)
@@ -38,8 +49,57 @@ public class ServerRolesController : ControllerBase
     {
         var userId = this.RequireUserId();
         var isSuper = await _permissions.IsSuperUserAsync(userId, ct);
+        var isOwner = await _permissions.IsServerOwnerAsync(userId, ct);
         var perms = await _permissions.GetServerPermissionsAsync(userId, ct);
-        return Ok(new ServerPermissionsDto(isSuper, PermissionNames.ToNames(perms)));
+        var roles = await _roles.ListEffectiveRolesForUserAsync(userId, ct);
+        var age = await _nsfwAge.GetStatusAsync(userId, null, ct);
+        return Ok(new ServerPermissionsDto(
+            isSuper,
+            PermissionNames.ToNames(perms),
+            roles,
+            age.RequiredByServer,
+            age.MinimumAge,
+            age.ViewerAttested,
+            isOwner));
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("transfer-ownership")]
+    public async Task<ActionResult<NodeInfoDto>> TransferOwnership(
+        TransferOwnershipRequest request,
+        CancellationToken ct)
+    {
+        if (RecentPasswordAuth.RejectIfStale(this) is { } rejected)
+            return rejected;
+
+        try
+        {
+            return Ok(await _ownership.TransferServerOwnershipAsync(this.RequireUserId(), request.Username, ct));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPut("nsfw-age-check")]
+    public async Task<ActionResult<NsfwAgeCheckStatusDto>> UpdateNsfwAgeCheck(
+        UpdateServerNsfwAgeCheckRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = this.RequireUserId();
+            if (!await _permissions.IsSuperUserAsync(userId, ct))
+                await _permissions.RequireServerPermissionAsync(userId, ServerPermissions.ManageServerSettings, ct);
+            await _nsfwAge.UpdateServerPolicyAsync(request.Required, request.MinimumAge, userId, ct);
+            return Ok(await _nsfwAge.GetStatusAsync(userId, null, ct));
+        }
+        catch (Exception ex)
+        {
+            return ControllerExtensions.HandlePermissionError(ex);
+        }
     }
 
     [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
@@ -61,7 +121,7 @@ public class ServerRolesController : ControllerBase
         try
         {
             await RequireManageRolesAsync(this.RequireUserId(), ct);
-            return Ok(await _roles.CreateRoleAsync(request, ct));
+            return Ok(await _roles.CreateRoleAsync(request, this.RequireUserId(), ct));
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }
@@ -73,7 +133,7 @@ public class ServerRolesController : ControllerBase
         try
         {
             await RequireManageRolesAsync(this.RequireUserId(), ct);
-            return Ok(await _roles.UpdateRoleAsync(roleId, request, ct));
+            return Ok(await _roles.UpdateRoleAsync(roleId, request, this.RequireUserId(), ct));
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }
@@ -85,7 +145,7 @@ public class ServerRolesController : ControllerBase
         try
         {
             await RequireManageRolesAsync(this.RequireUserId(), ct);
-            await _roles.DeleteRoleAsync(roleId, ct);
+            await _roles.DeleteRoleAsync(roleId, this.RequireUserId(), ct);
             return NoContent();
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
@@ -110,7 +170,7 @@ public class ServerRolesController : ControllerBase
         try
         {
             await RequireManageMembersAsync(this.RequireUserId(), ct);
-            await _roles.AssignRolesAsync(userId, request.RoleIds, ct);
+            await _roles.AssignRolesAsync(userId, request.RoleIds, this.RequireUserId(), ct);
             return NoContent();
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
@@ -123,8 +183,21 @@ public class ServerRolesController : ControllerBase
         try
         {
             await RequireManageMembersAsync(this.RequireUserId(), ct);
-            await _roles.AssignRolesByUsernameAsync(username, request.RoleIds, ct);
+            await _roles.AssignRolesByUsernameAsync(username, request.RoleIds, this.RequireUserId(), ct);
             return NoContent();
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpGet("history")]
+    public async Task<ActionResult<IReadOnlyList<ChangeLogEntryDto>>> ListHistory(CancellationToken ct)
+    {
+        try
+        {
+            var userId = this.RequireUserId();
+            await _permissions.RequireServerPermissionAsync(userId, ServerPermissions.ViewHistory, ct);
+            return Ok(await _changeLog.ListServerAsync(100, ct));
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }

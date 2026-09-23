@@ -53,7 +53,9 @@ public record UserPresentationDto(
     UserFlairDto? Flair,
     UserStatusDto? ActiveStatus,
     IReadOnlyList<ListAnnotationDto> Annotations,
-    OverlayDto? AvatarOverlay);
+    OverlayDto? AvatarOverlay,
+    bool IsBot = false,
+    string? Did = null);
 
 public record UpdateUserFlairRequest(
     string? Emoji,
@@ -93,7 +95,35 @@ public record CuratedListDto(
     int EntryCount,
     int SubscriberCount,
     DateTime CreatedAt,
-    bool IsOwner);
+    bool IsOwner,
+    bool IsViewerSubscribed,
+    string? OwnerUsername,
+    int? ViewerPriority);
+
+public record UpdateCuratedListRequest(
+    string Name,
+    string Description,
+    string DefaultBehavior,
+    string? DefaultFlairEmoji,
+    string? DefaultIconUrl,
+    bool IsPublic);
+
+public record TransferCuratedListRequest(string Username);
+
+public record TransferOwnershipRequest(string Username);
+
+public record ListEntryDto(
+    Guid Id,
+    Guid ListId,
+    Guid TargetUserId,
+    string TargetUsername,
+    string Label,
+    int Severity,
+    string TooltipText,
+    string? FlairEmoji,
+    string? FlairIconUrl,
+    DateTime AddedAt,
+    bool IsIgnoredByViewer);
 
 public record AddListEntryRequest(
     Guid TargetUserId,
@@ -105,7 +135,32 @@ public record AddListEntryRequest(
     string? UsernameStyle,
     OverlayDto? AvatarOverlay);
 
+public record UpdateListEntryRequest(
+    string Label,
+    string TooltipText,
+    string? FlairEmoji,
+    string? FlairIconUrl);
+
 public record SubscribeListRequest(string AppliedBehavior);
+
+public record ReorderListSubscriptionsRequest(IReadOnlyList<Guid> ListIds);
+
+public record UserListEntryHit(
+    Guid EntryId,
+    Guid ListId,
+    string ListName,
+    string? ListOwnerUsername,
+    string TargetUsername,
+    string Label,
+    int Severity,
+    string TooltipText,
+    string? FlairEmoji,
+    string? FlairIconUrl,
+    bool IsViewerSubscribed,
+    int? ViewerPriority,
+    bool IsIgnoredByViewer,
+    bool AppliesOnPosts,
+    string ListDefaultBehavior);
 
 public record StatusPresetInfo(
     string Preset,

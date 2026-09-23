@@ -1,7 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using BCrypt.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
@@ -14,9 +13,12 @@ namespace Snekl.Infrastructure.Services;
 
 public interface ISiteAdminAuthService
 {
-    Task<SiteAdminAuthResponse?> LoginAsync(LoginRequest request, CancellationToken ct = default);
+    Task<OperatorStatusDto> GetStatusAsync(Guid userId, CancellationToken ct = default);
+    Task<SiteAdminAuthResponse> ElevateAsync(Guid userId, OperatorLoginRequest request, CancellationToken ct = default);
     Task<SiteAdminDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
-    Task EnsureSeedAdminAsync(string username, string password, CancellationToken ct = default);
+    Task<IReadOnlyList<SiteAdminDto>> ListAsync(CancellationToken ct = default);
+    Task<SiteAdminDto> InviteAsync(Guid invitedByAdminId, string username, CancellationToken ct = default);
+    Task RevokeAsync(Guid operatorId, CancellationToken ct = default);
 }
 
 public class SiteAdminAuthService : ISiteAdminAuthService
@@ -30,13 +32,66 @@ public class SiteAdminAuthService : ISiteAdminAuthService
         _config = config;
     }
 
-    public async Task<SiteAdminAuthResponse?> LoginAsync(LoginRequest request, CancellationToken ct = default)
+    public async Task<OperatorStatusDto> GetStatusAsync(Guid userId, CancellationToken ct = default)
     {
-        var username = request.Username.Trim().ToLowerInvariant();
-        var admin = await _db.SiteAdmins.FirstOrDefaultAsync(a => a.Username == username, ct);
-        if (admin is null || !BCrypt.Net.BCrypt.Verify(request.Password, admin.PasswordHash))
-            return null;
+        if (!await _db.SiteAdmins.AnyAsync(ct))
+            return new OperatorStatusDto(OperatorStates.Unclaimed);
 
+        var admin = await _db.SiteAdmins.AsNoTracking().FirstOrDefaultAsync(a => a.UserId == userId, ct);
+        if (admin is null)
+            return new OperatorStatusDto(OperatorStates.Forbidden);
+        if (!HasPassword(admin))
+            return new OperatorStatusDto(OperatorStates.SetupRequired);
+        return new OperatorStatusDto(OperatorStates.Ready);
+    }
+
+    public async Task<SiteAdminAuthResponse> ElevateAsync(
+        Guid userId,
+        OperatorLoginRequest request,
+        CancellationToken ct = default)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new UnauthorizedAccessException("User not found.");
+
+        var any = await _db.SiteAdmins.AnyAsync(ct);
+        if (!any)
+        {
+            var password = RequireNewPassword(request, "Choose an admin password to claim this server.");
+            var claimed = new SiteAdmin
+            {
+                UserId = user.Id,
+                Did = string.IsNullOrWhiteSpace(user.Did) ? null : user.Did,
+                Username = user.Username,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(password)
+            };
+            _db.SiteAdmins.Add(claimed);
+            await EnsureServerOwnerAsync(user.Id, ct);
+            await EnsureSuperUserAsync(user.Id, claimed.Id, ct);
+            await _db.SaveChangesAsync(ct);
+            return new SiteAdminAuthResponse(GenerateToken(claimed), ToDto(claimed));
+        }
+
+        var admin = await _db.SiteAdmins.FirstOrDefaultAsync(a => a.UserId == userId, ct)
+            ?? throw new UnauthorizedAccessException("You are not an operator on this server.");
+
+        if (!HasPassword(admin))
+        {
+            var password = RequireNewPassword(request, "Set an admin password for this server.");
+            admin.PasswordHash = BCrypt.Net.BCrypt.HashPassword(password);
+            await EnsureSuperUserAsync(user.Id, admin.Id, ct);
+            await _db.SaveChangesAsync(ct);
+            return new SiteAdminAuthResponse(GenerateToken(admin), ToDto(admin));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.NewAdminPassword))
+            throw new InvalidOperationException("This operator already has an admin password on this server.");
+
+        if (string.IsNullOrWhiteSpace(request.AdminPassword)
+            || !BCrypt.Net.BCrypt.Verify(request.AdminPassword, admin.PasswordHash))
+            throw new UnauthorizedAccessException("Invalid admin password.");
+
+        await EnsureSuperUserAsync(user.Id, admin.Id, ct);
+        await _db.SaveChangesAsync(ct);
         return new SiteAdminAuthResponse(GenerateToken(admin), ToDto(admin));
     }
 
@@ -46,18 +101,89 @@ public class SiteAdminAuthService : ISiteAdminAuthService
         return admin is null ? null : ToDto(admin);
     }
 
-    public async Task EnsureSeedAdminAsync(string username, string password, CancellationToken ct = default)
+    public async Task<IReadOnlyList<SiteAdminDto>> ListAsync(CancellationToken ct = default)
+    {
+        var rows = await _db.SiteAdmins.AsNoTracking().OrderBy(a => a.CreatedAt).ToListAsync(ct);
+        return rows.Select(ToDto).ToList();
+    }
+
+    public async Task<SiteAdminDto> InviteAsync(Guid invitedByAdminId, string username, CancellationToken ct = default)
     {
         var normalized = username.Trim().ToLowerInvariant();
-        if (await _db.SiteAdmins.AnyAsync(a => a.Username == normalized, ct))
+        if (string.IsNullOrWhiteSpace(normalized))
+            throw new InvalidOperationException("Username is required.");
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Username == normalized, ct)
+            ?? throw new InvalidOperationException("User not found on this server.");
+
+        if (await _db.SiteAdmins.AnyAsync(a => a.UserId == user.Id, ct))
+            throw new InvalidOperationException("User is already an operator on this server.");
+
+        var invite = new SiteAdmin
+        {
+            UserId = user.Id,
+            Did = string.IsNullOrWhiteSpace(user.Did) ? null : user.Did,
+            Username = user.Username,
+            PasswordHash = null,
+            InvitedByAdminId = invitedByAdminId
+        };
+        _db.SiteAdmins.Add(invite);
+        await EnsureSuperUserAsync(user.Id, invitedByAdminId, ct);
+        await _db.SaveChangesAsync(ct);
+        return ToDto(invite);
+    }
+
+    public async Task RevokeAsync(Guid operatorId, CancellationToken ct = default)
+    {
+        var admin = await _db.SiteAdmins.FirstOrDefaultAsync(a => a.Id == operatorId, ct)
+            ?? throw new InvalidOperationException("Operator not found.");
+
+        if (admin.UserId != Guid.Empty && await _db.NodeConfig.AnyAsync(n => n.OwnerUserId == admin.UserId, ct))
+            throw new InvalidOperationException("Cannot remove the server owner as an operator.");
+
+        if (await _db.SiteAdmins.CountAsync(ct) <= 1)
+            throw new InvalidOperationException("Cannot remove the last operator.");
+
+        _db.SiteAdmins.Remove(admin);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private async Task EnsureServerOwnerAsync(Guid userId, CancellationToken ct)
+    {
+        var node = await _db.NodeConfig.FirstOrDefaultAsync(ct);
+        if (node is null || node.OwnerUserId.HasValue) return;
+        node.OwnerUserId = userId;
+    }
+
+    private async Task EnsureSuperUserAsync(Guid userId, Guid grantedBySiteAdminId, CancellationToken ct)
+    {
+        if (!GrantOperatorsSuperUser)
             return;
 
-        _db.SiteAdmins.Add(new SiteAdmin
+        if (await _db.SuperUserGrants.AnyAsync(g => g.UserId == userId, ct))
+            return;
+
+        _db.SuperUserGrants.Add(new SuperUserGrant
         {
-            Username = normalized,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(password)
+            UserId = userId,
+            GrantedBySiteAdminId = grantedBySiteAdminId,
+            Note = "Granted with operator access"
         });
-        await _db.SaveChangesAsync(ct);
+    }
+
+    private bool GrantOperatorsSuperUser =>
+        bool.TryParse(_config["Admin:GrantOperatorsSuperUser"], out var enabled) && enabled;
+
+    private static bool HasPassword(SiteAdmin admin) => !string.IsNullOrEmpty(admin.PasswordHash);
+
+    private static string RequireNewPassword(OperatorLoginRequest request, string missingMessage)
+    {
+        var password = request.NewAdminPassword?.Trim();
+        if (string.IsNullOrWhiteSpace(password))
+            throw new InvalidOperationException(missingMessage);
+        if (password.Length < 8)
+            throw new InvalidOperationException("Admin password must be at least 8 characters.");
+        return password;
     }
 
     private string GenerateToken(SiteAdmin admin)
@@ -73,6 +199,7 @@ public class SiteAdminAuthService : ISiteAdminAuthService
             [
                 new Claim(ClaimTypes.NameIdentifier, admin.Id.ToString()),
                 new Claim(ClaimTypes.Name, admin.Username),
+                new Claim("did", admin.Did ?? string.Empty),
                 new Claim(SiteAdminClaims.Role, SiteAdminClaims.SiteAdmin)
             ],
             expires: expiry,
@@ -82,5 +209,5 @@ public class SiteAdminAuthService : ISiteAdminAuthService
     }
 
     private static SiteAdminDto ToDto(SiteAdmin admin) =>
-        new(admin.Id, admin.Username, admin.CreatedAt);
+        new(admin.Id, admin.UserId, admin.Username, admin.Did, HasPassword(admin), admin.CreatedAt);
 }

@@ -44,6 +44,17 @@ public class AuthController : ControllerBase
     }
 
     [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("reauthenticate")]
+    public async Task<ActionResult<AuthResponse>> Reauthenticate(
+        [FromBody] ReauthenticateRequest request,
+        CancellationToken ct)
+    {
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await _auth.ReauthenticateAsync(userId, request.Password, ct);
+        return result is null ? Unauthorized(new { error = "Invalid password." }) : Ok(result);
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpGet("me")]
     public async Task<ActionResult<AuthMeResponse>> Me(CancellationToken ct)
     {
@@ -61,7 +72,8 @@ public class AuthController : ControllerBase
         }
 
         var isSuper = await _permissions.IsSuperUserAsync(userId, ct);
+        var isOwner = await _permissions.IsServerOwnerAsync(userId, ct);
         var serverPerms = await _permissions.GetServerPermissionsAsync(userId, ct);
-        return Ok(new AuthMeResponse(presentation, isSuper, PermissionNames.ToNames(serverPerms)));
+        return Ok(new AuthMeResponse(presentation, isSuper, PermissionNames.ToNames(serverPerms), isOwner));
     }
 }

@@ -15,8 +15,13 @@ public interface ISuperUserService
 public class SuperUserService : ISuperUserService
 {
     private readonly SneklDbContext _db;
+    private readonly IPermissionService _permissions;
 
-    public SuperUserService(SneklDbContext db) => _db = db;
+    public SuperUserService(SneklDbContext db, IPermissionService permissions)
+    {
+        _db = db;
+        _permissions = permissions;
+    }
 
     public async Task<IReadOnlyList<SuperUserDto>> ListAsync(CancellationToken ct = default)
     {
@@ -58,6 +63,9 @@ public class SuperUserService : ISuperUserService
 
     public async Task RevokeAsync(Guid userId, CancellationToken ct = default)
     {
+        if (await _permissions.IsServerOwnerAsync(userId, ct))
+            throw new InvalidOperationException("Cannot revoke Super User from the server owner.");
+
         var grant = await _db.SuperUserGrants.FirstOrDefaultAsync(g => g.UserId == userId, ct)
             ?? throw new InvalidOperationException("Super User grant not found.");
 

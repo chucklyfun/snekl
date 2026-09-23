@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Snekl.Infrastructure.Services;
+using Snekl.Domain;
 
 namespace Snekl.Infrastructure.Security;
 
@@ -39,6 +40,21 @@ public class ExternalAuthClaimsTransformation : IClaimsTransformation
             claims.Add(new Claim(ClaimTypes.Email, user.Email));
 
         var identity = new ClaimsIdentity(claims, principal.Identity.AuthenticationType);
+        foreach (var name in new[]
+                 {
+                     OAuthClaims.Azp,
+                     OAuthClaims.Bot,
+                     OAuthClaims.InstallId,
+                     OAuthClaims.TokenUse,
+                     OAuthClaims.ContentBaseUrl,
+                     OAuthClaims.AuthTime
+                 })
+        {
+            var existing = principal.FindFirst(name);
+            if (existing is not null)
+                identity.AddClaim(new Claim(name, existing.Value));
+        }
+
         return new ClaimsPrincipal(identity);
     }
 }

@@ -1,55 +1,106 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { createContentClient, hasPermission } from '../api';
+import { ChangeHistoryList } from '../components/ChangeHistoryList';
+import { EmoteCatalogEditor } from '../components/EmoteCatalogEditor';
+import { NsfwAgeCheckPanel } from '../components/NsfwAgeCheckPanel';
+import { MemberRoleRow, type MemberRoleDraft } from '../components/MemberRoleRow';
+import { ServerRoleRow, type ServerRoleDraft } from '../components/ServerRoleRow';
 import { useAuth } from '../AuthContext';
 import { useServerRegistry } from '../ServerRegistryContext';
-import { decodeServerDid, resolveServerBaseUrl } from '../serverDid';
-import type { ServerMember, ServerRole } from '../types';
-
-const SERVER_PERMISSION_OPTIONS = [
-  'ViewServer',
-  'CreateForum',
-  'ManageServerMembers',
-  'ManageServerRoles',
-  'ManageServerSettings',
-  'ServerAdministrator',
-];
+import {
+  decodeServerDid,
+  resolveServerBaseUrl,
+  createWatercoolerPath,
+  serverOwnerSettingsPath,
+  watercoolerPath,
+  watercoolerSettingsPath,
+} from '../serverDid';
+import type { ContentBlockType, Forum, NsfwAgeCheckStatus, ServerMember, ServerRole, Watercooler } from '../types';
+import { applyEmoteSkinUpdate, type CatalogEmote } from '../emotes';
 
 export function ServerSettingsPage() {
   const { serverDid: encodedDid } = useParams<{ serverDid: string }>();
-  const { user, isSuperUser, serverPermissions } = useAuth();
+  const { user } = useAuth();
   const { resolveBaseUrl } = useServerRegistry();
   const [roles, setRoles] = useState<ServerRole[]>([]);
   const [members, setMembers] = useState<ServerMember[]>([]);
+  const [forums, setForums] = useState<Forum[]>([]);
+  const [plazas, setPlazas] = useState<Watercooler[]>([]);
+  const [originIsSuperUser, setOriginIsSuperUser] = useState(false);
+  const [originIsServerOwner, setOriginIsServerOwner] = useState(false);
+  const [originPermissions, setOriginPermissions] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [emotes, setEmotes] = useState<CatalogEmote[]>([]);
+  const [blockTypes, setBlockTypes] = useState<ContentBlockType[]>([]);
+  const [nsfwAgeRequired, setNsfwAgeRequired] = useState(false);
+  const [nsfwMinimumAge, setNsfwMinimumAge] = useState(18);
+  const [ageStatus, setAgeStatus] = useState<NsfwAgeCheckStatus | null>(null);
 
-  const [roleName, setRoleName] = useState('');
-  const [roleColor, setRoleColor] = useState('#4f8cff');
-  const [rolePerms, setRolePerms] = useState<string[]>(['ViewServer']);
-  const [assignUsername, setAssignUsername] = useState('');
-  const [assignRoleIds, setAssignRoleIds] = useState<string[]>([]);
+  const [composingRole, setComposingRole] = useState(false);
+  const [composingMember, setComposingMember] = useState(false);
 
   const serverDid = encodedDid ? decodeServerDid(encodedDid) : '';
   const baseUrl = resolveServerBaseUrl(serverDid, resolveBaseUrl);
   const client = useMemo(() => (baseUrl ? createContentClient(baseUrl) : null), [baseUrl]);
 
   const canManage =
-    isSuperUser ||
-    hasPermission(serverPermissions, 'ManageServerRoles') ||
-    hasPermission(serverPermissions, 'ManageServerMembers');
+    originIsSuperUser ||
+    originIsServerOwner ||
+    hasPermission(originPermissions, 'ManageServerRoles') ||
+    hasPermission(originPermissions, 'ManageServerMembers');
+  const canDeleteForums =
+    originIsSuperUser || originIsServerOwner || hasPermission(originPermissions, 'CreateForum');
+  const canManageSettings =
+    originIsSuperUser || originIsServerOwner || hasPermission(originPermissions, 'ManageServerSettings');
+  const canViewHistory =
+    originIsSuperUser || originIsServerOwner || hasPermission(originPermissions, 'ViewHistory');
+
+  const pendingForums = forums.filter((f) => f.approvalStatus === 'pending');
+  const pendingPlazas = plazas.filter((c) => c.approvalStatus === 'pending');
+  const livePlazas = plazas.filter((c) => c.approvalStatus !== 'pending');
 
   const load = () => {
     if (!client) return;
-    Promise.all([client.getServerRoles(), client.getServerMembers()])
-      .then(([r, m]) => {
+    Promise.all([
+      client.getServerPermissions(),
+      client.getServerRoles().catch(() => [] as ServerRole[]),
+      client.getServerMembers().catch(() => [] as ServerMember[]),
+      client.getForums(),
+      client.listServerWatercoolers().catch(() => [] as Watercooler[]),
+      client.getEmotes().catch(() => [] as CatalogEmote[]),
+      client.getContentBlockTypes().catch(() => [] as ContentBlockType[]),
+    ])
+      .then(([perms, r, m, forumList, plazaList, serverEmotes, types]) => {
+        setOriginIsSuperUser(perms.isSuperUser);
+        setOriginIsServerOwner(Boolean(perms.isServerOwner));
+        setOriginPermissions(perms.permissions);
         setRoles(r);
         setMembers(m);
+        setForums(forumList);
+        setPlazas(plazaList);
+        setEmotes(serverEmotes);
+        setBlockTypes(types);
+        setNsfwAgeRequired(Boolean(perms.nsfwAgeCheckRequired));
+        setNsfwMinimumAge(perms.nsfwMinimumAge ?? 18);
+        setAgeStatus({
+          enforced: Boolean(perms.nsfwAgeCheckRequired),
+          requiredByServer: Boolean(perms.nsfwAgeCheckRequired),
+          requiredByForum: false,
+          minimumAge: perms.nsfwMinimumAge ?? 18,
+          viewerAttested: Boolean(perms.viewerNsfwAgeAttested),
+        });
       })
       .catch((err) => setError(err.message));
   };
 
   useEffect(load, [client]);
+
+  const loadHistory = useCallback(() => {
+    if (!client) return Promise.resolve([]);
+    return client.getServerHistory();
+  }, [client]);
 
   if (!user) {
     return (
@@ -59,39 +110,60 @@ export function ServerSettingsPage() {
     );
   }
 
-  if (!canManage) {
+  if (!canManage && !canDeleteForums && !canManageSettings && !canViewHistory) {
     return <div className="error-banner">You do not have permission to manage this server.</div>;
   }
 
-  const createRole = async (e: FormEvent) => {
-    e.preventDefault();
+  const saveRole = async (draft: ServerRoleDraft, existing?: ServerRole) => {
     if (!client) return;
     setError('');
-    try {
-      await client.createServerRole({
-        name: roleName.trim(),
-        color: roleColor,
-        position: roles.length + 1,
-        permissions: rolePerms,
+    if (existing) {
+      await client.updateServerRole(existing.id, {
+        name: existing.isEveryone ? existing.name : draft.name.trim(),
+        color: draft.color,
+        position: existing.position,
+        permissions: draft.permissions,
       });
-      setRoleName('');
-      setSuccess('Role created.');
+      setSuccess(`Updated ${existing.isEveryone ? '@everyone' : draft.name.trim() || existing.name}.`);
       load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create role');
+      return;
     }
+    await client.createServerRole({
+      name: draft.name.trim(),
+      color: draft.color,
+      position: roles.length + 1,
+      permissions: draft.permissions,
+    });
+    setComposingRole(false);
+    setSuccess('Role created.');
+    load();
   };
 
-  const assignRoles = async (e: FormEvent) => {
-    e.preventDefault();
+  const saveMemberRoles = async (draft: MemberRoleDraft, existing?: { userId: string; username: string; displayName: string }) => {
     if (!client) return;
     setError('');
+    if (existing) {
+      await client.assignServerRoles(existing.userId, draft.roleIds);
+      setSuccess(`Updated roles for ${existing.displayName}.`);
+      load();
+      return;
+    }
+    await client.assignServerRolesByUsername(draft.username, draft.roleIds);
+    setComposingMember(false);
+    setSuccess('Roles assigned.');
+    load();
+  };
+
+  const deleteForum = async (forum: Forum) => {
+    if (!client) return;
+    if (!window.confirm(`Delete forum “${forum.name}” (/${forum.slug})? This cannot be undone.`)) return;
+    setError('');
     try {
-      await client.assignServerRolesByUsername(assignUsername.trim().toLowerCase(), assignRoleIds);
-      setSuccess('Roles assigned.');
+      await client.deleteForum(forum.slug);
+      setSuccess(`Deleted ${forum.name} (/${forum.slug}).`);
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to assign roles');
+      setError(err instanceof Error ? err.message : 'Delete failed');
     }
   };
 
@@ -101,9 +173,17 @@ export function ServerSettingsPage() {
         ← Forums
       </Link>
       <h1 className="page-title">Server settings</h1>
-      {isSuperUser && (
+      {(originIsSuperUser || originIsServerOwner) && (
         <p className="page-subtitle">
-          You are a Super User on this node — server configuration only. Forum access and moderation follow your assigned roles.
+          {originIsServerOwner
+            ? 'You are the Server Owner on this node — your powers cannot be revoked by other users.'
+            : 'You are a Super User on this node — server configuration only. Forum access and moderation follow your assigned roles.'}
+          {originIsServerOwner && serverDid && (
+            <>
+              {' '}
+              <Link to={serverOwnerSettingsPath(serverDid)}>Manage ownership</Link>
+            </>
+          )}
         </p>
       )}
 
@@ -114,101 +194,348 @@ export function ServerSettingsPage() {
         </div>
       )}
 
-      <section className="card">
-        <h2 className="card-title">Roles</h2>
-        {roles.map((role) => (
-          <div key={role.id} className="server-row">
-            <div>
-              <strong style={{ color: role.color ?? undefined }}>{role.name}</strong>
-              <div className="card-meta">{role.permissions.join(', ') || 'none'}</div>
-            </div>
-          </div>
-        ))}
+      {canViewHistory && (
+        <section className="card">
+          <h2 className="card-title">Change history</h2>
+          <ChangeHistoryList load={loadHistory} />
+        </section>
+      )}
 
-        <form onSubmit={createRole} style={{ marginTop: '1rem' }}>
-          <div className="form-group">
-            <label htmlFor="role-name">New role name</label>
-            <input id="role-name" value={roleName} onChange={(e) => setRoleName(e.target.value)} required />
-          </div>
-          <div className="form-group">
-            <label htmlFor="role-color">Color</label>
-            <input id="role-color" type="color" value={roleColor} onChange={(e) => setRoleColor(e.target.value)} />
-          </div>
-          <div className="form-group">
-            <label>Permissions</label>
-            <div className="permission-grid">
-              {SERVER_PERMISSION_OPTIONS.map((p) => (
-                <label key={p} className="permission-check">
-                  <input
-                    type="checkbox"
-                    checked={rolePerms.includes(p)}
-                    onChange={(e) =>
-                      setRolePerms((prev) =>
-                        e.target.checked ? [...prev, p] : prev.filter((x) => x !== p),
-                      )
-                    }
-                  />
-                  {p}
-                </label>
-              ))}
+      {canManageSettings && client && (
+        <section className="card">
+          <h2 className="card-title">NSFW age check</h2>
+          <p className="card-meta">
+            When enabled, members are asked to confirm their age on every forum. NSFW images stay covered
+            until that check is passed, even when this is off. Date of birth is not stored.
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setError('');
+              void client
+                .updateServerNsfwAgeCheck({ required: nsfwAgeRequired, minimumAge: nsfwMinimumAge })
+                .then((status) => {
+                  setAgeStatus(status);
+                  setNsfwAgeRequired(status.requiredByServer);
+                  setNsfwMinimumAge(status.minimumAge);
+                  setSuccess(
+                    status.requiredByServer
+                      ? `Server age check on (${status.minimumAge}+).`
+                      : 'Server age check off.',
+                  );
+                })
+                .catch((err) => setError(err instanceof Error ? err.message : 'Failed to update age check'));
+            }}
+          >
+            <div className="form-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={nsfwAgeRequired}
+                  onChange={(e) => setNsfwAgeRequired(e.target.checked)}
+                />{' '}
+                Require age check for NSFW on this server
+              </label>
             </div>
-          </div>
-          <button type="submit" className="btn-primary">
-            Add role
-          </button>
-        </form>
-      </section>
+            <div className="form-group">
+              <label htmlFor="server-nsfw-min-age">Minimum age</label>
+              <input
+                id="server-nsfw-min-age"
+                type="number"
+                min={18}
+                max={130}
+                value={nsfwMinimumAge}
+                onChange={(e) => setNsfwMinimumAge(Number(e.target.value))}
+              />
+            </div>
+            <button type="submit" className="btn-primary">
+              Save age check
+            </button>
+          </form>
+        </section>
+      )}
 
-      <section className="card">
-        <h2 className="card-title">Members</h2>
-        {members.map((m) => (
-          <div key={m.userId} className="server-row">
-            <div>
-              <strong>{m.displayName}</strong>
-              <div className="card-meta">
-                @{m.username} · {m.roles.map((r) => r.name).join(', ') || 'no roles'}
+      {client && ageStatus && (
+        <NsfwAgeCheckPanel
+          client={client}
+          status={ageStatus}
+          loggedIn={Boolean(user)}
+          showIfComplete
+          onCompleted={setAgeStatus}
+        />
+      )}
+
+      {client && (
+        <EmoteCatalogEditor
+          emotes={emotes}
+          canManage={canManageSettings}
+          onUpload={(file) => client.uploadMedia(file)}
+          onCreate={async ({ code, name, mediaAssetId, skinsUnicode, highlighted }) => {
+            await client.createEmote({ code, name, mediaAssetId, skinsUnicode, highlighted });
+            setSuccess('Server emote added.');
+            load();
+          }}
+          onUpdate={async (emoteId, input) => {
+            const updated = await client.updateEmote(emoteId, input);
+            setEmotes((prev) => applyEmoteSkinUpdate(prev, updated, input));
+            load();
+            setSuccess('Server emote updated.');
+          }}
+          onReorder={async (ids) => {
+            await client.reorderEmotes(ids);
+            load();
+          }}
+          onDelete={async (emoteId) => {
+            await client.deleteEmote(emoteId);
+            setSuccess('Server emote removed.');
+            load();
+          }}
+        />
+      )}
+
+      {(canDeleteForums || livePlazas.length > 0) && (
+        <section className="card">
+          <h2 className="card-title">Server plazas</h2>
+          <p className="card-meta">Untitled rooms that sit beside forums.</p>
+          <Link to={createWatercoolerPath(serverDid)} className="btn-primary">
+            New server plaza
+          </Link>
+          {livePlazas.map((plaza) => (
+            <div key={plaza.id} className="server-row">
+              <div>
+                <Link to={watercoolerPath(serverDid, plaza.slug)}>
+                  <strong>{plaza.name}</strong>
+                </Link>
+                <div className="card-meta">/{plaza.slug}</div>
+              </div>
+              {(plaza.viewerCanManage || plaza.viewerCanApprove) && (
+                <div className="server-row-actions">
+                  <Link to={watercoolerSettingsPath(serverDid, plaza.slug)} className="btn-ghost">
+                    Settings
+                  </Link>
+                  {plaza.viewerCanManage && (
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={async () => {
+                        if (!window.confirm(`Delete plaza “${plaza.name}”?`)) return;
+                        try {
+                          await client?.deleteWatercooler(plaza.slug);
+                          setSuccess(`Deleted ${plaza.name}.`);
+                          load();
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Delete failed');
+                        }
+                      }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
+
+      {canDeleteForums && forums.length > 0 && (
+        <section className="card">
+          <h2 className="card-title">Forums</h2>
+          <p className="card-meta">Slugs must be unique. Delete a forum to free its slug.</p>
+          {forums.map((forum) => (
+            <div key={forum.id} className="server-row">
+              <div>
+                <strong>{forum.name}</strong>
+                {forum.approvalStatus === 'pending' && (
+                  <span className="badge badge-pending" style={{ marginLeft: '0.5rem' }}>
+                    pending
+                  </span>
+                )}
+                <div className="card-meta">/{forum.slug}</div>
+              </div>
+              <div className="server-row-actions">
+                <button type="button" className="btn-ghost" onClick={() => void deleteForum(forum)}>
+                  Delete
+                </button>
               </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </section>
+      )}
 
-        <form onSubmit={assignRoles} style={{ marginTop: '1rem' }}>
-          <div className="form-group">
-            <label htmlFor="assign-user">Username</label>
-            <input
-              id="assign-user"
-              value={assignUsername}
-              onChange={(e) => setAssignUsername(e.target.value)}
-              placeholder="alice"
-              required
-            />
-          </div>
-          <div className="form-group">
-            <label>Roles to assign</label>
-            <div className="permission-grid">
-              {roles
-                .filter((r) => !r.isEveryone)
-                .map((r) => (
-                  <label key={r.id} className="permission-check">
-                    <input
-                      type="checkbox"
-                      checked={assignRoleIds.includes(r.id)}
-                      onChange={(e) =>
-                        setAssignRoleIds((prev) =>
-                          e.target.checked ? [...prev, r.id] : prev.filter((x) => x !== r.id),
-                        )
+      {pendingPlazas.length > 0 && (
+        <section className="card">
+          <h2 className="card-title">Plaza requests</h2>
+          <p className="card-meta">These plazas stay hidden until approved.</p>
+          {pendingPlazas.map((plaza) => (
+            <div key={plaza.id} className="server-row">
+              <div>
+                <strong>{plaza.name}</strong>
+                <div className="card-meta">/{plaza.slug}</div>
+              </div>
+              {plaza.viewerCanApprove && (
+                <div className="server-row-actions">
+                  <Link to={watercoolerSettingsPath(serverDid, plaza.slug)} className="btn-ghost">
+                    Settings
+                  </Link>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={async () => {
+                      try {
+                        await client?.approveWatercooler(plaza.slug);
+                        setSuccess(`Approved ${plaza.name}.`);
+                        load();
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Approve failed');
                       }
-                    />
-                    {r.name}
-                  </label>
-                ))}
+                    }}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    onClick={async () => {
+                      try {
+                        await client?.rejectWatercooler(plaza.slug);
+                        setSuccess(`Rejected ${plaza.name}.`);
+                        load();
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Reject failed');
+                      }
+                    }}
+                  >
+                    Reject
+                  </button>
+                </div>
+              )}
             </div>
+          ))}
+        </section>
+      )}
+
+      {pendingForums.length > 0 && (
+        <section className="card">
+          <h2 className="card-title">Forum requests</h2>
+          <p className="card-meta">These forums stay hidden until approved.</p>
+          {pendingForums.map((forum) => (
+            <div key={forum.id} className="server-row">
+              <div>
+                <strong>{forum.name}</strong>
+                <div className="card-meta">/{forum.slug}</div>
+              </div>
+              {forum.viewerCanApprove && (
+                <div className="server-row-actions">
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={async () => {
+                      try {
+                        await client?.approveForum(forum.slug);
+                        setSuccess(`Approved ${forum.name}.`);
+                        load();
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Approve failed');
+                      }
+                    }}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    onClick={async () => {
+                      try {
+                        await client?.rejectForum(forum.slug);
+                        setSuccess(`Rejected ${forum.name}.`);
+                        load();
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Reject failed');
+                      }
+                    }}
+                  >
+                    Reject
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
+
+      {canManage && (
+      <section className="card list-browser">
+        <div className="list-browser-header">
+          <div>
+            <h2 className="card-title">Roles</h2>
+            <p className="card-meta">Add a role or edit an existing one to change server permissions.</p>
           </div>
-          <button type="submit" className="btn-primary">
-            Assign roles
-          </button>
-        </form>
+          <div className="list-browser-entry-actions">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={composingRole}
+              onClick={() => {
+                setComposingRole(true);
+                setSuccess('');
+              }}
+            >
+              Add role
+            </button>
+          </div>
+        </div>
+        {composingRole && (
+          <ServerRoleRow
+            creating
+            blockTypes={blockTypes}
+            onSave={saveRole}
+            onCancel={() => setComposingRole(false)}
+          />
+        )}
+        {roles.map((role) => (
+          <ServerRoleRow key={role.id} role={role} blockTypes={blockTypes} onSave={saveRole} />
+        ))}
       </section>
+      )}
+
+      {canManage && (
+      <section className="card list-browser">
+        <div className="list-browser-header">
+          <div>
+            <h2 className="card-title">Members</h2>
+            <p className="card-meta">Edit a row to change roles.</p>
+          </div>
+          <div className="list-browser-entry-actions">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={composingMember}
+              onClick={() => {
+                setComposingMember(true);
+                setSuccess('');
+              }}
+            >
+              Add member
+            </button>
+          </div>
+        </div>
+        {members.length === 0 && !composingMember && (
+          <p className="card-meta">No members with assigned roles yet.</p>
+        )}
+        {composingMember && (
+          <MemberRoleRow
+            creating
+            roles={roles}
+            onSave={saveMemberRoles}
+            onCancel={() => setComposingMember(false)}
+          />
+        )}
+        {members.map((m) => (
+          <MemberRoleRow key={m.userId} member={m} roles={roles} onSave={saveMemberRoles} />
+        ))}
+      </section>
+      )}
     </div>
   );
 }

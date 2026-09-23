@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Snekl.Account.Domain.Dtos;
 using Snekl.Account.Infrastructure.Services;
@@ -74,6 +76,20 @@ public class AuthController : ControllerBase
         }
 
         return Unauthorized(new { error = "Invalid credentials." });
+    }
+
+    [Authorize]
+    [HttpPost("reauthenticate")]
+    public async Task<ActionResult<RingSessionDto>> Reauthenticate(ReauthenticateRequest request, CancellationToken ct)
+    {
+        var identityClaim = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
+        if (identityClaim is null || !Guid.TryParse(identityClaim, out var identityId))
+            return Unauthorized(new { error = "Invalid session. Please log in again." });
+
+        var result = await _auth.ReauthenticateAsync(identityId, request.Password, ct);
+        return result is not null
+            ? Ok(result)
+            : Unauthorized(new { error = "Invalid password." });
     }
 
     [HttpPost("forgot-password")]

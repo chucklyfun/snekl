@@ -10,8 +10,15 @@ public class ForumRole
     public string Name { get; set; } = string.Empty;
     public string? Color { get; set; }
     public int Position { get; set; }
-    public ForumPermissions Permissions { get; set; }
+
+    /// <summary>Permission → GrantMode. Missing key is None.</summary>
+    public Dictionary<string, GrantMode> Modes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public bool IsEveryone { get; set; }
+
+    /// <summary>System Owner role; only higher-level actors may delete or strip ForumAdministrator from it.</summary>
+    public bool IsOwner { get; set; }
+
     public Guid? InheritFromRoleId { get; set; }
     public ForumRole? InheritFromRole { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

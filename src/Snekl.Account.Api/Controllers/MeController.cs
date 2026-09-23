@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Snekl.Account.Domain.Dtos;
 using Snekl.Account.Infrastructure.Security;
 using Snekl.Account.Infrastructure.Services;
+using Snekl.Domain;
 
 namespace Snekl.Account.Api.Controllers;
 
@@ -74,7 +75,15 @@ public class MeController : ControllerBase
             var config = await _server.GetOrCreateAsync(ct);
             var cluster = identity.PersonCluster
                 ?? throw new InvalidOperationException("Person cluster not found.");
-            var accessToken = _tokens.IssueToken(identity, cluster, config.BaseUrl);
+            DateTimeOffset? authTime = null;
+            var authTimeClaim = User.FindFirstValue(OAuthClaims.AuthTime);
+            if (long.TryParse(authTimeClaim, out var authTimeSeconds))
+                authTime = DateTimeOffset.FromUnixTimeSeconds(authTimeSeconds);
+            var accessToken = _tokens.IssueToken(
+                identity,
+                cluster,
+                config.BaseUrl,
+                authTime.HasValue ? new TokenIssueOptions(AuthTime: authTime) : null);
             return Ok(new UpdateProfileResponse(person, accessToken));
         }
         catch (InvalidOperationException ex)

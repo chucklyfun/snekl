@@ -44,6 +44,7 @@ public static class DependencyInjection
         services.AddScoped<IPersonClusterMappingService, PersonClusterMappingService>();
         services.AddScoped<ISiteAdminAuthService, SiteAdminAuthService>();
         services.AddScoped<ISuperUserService, SuperUserService>();
+        services.AddScoped<IHubInviteService, HubInviteService>();
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IChangeLogService, ChangeLogService>();
         services.AddScoped<IRoleSeedService, RoleSeedService>();
@@ -54,6 +55,8 @@ public static class DependencyInjection
         services.AddScoped<IWatercoolerService, WatercoolerService>();
         services.AddHttpClient<IFederationClient, FederationClient>();
         services.AddScoped<IExtensionInstallService, ExtensionInstallService>();
+        services.AddScoped<IHubFeedPublisher, HubFeedPublisher>();
+        services.AddHostedService<HubOutboxDispatcher>();
         services.AddSneklAuthentication(config);
         services.AddSiteAdminAuthorization();
 

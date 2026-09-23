@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { aggregateForums, api, CONTENT_API, fetchAggregatedRecentPosts } from '../api';
+import { aggregateForums, api, CONTENT_API, createContentClient, fetchAggregatedRecentPosts, fetchHubFeedWindow } from '../api';
+import { mergeHomeFeed } from '../hubFeed';
 import { UpvoteButton } from '../components/UpvoteButton';
 import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';
@@ -37,8 +38,24 @@ export function HomePage() {
       aggregateForums(activeServers)
         .then(setForums)
         .catch((err) => setError(err.message));
-      fetchAggregatedRecentPosts(activeServers, 'hot', 15)
-        .then(setHotPosts)
+      Promise.all(
+        activeServers.map(async (server) => {
+          try {
+            const node = await createContentClient(server.baseUrl).getNode();
+            return node.hubBaseUrl?.replace(/\/$/, '') || null;
+          } catch {
+            return null;
+          }
+        }),
+      )
+        .then(async (hubUrls) => {
+          const unique = [...new Set(hubUrls.filter((url): url is string => !!url))];
+          const [posts, hubLists] = await Promise.all([
+            fetchAggregatedRecentPosts(activeServers, 'hot', 15).catch(() => [] as AggregatedPost[]),
+            Promise.all(unique.map((url) => fetchHubFeedWindow(url, 15).catch(() => []))),
+          ]);
+          setHotPosts(mergeHomeFeed(hubLists.flat(), posts));
+        })
         .catch(() => setHotPosts([]));
       return;
     }

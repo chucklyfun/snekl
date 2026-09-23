@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Snekl.Domain.Dtos;
 using Snekl.Domain.Entities;
 using Snekl.Domain.Identity.Did;
 using Snekl.Infrastructure.Data;
@@ -8,6 +9,7 @@ namespace Snekl.Infrastructure.Services;
 public interface INodeService
 {
     Task<NodeConfig> GetOrCreateAsync(CancellationToken ct = default);
+    Task<NodeInfoDto> GetInfoAsync(CancellationToken ct = default);
     Task<NodeConfig> UpdateAsync(string name, string baseUrl, string description, CancellationToken ct = default);
     byte[] GetSigningPrivateKey(NodeConfig node);
     string GetVerificationMethodId(NodeConfig node);
@@ -36,6 +38,24 @@ public class NodeService : INodeService
         _db.NodeConfig.Add(node);
         await _db.SaveChangesAsync(ct);
         return node;
+    }
+
+    public async Task<NodeInfoDto> GetInfoAsync(CancellationToken ct = default)
+    {
+        var node = await GetOrCreateAsync(ct);
+        var hubBaseUrl = await _db.HubInvites.AsNoTracking()
+            .Where(i => i.Status == "accepted")
+            .OrderByDescending(i => i.CreatedAt)
+            .Select(i => i.HubBaseUrl)
+            .FirstOrDefaultAsync(ct);
+        return new NodeInfoDto(
+            node.Id,
+            node.Did,
+            node.Name,
+            node.BaseUrl,
+            node.Description,
+            node.CreatedAt,
+            string.IsNullOrWhiteSpace(hubBaseUrl) ? null : hubBaseUrl.TrimEnd('/'));
     }
 
     public async Task<NodeConfig> UpdateAsync(string name, string baseUrl, string description, CancellationToken ct = default)

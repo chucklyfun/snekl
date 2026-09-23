@@ -18,8 +18,7 @@ public class NodeController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<NodeInfoDto>> Get(CancellationToken ct)
     {
-        var node = await _node.GetOrCreateAsync(ct);
-        return Ok(new NodeInfoDto(node.Id, node.Did, node.Name, node.BaseUrl, node.Description, node.CreatedAt));
+        return Ok(await _node.GetInfoAsync(ct));
     }
 
     [HttpGet(".well-known/snekl")]

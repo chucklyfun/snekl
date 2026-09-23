@@ -15,17 +15,20 @@ public class ForumsController : ControllerBase
     private readonly IWatercoolerService _watercoolers;
     private readonly IFederationService _federation;
     private readonly IAuthService _auth;
+    private readonly IHubFeedPublisher _hubFeed;
 
     public ForumsController(
         IForumService forums,
         IWatercoolerService watercoolers,
         IFederationService federation,
-        IAuthService auth)
+        IAuthService auth,
+        IHubFeedPublisher hubFeed)
     {
         _forums = forums;
         _watercoolers = watercoolers;
         _federation = federation;
         _auth = auth;
+        _hubFeed = hubFeed;
     }
 
     [HttpGet]
@@ -95,6 +98,15 @@ public class ForumsController : ControllerBase
             return Ok(await _watercoolers.ReplaceForumBlocksAsync(forum.Id, userId, request, ct));
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("hub-memberships/sync")]
+    public async Task<IActionResult> SyncHubMemberships(CancellationToken ct)
+    {
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        await _hubFeed.PublishUserMembershipsAsync(userId, ct);
+        return Accepted();
     }
 
     private async Task BroadcastForumIfPossible(string slug, Guid userId, CancellationToken ct)

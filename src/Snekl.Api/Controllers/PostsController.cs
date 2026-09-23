@@ -16,6 +16,7 @@ public class PostsController : ControllerBase
     private readonly IPostUpvoteService _upvotes;
     private readonly IPostAggregationService _aggregation;
     private readonly IFederationService _federation;
+    private readonly IHubFeedPublisher _hubFeed;
     private readonly IRealtimePublisher _realtime;
     private readonly IWebHostEnvironment _environment;
     private readonly IConfiguration _configuration;
@@ -27,6 +28,7 @@ public class PostsController : ControllerBase
         IPostUpvoteService upvotes,
         IPostAggregationService aggregation,
         IFederationService federation,
+        IHubFeedPublisher hubFeed,
         IRealtimePublisher realtime,
         IWebHostEnvironment environment,
         IConfiguration configuration,
@@ -37,6 +39,7 @@ public class PostsController : ControllerBase
         _upvotes = upvotes;
         _aggregation = aggregation;
         _federation = federation;
+        _hubFeed = hubFeed;
         _realtime = realtime;
         _environment = environment;
         _configuration = configuration;
@@ -139,6 +142,10 @@ public class PostsController : ControllerBase
             if (post is not null)
             {
                 var threadId = await _posts.GetThreadRootIdAsync(postId, ct);
+                var root = post.ParentPostId is null ? post : await _posts.GetEntityAsync(threadId, ct);
+                if (root is not null)
+                    await _hubFeed.PublishThreadScoreAsync(root, ct);
+
                 await _realtime.PublishPostEventAsync(
                     new RealtimePostEvent(
                         "post.upvoted",
@@ -237,6 +244,8 @@ public class PostsController : ControllerBase
 
             if (post is not null)
             {
+                await PushHubAsync(post, deleted: false, ct);
+
                 var threadId = await _posts.GetThreadRootIdAsync(post.Id, ct);
                 await _realtime.PublishPostEventAsync(
                     new RealtimePostEvent(
@@ -265,6 +274,7 @@ public class PostsController : ControllerBase
             var post = await _posts.GetEntityAsync(postId, ct);
             if (post is not null)
             {
+                await PushHubAsync(post, deleted: false, ct);
                 await _federation.BroadcastPostUpdateAsync(post, ct);
                 var threadId = await _posts.GetThreadRootIdAsync(postId, ct);
                 await _realtime.PublishPostEventAsync(
@@ -305,6 +315,7 @@ public class PostsController : ControllerBase
                     return NotFound();
 
                 await _posts.HardDeleteAsync(userId, postId, ct);
+                await PushHubAsync(existing, deleted: true, ct);
                 await _realtime.PublishPostEventAsync(
                     new RealtimePostEvent(
                         "post.hardDeleted",
@@ -323,6 +334,7 @@ public class PostsController : ControllerBase
             if (post is not null)
                 await _federation.BroadcastPostDeleteAsync(post, ct);
 
+            await PushHubAsync(post ?? existing, deleted: true, ct);
             await _realtime.PublishPostEventAsync(
                 new RealtimePostEvent(
                     "post.deleted",
@@ -395,6 +407,31 @@ public class PostsController : ControllerBase
             return Ok(await _moderation.ReportPostAsync(userId, postId, request.Reason, ct));
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    private async Task PushHubAsync(Post post, bool deleted, CancellationToken ct)
+    {
+        if (post.ForumId is null)
+            return;
+        if (post.ParentPostId is null)
+        {
+            await _hubFeed.PublishThreadCardAsync(post, deleted, ct);
+            return;
+        }
+
+        Guid rootId;
+        try
+        {
+            rootId = await _posts.GetThreadRootIdAsync(post.ParentPostId.Value, ct);
+        }
+        catch (InvalidOperationException)
+        {
+            rootId = post.ParentPostId.Value;
+        }
+
+        var root = await _posts.GetEntityAsync(rootId, ct);
+        if (root is not null)
+            await _hubFeed.PublishThreadScoreAsync(root, ct);
     }
 
     private static PostSort ParseSort(string sort) =>

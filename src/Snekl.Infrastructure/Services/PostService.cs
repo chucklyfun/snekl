@@ -14,6 +14,13 @@ public interface IPostService
     Task<PostDto> UpdateAsync(Guid userId, Guid postId, UpdatePostRequest request, Guid? viewerUserId = null, CancellationToken ct = default);
     Task<PostDto> SoftDeleteAsync(Guid userId, Guid postId, Guid? viewerUserId = null, CancellationToken ct = default);
     Task HardDeleteAsync(Guid userId, Guid postId, CancellationToken ct = default);
+    Task<PostDto> SetMediaNsfwAsync(
+        Guid userId,
+        Guid postId,
+        Guid mediaAssetId,
+        UpdatePostMediaNsfwRequest request,
+        Guid? viewerUserId = null,
+        CancellationToken ct = default);
     Task<IReadOnlyList<PostRevisionDto>> GetRevisionsAsync(Guid userId, Guid postId, CancellationToken ct = default);
     Task<Post?> GetEntityAsync(Guid postId, CancellationToken ct = default);
     Task<Guid> GetThreadRootIdAsync(Guid postId, CancellationToken ct = default);
@@ -57,6 +64,8 @@ public class PostService : IPostService
     private readonly INodeService _node;
     private readonly IForumModerationService _moderation;
     private readonly IEmoteService _emotes;
+    private readonly IMediaService _media;
+    private readonly INsfwAgeCheckService _nsfwAge;
 
     public PostService(
         SneklDbContext db,
@@ -66,7 +75,9 @@ public class PostService : IPostService
         IPostUpvoteService upvotes,
         INodeService node,
         IForumModerationService moderation,
-        IEmoteService emotes)
+        IEmoteService emotes,
+        IMediaService media,
+        INsfwAgeCheckService nsfwAge)
     {
         _db = db;
         _presentation = presentation;
@@ -76,6 +87,8 @@ public class PostService : IPostService
         _node = node;
         _moderation = moderation;
         _emotes = emotes;
+        _media = media;
+        _nsfwAge = nsfwAge;
     }
 
     public async Task<PostDto> CreateAsync(Guid userId, CreatePostRequest request, Guid? viewerUserId = null, CancellationToken ct = default)
@@ -88,6 +101,8 @@ public class PostService : IPostService
 
         var forum = await _db.Forums.FindAsync([request.ForumId.Value], ct)
             ?? throw new InvalidOperationException("Forum not found.");
+
+        await _nsfwAge.EnsureViewerMayEnterForumAsync(userId, forum.Id, ct);
 
         if (request.ParentPostId.HasValue)
             await _permissions.RequireForumPermissionAsync(userId, forum.Id, ForumPermissions.Reply, ct);
@@ -117,6 +132,18 @@ public class PostService : IPostService
             await IncrementReplyCountsAsync(parent.Id, ct);
         }
 
+        var message = request.Message.Trim();
+        if (string.IsNullOrWhiteSpace(message))
+            throw new InvalidOperationException("Message is required.");
+
+        string? title = null;
+        if (!request.ParentPostId.HasValue)
+        {
+            title = request.Title?.Trim();
+            if (string.IsNullOrWhiteSpace(title))
+                throw new InvalidOperationException("Title is required for new threads.");
+        }
+
         var author = await _db.Users.FindAsync([userId], ct);
         var post = new Post
         {
@@ -125,11 +152,15 @@ public class PostService : IPostService
             AuthorUserId = userId,
             AuthorPersonClusterId = null,
             AuthorDid = author?.Did,
-            Message = request.Message.Trim()
+            Title = title,
+            Message = message
         };
 
         _db.Posts.Add(post);
         await _db.SaveChangesAsync(ct);
+
+        if (request.MediaAssetIds is { Count: > 0 })
+            await _media.AttachToPostAsync(post.Id, userId, request.MediaAssetIds, request.NsfwMedia, ct);
 
         var authorPresentation = await _presentation.GetPresentationAsync(userId, viewerUserId ?? userId, forum.Id, ct);
         return await ToDtoAsync(post, authorPresentation, [], new HashSet<Guid>(), viewerUserId, ct);
@@ -151,6 +182,9 @@ public class PostService : IPostService
 
         if (cooler.ParentForumId.HasValue && await _moderation.IsBannedAsync(cooler.ParentForumId.Value, userId, ct))
             throw new InvalidOperationException("You are banned from this forum.");
+
+        if (cooler.ParentForumId.HasValue)
+            await _nsfwAge.EnsureViewerMayEnterForumAsync(userId, cooler.ParentForumId.Value, ct);
 
         var message = request.Message?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(message))
@@ -199,6 +233,9 @@ public class PostService : IPostService
         };
         _db.Posts.Add(post);
         await _db.SaveChangesAsync(ct);
+
+        if (request.MediaAssetIds is { Count: > 0 })
+            await _media.AttachToPostAsync(post.Id, userId, request.MediaAssetIds, nsfwHints: null, ct);
 
         var authorPresentation = await _presentation.GetPresentationAsync(
             userId, viewerUserId ?? userId, cooler.ParentForumId, ct);
@@ -298,6 +335,9 @@ public class PostService : IPostService
         var reactions = await _db.PostReactions.Where(r => r.PostId == postId).ToListAsync(ct);
         _db.PostReactions.RemoveRange(reactions);
 
+        var mediaLinks = await _db.PostMedia.Where(m => m.PostId == postId).ToListAsync(ct);
+        _db.PostMedia.RemoveRange(mediaLinks);
+
         _db.Posts.Remove(post);
         await _db.SaveChangesAsync(ct);
     }
@@ -334,6 +374,27 @@ public class PostService : IPostService
     public Task<Guid> GetThreadRootIdAsync(Guid postId, CancellationToken ct = default) =>
         ResolveThreadRootIdAsync(postId, ct);
 
+    public async Task<PostDto> SetMediaNsfwAsync(
+        Guid userId,
+        Guid postId,
+        Guid mediaAssetId,
+        UpdatePostMediaNsfwRequest request,
+        Guid? viewerUserId = null,
+        CancellationToken ct = default)
+    {
+        var post = await _db.Posts.Include(p => p.Author).FirstOrDefaultAsync(p => p.Id == postId, ct)
+            ?? throw new InvalidOperationException("Post not found.");
+
+        if (!post.IsLocallyOwned)
+            throw new InvalidOperationException("Federated posts must be moderated on the origin node.");
+
+        await _media.SetNsfwAsync(userId, postId, mediaAssetId, request.IsNsfw, request.CoverText, ct);
+
+        var authorPresentation = await _presentation.GetPresentationAsync(
+            post.AuthorUserId, viewerUserId ?? userId, post.ForumId, ct);
+        return await ToDtoAsync(post, authorPresentation, [], new HashSet<Guid>(), viewerUserId, ct);
+    }
+
     public async Task<IReadOnlyList<PostDto>> GetForumThreadsAsync(
         Guid forumId,
         int page,
@@ -344,6 +405,8 @@ public class PostService : IPostService
     {
         if (!await _permissions.CanViewForumAsync(viewerUserId, forumId, ct))
             throw new PermissionDeniedException(ForumPermissions.ViewForum.ToString(), "forum");
+
+        await _nsfwAge.EnsureViewerMayEnterForumAsync(viewerUserId, forumId, ct);
 
         var posts = await LoadRootPostsAsync([forumId], sort, page, pageSize, ownedOnly: false, ct);
         return await MapRootPostsAsync(posts, forumId, viewerUserId, ct);
@@ -362,6 +425,9 @@ public class PostService : IPostService
 
         var cooler = await _db.Watercoolers.AsNoTracking().FirstOrDefaultAsync(w => w.Id == watercoolerId, ct)
             ?? throw new InvalidOperationException("Watercooler not found.");
+
+        if (cooler.ParentForumId.HasValue)
+            await _nsfwAge.EnsureViewerMayEnterForumAsync(viewerUserId, cooler.ParentForumId.Value, ct);
 
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 50);
@@ -479,6 +545,9 @@ public class PostService : IPostService
                 .Select(w => w.ParentForumId)
                 .FirstOrDefaultAsync(ct);
         }
+
+        if (presentationForumId is Guid ageForumId)
+            await _nsfwAge.EnsureViewerMayEnterForumAsync(viewerUserId, ageForumId, ct);
 
         var authorIds = threadPosts.Select(p => p.AuthorUserId).Distinct();
         var presentations = await _presentation.GetPresentationsAsync(authorIds, viewerUserId, presentationForumId, ct);
@@ -812,6 +881,7 @@ public class PostService : IPostService
         bool canSoftDelete;
         bool canViewHistoryFlag;
         bool canReport;
+        bool canMarkNsfwMedia = false;
         if (post.WatercoolerId.HasValue)
         {
             var coolerPerms = await _permissions.GetWatercoolerPermissionsAsync(viewerUserId, post.WatercoolerId.Value, ct);
@@ -829,6 +899,7 @@ public class PostService : IPostService
             canSoftDelete = !post.IsDeleted && ((isAuthor && perms.HasFlag(ForumPermissions.DeleteOwnPost)) || canManage);
             canViewHistoryFlag = isAuthor || canManage;
             canReport = !isAuthor && !post.IsDeleted && perms.HasFlag(ForumPermissions.ViewForum);
+            canMarkNsfwMedia = !post.IsDeleted && (isAuthor || perms.HasFlag(ForumPermissions.MarkNsfwMedia));
         }
 
         var canHardDelete = post.IsDeleted && canManage;
@@ -841,7 +912,7 @@ public class PostService : IPostService
 
         return new PostViewerActionsDto(
             canEdit, canSoftDelete, canHardDelete, canViewHistory,
-            canLock, canUnlock, canPin, canUnpin, canReport);
+            canLock, canUnlock, canPin, canUnpin, canReport, canMarkNsfwMedia);
     }
 
     private async Task<PostDto> ToDtoAsync(
@@ -856,7 +927,9 @@ public class PostService : IPostService
         var quoted = await MapQuotedAsync(post, viewerUserId, ct);
         var reactionMap = await _emotes.GetReactionsByPostIdsAsync([post.Id], viewerUserId, ct);
         reactionMap.TryGetValue(post.Id, out var reactionList);
-        return ToDto(post, author, replies, viewerUpvotes, actions, quoted, reactions: reactionList);
+        var attachmentMap = await _media.GetAttachmentsByPostIdsAsync([post.Id], viewerUserId, ct);
+        attachmentMap.TryGetValue(post.Id, out var attachmentList);
+        return ToDto(post, author, replies, viewerUpvotes, actions, quoted, reactions: reactionList, attachments: attachmentList);
     }
 
     public static PostDto ToDto(
@@ -867,7 +940,8 @@ public class PostService : IPostService
         PostViewerActionsDto? viewerActions = null,
         QuotedPostDto? quotedPost = null,
         IReadOnlyList<PostDto>? ancestors = null,
-        IReadOnlyList<PostReactionDto>? reactions = null) => new(
+        IReadOnlyList<PostReactionDto>? reactions = null,
+        IReadOnlyList<MediaAttachmentDto>? attachments = null) => new(
         post.Id,
         post.ForumId,
         post.ParentPostId,
@@ -885,6 +959,8 @@ public class PostService : IPostService
         post.CreatedAt,
         replies,
         viewerActions,
+        Title: post.Title,
+        Attachments: attachments,
         Reactions: reactions,
         WatercoolerId: post.WatercoolerId,
         QuotedPostId: post.QuotedPostId,

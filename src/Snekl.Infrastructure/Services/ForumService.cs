@@ -21,17 +21,23 @@ public class ForumService : IForumService
     private readonly IUserPresentationService _presentation;
     private readonly IPermissionService _permissions;
     private readonly IRoleSeedService _roleSeed;
+    private readonly INsfwAgeCheckService _nsfwAge;
+    private readonly IMediaService _media;
 
     public ForumService(
         SneklDbContext db,
         IUserPresentationService presentation,
         IPermissionService permissions,
-        IRoleSeedService roleSeed)
+        IRoleSeedService roleSeed,
+        INsfwAgeCheckService nsfwAge,
+        IMediaService media)
     {
         _db = db;
         _presentation = presentation;
         _permissions = permissions;
         _roleSeed = roleSeed;
+        _nsfwAge = nsfwAge;
+        _media = media;
     }
 
     public async Task<ForumDto> CreateAsync(Guid userId, CreateForumRequest request, Guid? viewerUserId = null, CancellationToken ct = default)
@@ -208,7 +214,9 @@ public class ForumService : IForumService
             if (!await _permissions.CanViewForumAsync(viewerUserId, sub.Id, ct))
                 continue;
             var subCount = await _db.Posts.CountAsync(p => p.ForumId == sub.Id && p.ParentPostId == null, ct);
-            subforumSummaries.Add(new ForumSummaryDto(sub.Id, sub.Name, sub.Slug, subCount));
+            subforumSummaries.Add(new ForumSummaryDto(
+                sub.Id, sub.Name, sub.Slug, subCount,
+                sub.AvatarMediaAssetId is Guid avatarId ? _media.BuildPublicUrl(avatarId) : null));
         }
 
         IReadOnlyList<string>? viewerPerms = null;
@@ -248,6 +256,16 @@ public class ForumService : IForumService
             .Select(b => new ForumContentBlockDto(b.Id, b.TypeKey, b.WatercoolerId, b.Slot, b.Position))
             .ToListAsync(ct);
 
+        var age = await _nsfwAge.GetStatusAsync(viewerUserId, forum.Id, ct);
+        if (age.BlocksEntry)
+        {
+            subforumSummaries.Clear();
+            watercoolers.Clear();
+            contentBlocks.Clear();
+        }
+
+        string? Avatar(Guid? id) => id is Guid mediaId ? _media.BuildPublicUrl(mediaId) : null;
+
         return new ForumDto(
             forum.Id,
             forum.Name,
@@ -269,6 +287,16 @@ public class ForumService : IForumService
             false,
             false,
             watercoolers,
-            contentBlocks);
+            contentBlocks,
+            forum.NsfwAgeCheckRequired,
+            age.RequiredByServer,
+            age.Enforced,
+            age.MinimumAge,
+            age.ViewerAttested,
+            Avatar(forum.AvatarMediaAssetId),
+            Avatar(forum.BannerMediaAssetId),
+            forum.NsfwAgeCheckExplanation,
+            age.BlocksEntry,
+            age.ForumExplanation);
     }
 }

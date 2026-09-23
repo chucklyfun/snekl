@@ -2,6 +2,8 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { createContentClient } from '../api';
 import { PostBody } from '../components/PostBody';
+import { NsfwAgeCheckPanel } from '../components/NsfwAgeCheckPanel';
+import { PostAttachments } from '../components/PostAttachments';
 import { ReactionBar } from '../components/ReactionBar';
 import { UpvoteButton } from '../components/UpvoteButton';
 import { UserByline } from '../components/UserPresentation';
@@ -11,7 +13,7 @@ import type { CatalogEmote } from '../emotes';
 import { useServerRegistry } from '../ServerRegistryContext';
 import { postOwnerBaseUrl } from '../postOwner';
 import { decodeServerDid, resolveServerBaseUrl } from '../serverDid';
-import type { Post, PostRevision } from '../types';
+import type { NsfwAgeCheckStatus, Post, PostRevision } from '../types';
 import { usePostRealtime } from '../usePostRealtime';
 
 const isDev = import.meta.env.DEV;
@@ -250,6 +252,7 @@ function PostNode({
               forumId={forumId ?? undefined}
               disabled={post.isFederated}
             />
+            <PostAttachments post={post} baseUrl={baseUrl} onChanged={onChanged} />
             </>
           )}
           {error && !showEdit && !showReport && <div className="error-banner">{error}</div>}
@@ -385,6 +388,8 @@ export function ThreadPage() {
   const [error, setError] = useState('');
   const [removed, setRemoved] = useState(false);
   const [emotes, setEmotes] = useState<CatalogEmote[]>([]);
+  const [ageStatus, setAgeStatus] = useState<NsfwAgeCheckStatus | null>(null);
+  const { user } = useAuth();
 
   const serverDid = encodedDid ? decodeServerDid(encodedDid) : '';
   const baseUrl = resolveServerBaseUrl(serverDid, resolveBaseUrl);
@@ -413,6 +418,11 @@ export function ThreadPage() {
     loadContextEmotes({ homeClient: client, forumId: thread?.forumId ?? undefined })
       .then(setEmotes)
       .catch(() => setEmotes([]));
+  }, [client, thread?.forumId]);
+
+  useEffect(() => {
+    if (!client || !thread?.forumId) return;
+    client.getNsfwAgeCheck(thread.forumId).then(setAgeStatus).catch(() => setAgeStatus(null));
   }, [client, thread?.forumId]);
 
   const handleDelete = async (targetPostId: string, hard?: boolean) => {
@@ -444,8 +454,20 @@ export function ThreadPage() {
       <Link to="/" style={{ color: 'var(--muted)' }}>
         ← Back to forums
       </Link>
-      <h1 className="page-title">Thread</h1>
+      <h1 className="page-title">{thread?.title?.trim() || 'Thread'}</h1>
       {error && <div className="error-banner">{error}</div>}
+      {ageStatus?.blocksEntry && client && (
+        <NsfwAgeCheckPanel
+          client={client}
+          forumId={thread?.forumId ?? undefined}
+          status={ageStatus}
+          loggedIn={Boolean(user)}
+          onCompleted={(next) => {
+            setAgeStatus(next);
+            load();
+          }}
+        />
+      )}
       {thread && client && (
         <div className="card">
           {(thread.ancestors ?? []).map((ancestor) => (

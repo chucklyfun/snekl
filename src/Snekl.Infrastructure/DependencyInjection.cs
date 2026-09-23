@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<IPostUpvoteService, PostUpvoteService>();
         services.AddScoped<IMediaService, MediaService>();
         services.AddScoped<IEmoteService, EmoteService>();
+        services.AddScoped<INsfwAgeCheckService, NsfwAgeCheckService>();
         services.AddHttpClient<IPostAggregationService, PostAggregationService>();
         services.AddScoped<IFederationEnvelopeValidator, FederationEnvelopeValidator>();
         services.AddHttpClient<INodeDidResolver, NodeDidResolver>();

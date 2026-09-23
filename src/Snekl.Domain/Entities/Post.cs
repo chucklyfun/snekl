@@ -15,6 +15,9 @@ public class Post : ExternalEntity
     public User? Author { get; set; }
     public Guid? AuthorPersonClusterId { get; set; }
     public string? AuthorDid { get; set; }
+
+    /// <summary>Thread title for root posts only; null for replies.</summary>
+    public string? Title { get; set; }
     public string Message { get; set; } = string.Empty;
 
     public ICollection<PostMedia> Media { get; set; } = new List<PostMedia>();
@@ -33,6 +36,8 @@ public class Post : ExternalEntity
     public bool IsLocked { get; set; }
 
     public bool IsPinned { get; set; }
+
+    public string ReplyPolicy { get; set; } = "everyone";
 
     public DateTime? LockedAt { get; set; }
 

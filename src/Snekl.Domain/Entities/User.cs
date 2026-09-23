@@ -17,6 +17,11 @@ public class User : ExternalEntity
     public string? NameColor { get; set; }
     public string? NameStyle { get; set; }
 
+    public bool IsBot { get; set; }
+
+    public DateTime? NsfwAgeAttestedAt { get; set; }
+    public int? NsfwAgeAttestedMinimum { get; set; }
+
     public ICollection<Post> Posts { get; set; } = new List<Post>();
     public ICollection<Forum> Forums { get; set; } = new List<Forum>();
     public UserStatus? ActiveStatus { get; set; }

@@ -191,6 +191,38 @@ public class PostsController : ControllerBase
     }
 
     [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPatch("{postId:guid}/media/{mediaId:guid}/nsfw")]
+    public async Task<ActionResult<PostDto>> SetMediaNsfw(
+        Guid postId,
+        Guid mediaId,
+        UpdatePostMediaNsfwRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var postDto = await _posts.SetMediaNsfwAsync(userId, postId, mediaId, request, userId, ct);
+            var post = await _posts.GetEntityAsync(postId, ct);
+            if (post is not null)
+            {
+                var threadId = await _posts.GetThreadRootIdAsync(postId, ct);
+                await _realtime.PublishPostEventAsync(
+                    new RealtimePostEvent(
+                        "post.updated",
+                        threadId,
+                        post.ForumId,
+                        post.Id,
+                        post.ParentPostId,
+                        WatercoolerId: post.WatercoolerId),
+                    ct);
+            }
+
+            return Ok(postDto);
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpPost]
     public async Task<ActionResult<PostDto>> Create(CreatePostRequest request, CancellationToken ct)
     {

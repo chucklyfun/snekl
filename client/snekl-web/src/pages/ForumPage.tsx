@@ -1,9 +1,12 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { createContentClient, hasPermission } from '../api';
 import { UpvoteButton } from '../components/UpvoteButton';
 import { PostBody } from '../components/PostBody';
 import { ReactionBar } from '../components/ReactionBar';
+import { CreatePostDialog } from '../components/CreatePostDialog';
+import { NsfwAgeCheckPanel, forumAgeStatus } from '../components/NsfwAgeCheckPanel';
+import { PostAttachments } from '../components/PostAttachments';
 import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';
 import { useServerRegistry } from '../ServerRegistryContext';
@@ -53,12 +56,14 @@ function ThreadPreview({
               {post.isLocked && <span className="thread-badge thread-badge-locked">Locked</span>}
             </div>
           )}
+          {post.title?.trim() && <strong>{post.title}</strong>}
           <PostBody
             message={`${post.message.slice(0, 200)}${post.message.length > 200 ? '…' : ''}`}
             emotes={emotes}
           />
           <div className="card-meta">{post.replyCount} replies</div>
         </Link>
+        <PostAttachments post={post} baseUrl={baseUrl} onChanged={() => undefined} />
       </div>
     </div>
   );
@@ -75,10 +80,10 @@ export function ForumPage() {
   const [forum, setForum] = useState<Forum | null>(null);
   const [threads, setThreads] = useState<Post[]>([]);
   const [sort, setSort] = useState<PostSort>('hot');
-  const [message, setMessage] = useState('');
   const [feedMessage, setFeedMessage] = useState('');
   const [feedPosts, setFeedPosts] = useState<Post[]>([]);
   const [emotes, setEmotes] = useState<CatalogEmote[]>([]);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [error, setError] = useState('');
 
   const serverDid = encodedDid ? decodeServerDid(encodedDid) : '';
@@ -89,7 +94,7 @@ export function ForumPage() {
   const pinnedCooler = forum?.watercoolers?.find((c) => c.id === pinnedFeed?.watercoolerId);
 
   useEffect(() => {
-    if (!client || !pinnedCooler?.viewerCanView) {
+    if (!client || !pinnedCooler?.viewerCanView || forum?.nsfwAgeCheckBlocksEntry) {
       setFeedPosts([]);
       return;
     }
@@ -97,7 +102,7 @@ export function ForumPage() {
       .getWatercoolerStream(pinnedCooler.id, pinnedCooler.allowUpvotes ? 'hot' : 'new', 1, 15)
       .then(setFeedPosts)
       .catch(() => setFeedPosts([]));
-  }, [client, pinnedCooler?.id, pinnedCooler?.viewerCanView, pinnedCooler?.allowUpvotes]);
+  }, [client, pinnedCooler?.id, pinnedCooler?.viewerCanView, pinnedCooler?.allowUpvotes, forum?.nsfwAgeCheckBlocksEntry]);
 
   const canManageForum = hasPermission(forum?.viewerPermissions, 'ManageForum');
   const canCreateThread = hasPermission(forum?.viewerPermissions, 'CreateThread');
@@ -113,6 +118,7 @@ export function ForumPage() {
       .getForum(slug, parentSlug)
       .then((f) => {
         setForum(f);
+        if (f.nsfwAgeCheckBlocksEntry) return [];
         return client.getForumThreads(f.id, sort);
       })
       .then(setThreads)
@@ -157,19 +163,6 @@ export function ForumPage() {
     },
   });
 
-  const handleNewThread = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!forum || !message.trim() || !client) return;
-    setError('');
-    try {
-      await client.createPost(forum.id, message.trim());
-      setMessage('');
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create thread');
-    }
-  };
-
   if (!baseUrl) return <div className="error-banner">Unknown content server.</div>;
   if (!forum && !error) return <p>Loading forum...</p>;
 
@@ -207,7 +200,17 @@ export function ForumPage() {
 
       {error && <div className="error-banner">{error}</div>}
 
-      {forum && forum.watercoolers && forum.watercoolers.length > 0 && (
+      {forum && client && (
+        <NsfwAgeCheckPanel
+          client={client}
+          forumId={forum.id}
+          status={forumAgeStatus(forum)}
+          loggedIn={Boolean(user)}
+          onCompleted={() => load()}
+        />
+      )}
+
+      {forum && !forum.nsfwAgeCheckBlocksEntry && forum.watercoolers && forum.watercoolers.length > 0 && (
         <section className="card" style={{ marginBottom: '1rem' }}>
           <h2 className="card-title">Watercoolers</h2>
           <div className="subforum-grid">
@@ -229,7 +232,7 @@ export function ForumPage() {
         </section>
       )}
 
-      {pinnedCooler && pinnedCooler.viewerCanView && client && (
+      {pinnedCooler && pinnedCooler.viewerCanView && client && !forum?.nsfwAgeCheckBlocksEntry && (
         <section className="card" style={{ marginBottom: '1rem' }}>
           <h2 className="card-title">{pinnedCooler.name}</h2>
           <p className="card-meta">
@@ -250,6 +253,7 @@ export function ForumPage() {
                 forumId={forum?.id}
                 disabled={post.isFederated}
               />
+              <PostAttachments post={post} baseUrl={baseUrl} onChanged={load} />
             </div>
           ))}
           {user && pinnedCooler.viewerCanSpeak && (
@@ -303,21 +307,25 @@ export function ForumPage() {
         </section>
       )}
 
-      {user && forum && canCreateThread && (
-        <form onSubmit={handleNewThread} className="card">
-          <h2 className="card-title">Start a thread</h2>
-          <div className="form-group">
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="What's on your mind?"
-              required
-            />
-          </div>
-          <button type="submit" className="btn-primary">
-            Post thread
+      {user && forum && canCreateThread && !forum.nsfwAgeCheckBlocksEntry && client && (
+        <>
+          <button type="button" className="btn-primary" onClick={() => setComposerOpen(true)}>
+            Start a thread
           </button>
-        </form>
+          <CreatePostDialog
+            open={composerOpen}
+            forumName={forum.name}
+            error={error}
+            onClose={() => setComposerOpen(false)}
+            uploadMedia={(file) => client.uploadMedia(file)}
+            emotes={emotes}
+            onSubmit={async ({ title, message: body, mediaAssetIds, nsfwMedia }) => {
+              await client.createPost(forum.id, body, undefined, title, mediaAssetIds, undefined, undefined, nsfwMedia);
+              setComposerOpen(false);
+              load();
+            }}
+          />
+        </>
       )}
 
       {user && forum && !canCreateThread && (

@@ -28,6 +28,9 @@ public static class DependencyInjection
         services.AddScoped<IIdentityCredentialService, IdentityCredentialService>();
         services.AddHttpClient<IPartnerClient, PartnerClient>();
         services.AddHttpClient<IContentServerMembershipService, ContentServerMembershipService>();
+        services.AddHttpClient("extension-install");
+        services.AddScoped<IContentInstallLookup, ContentInstallLookup>();
+        services.AddScoped<IOauthService, OauthService>();
 
         if (!string.IsNullOrWhiteSpace(config["Smtp:Host"]))
             services.AddSingleton<IEmailSender, SmtpEmailSender>();

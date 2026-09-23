@@ -18,6 +18,8 @@ public class User : ExternalEntity
     public string? NameStyle { get; set; }
 
     public bool IsBot { get; set; }
+    public string? OAuthClientId { get; set; }
+    public Guid? ExtensionInstallId { get; set; }
 
     public DateTime? NsfwAgeAttestedAt { get; set; }
     public int? NsfwAgeAttestedMinimum { get; set; }

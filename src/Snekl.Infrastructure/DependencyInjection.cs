@@ -53,6 +53,7 @@ public static class DependencyInjection
         services.AddScoped<IForumModerationService, ForumModerationService>();
         services.AddScoped<IWatercoolerService, WatercoolerService>();
         services.AddHttpClient<IFederationClient, FederationClient>();
+        services.AddScoped<IExtensionInstallService, ExtensionInstallService>();
         services.AddSneklAuthentication(config);
         services.AddSiteAdminAuthorization();
 

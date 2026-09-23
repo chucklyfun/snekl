@@ -52,6 +52,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <Link to="/">Forums</Link>
           <Link to="/servers">Servers</Link>
           <Link to="/lists">Lists</Link>
+          <Link to="/extensions">Extensions</Link>
           <Link to="/federation">Federation</Link>
           {user && primaryServer && canCreateForum && (
             <Link to={createForumPath(primaryServer.serverDid)}>New forum</Link>

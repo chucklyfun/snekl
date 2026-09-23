@@ -29,6 +29,10 @@ public class PersonCluster
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    public bool IsBot { get; set; }
+    public Guid? OAuthAppId { get; set; }
+    public OAuthApp? OAuthApp { get; set; }
+
     public ICollection<AuthIdentity> Identities { get; set; } = new List<AuthIdentity>();
     public UserSettingsReplica? Settings { get; set; }
 }
@@ -92,5 +96,55 @@ public class EmailVerificationToken
     public string TokenHash { get; set; } = string.Empty;
     public DateTime ExpiresAt { get; set; }
     public DateTime? UsedAt { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class OAuthApp
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string ClientId { get; set; } = string.Empty;
+    public string ClientSecretHash { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string RedirectUrisJson { get; set; } = "[]";
+    public string? AdminUrl { get; set; }
+    public string? IframeUrl { get; set; }
+    public Guid? CreatedByPersonClusterId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class OAuthAuthorizationCode
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string CodeHash { get; set; } = string.Empty;
+    public Guid AppId { get; set; }
+    public OAuthApp? App { get; set; }
+    public Guid PersonClusterId { get; set; }
+    public PersonCluster? PersonCluster { get; set; }
+    public Guid IdentityId { get; set; }
+    public AuthIdentity? Identity { get; set; }
+    public string RedirectUri { get; set; } = string.Empty;
+    public string CodeChallenge { get; set; } = string.Empty;
+    public string ContentBaseUrl { get; set; } = string.Empty;
+    public Guid InstallId { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? UsedAt { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class OAuthRefreshToken
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string TokenHash { get; set; } = string.Empty;
+    public Guid AppId { get; set; }
+    public OAuthApp? App { get; set; }
+    public Guid PersonClusterId { get; set; }
+    public PersonCluster? PersonCluster { get; set; }
+    public Guid IdentityId { get; set; }
+    public AuthIdentity? Identity { get; set; }
+    public string TokenUse { get; set; } = "install";
+    public string ContentBaseUrl { get; set; } = string.Empty;
+    public Guid InstallId { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? RevokedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

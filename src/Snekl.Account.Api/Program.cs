@@ -70,6 +70,10 @@ using (var scope = app.Services.CreateScope())
         config.Name = builder.Configuration["Auth:Name"] ?? config.Name;
         await db.SaveChangesAsync();
     }
+
+    await db.EnsureOAuthSchemaAsync();
+    var oauth = scope.ServiceProvider.GetRequiredService<IOauthService>();
+    await oauth.EnsureDevAppsAsync();
 }
 
 if (app.Environment.IsDevelopment())

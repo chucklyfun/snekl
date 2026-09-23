@@ -1,10 +1,12 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Snekl.Domain.Dtos;
 using Snekl.Domain.Entities;
 using Snekl.Domain.Enums;
 using Snekl.Domain.Ranking;
 using Snekl.Infrastructure.Data;
+using Snekl.Infrastructure.Search;
 
 namespace Snekl.Infrastructure.Services;
 
@@ -44,6 +46,12 @@ public interface IPostService
         PostSort sort,
         Guid? viewerUserId = null,
         CancellationToken ct = default);
+    Task<IReadOnlyList<SearchHitDto>> SearchAsync(
+        string? query,
+        int page,
+        int pageSize,
+        Guid? viewerUserId = null,
+        CancellationToken ct = default);
     Task<PostDto?> GetThreadAsync(Guid postId, Guid? viewerUserId = null, CancellationToken ct = default);
     Task<PostDto> SetThreadLockedAsync(Guid userId, Guid postId, bool locked, Guid? viewerUserId = null, CancellationToken ct = default);
     Task<PostDto> SetThreadPinnedAsync(Guid userId, Guid postId, bool pinned, Guid? viewerUserId = null, CancellationToken ct = default);
@@ -66,6 +74,8 @@ public class PostService : IPostService
     private readonly IEmoteService _emotes;
     private readonly IMediaService _media;
     private readonly INsfwAgeCheckService _nsfwAge;
+    private readonly IPostSearchIndex _searchIndex;
+    private readonly ILogger<PostService> _logger;
 
     public PostService(
         SneklDbContext db,
@@ -77,7 +87,9 @@ public class PostService : IPostService
         IForumModerationService moderation,
         IEmoteService emotes,
         IMediaService media,
-        INsfwAgeCheckService nsfwAge)
+        INsfwAgeCheckService nsfwAge,
+        IPostSearchIndex searchIndex,
+        ILogger<PostService> logger)
     {
         _db = db;
         _presentation = presentation;
@@ -89,6 +101,8 @@ public class PostService : IPostService
         _emotes = emotes;
         _media = media;
         _nsfwAge = nsfwAge;
+        _searchIndex = searchIndex;
+        _logger = logger;
     }
 
     public async Task<PostDto> CreateAsync(Guid userId, CreatePostRequest request, Guid? viewerUserId = null, CancellationToken ct = default)
@@ -161,6 +175,8 @@ public class PostService : IPostService
 
         if (request.MediaAssetIds is { Count: > 0 })
             await _media.AttachToPostAsync(post.Id, userId, request.MediaAssetIds, request.NsfwMedia, ct);
+
+        await TryIndexPostAsync(post, ct);
 
         var authorPresentation = await _presentation.GetPresentationAsync(userId, viewerUserId ?? userId, forum.Id, ct);
         return await ToDtoAsync(post, authorPresentation, [], new HashSet<Guid>(), viewerUserId, ct);
@@ -237,6 +253,8 @@ public class PostService : IPostService
         if (request.MediaAssetIds is { Count: > 0 })
             await _media.AttachToPostAsync(post.Id, userId, request.MediaAssetIds, nsfwHints: null, ct);
 
+        await TryIndexPostAsync(post, ct);
+
         var authorPresentation = await _presentation.GetPresentationAsync(
             userId, viewerUserId ?? userId, cooler.ParentForumId, ct);
         return await ToDtoAsync(post, authorPresentation, [], new HashSet<Guid>(), viewerUserId, ct);
@@ -276,6 +294,7 @@ public class PostService : IPostService
             post.EditedAt = DateTime.UtcNow;
             post.UpdatedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync(ct);
+            await TryIndexPostAsync(post, ct);
         }
 
         var authorPresentation = await _presentation.GetPresentationAsync(
@@ -307,6 +326,7 @@ public class PostService : IPostService
         post.DeletedAt = DateTime.UtcNow;
         post.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await TryIndexPostAsync(post, ct);
 
         var authorPresentation = await _presentation.GetPresentationAsync(
             post.AuthorUserId,
@@ -340,6 +360,7 @@ public class PostService : IPostService
 
         _db.Posts.Remove(post);
         await _db.SaveChangesAsync(ct);
+        await TryDeleteFromIndexAsync(postId, ct);
     }
 
     public async Task<IReadOnlyList<PostRevisionDto>> GetRevisionsAsync(Guid userId, Guid postId, CancellationToken ct = default)
@@ -511,6 +532,183 @@ public class PostService : IPostService
         return results;
     }
 
+    public async Task<IReadOnlyList<SearchHitDto>> SearchAsync(
+        string? query,
+        int page,
+        int pageSize,
+        Guid? viewerUserId = null,
+        CancellationToken ct = default)
+    {
+        var tokens = TokenizeSearchQuery(query);
+        if (tokens.Count == 0) return [];
+
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 50);
+
+        var localNode = await _node.GetOrCreateAsync(ct);
+        var forumRows = await _db.Forums
+            .AsNoTracking()
+            .Include(f => f.ParentForum)
+            .Select(f => new { f.Id, f.Slug, f.Name, ParentSlug = f.ParentForum != null ? f.ParentForum.Slug : null })
+            .ToListAsync(ct);
+
+        var visibleForumIds = new List<Guid>();
+        var forumMeta = new Dictionary<Guid, (string Slug, string Name, string? ParentSlug)>();
+        foreach (var forum in forumRows)
+        {
+            if (!await _permissions.CanViewForumAsync(viewerUserId, forum.Id, ct)) continue;
+            if (!await _nsfwAge.ViewerMayEnterForumAsync(viewerUserId, forum.Id, ct)) continue;
+            visibleForumIds.Add(forum.Id);
+            forumMeta[forum.Id] = (forum.Slug, forum.Name, forum.ParentSlug);
+        }
+
+        if (visibleForumIds.Count == 0) return [];
+
+        if (_searchIndex.IsEnabled)
+        {
+            try
+            {
+                var osMatches = await _searchIndex.SearchAsync(query!.Trim(), visibleForumIds, page, pageSize, ct);
+                return await HydrateSearchHitsAsync(osMatches, forumMeta, localNode, viewerUserId, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "OpenSearch query failed; falling back to Postgres");
+            }
+        }
+
+        var matchesQuery = _db.Posts
+            .AsNoTracking()
+            .Include(p => p.Author)
+            .Where(p => p.ForumId != null && visibleForumIds.Contains(p.ForumId.Value) && !p.IsDeleted);
+
+        foreach (var token in tokens)
+        {
+            var pattern = "%" + EscapeLike(token) + "%";
+            matchesQuery = matchesQuery.Where(p =>
+                EF.Functions.ILike(p.Message, pattern) ||
+                (p.Title != null && EF.Functions.ILike(p.Title, pattern)));
+        }
+
+        var matches = await matchesQuery
+            .OrderByDescending(p => p.CreatedAt)
+            .Take(200)
+            .ToListAsync(ct);
+
+        if (matches.Count == 0) return [];
+
+        var byId = matches.ToDictionary(p => p.Id);
+        var missing = matches
+            .Where(p => p.ParentPostId.HasValue && !byId.ContainsKey(p.ParentPostId.Value))
+            .Select(p => p.ParentPostId!.Value)
+            .Distinct()
+            .ToList();
+        while (missing.Count > 0)
+        {
+            var parents = await _db.Posts
+                .AsNoTracking()
+                .Include(p => p.Author)
+                .Where(p => missing.Contains(p.Id))
+                .ToListAsync(ct);
+            foreach (var parent in parents)
+                byId.TryAdd(parent.Id, parent);
+            missing = parents
+                .Where(p => p.ParentPostId.HasValue && !byId.ContainsKey(p.ParentPostId.Value))
+                .Select(p => p.ParentPostId!.Value)
+                .Distinct()
+                .ToList();
+        }
+
+        var orderedRoots = new List<Guid>();
+        var snippetByRoot = new Dictionary<Guid, (string Snippet, bool MatchedInReply)>();
+        foreach (var match in matches)
+        {
+            var rootId = RootIdFromLoaded(match, byId);
+            if (rootId is null) continue;
+            if (snippetByRoot.ContainsKey(rootId.Value)) continue;
+            var text = match.Title is { Length: > 0 } title ? $"{title}\n{match.Message}" : match.Message;
+            snippetByRoot[rootId.Value] = (MakeSnippet(text, tokens), match.ParentPostId.HasValue);
+            orderedRoots.Add(rootId.Value);
+        }
+
+        var pageIds = orderedRoots.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        if (pageIds.Count == 0) return [];
+
+        var missingRoots = pageIds.Where(id => !byId.ContainsKey(id) || byId[id].ParentPostId.HasValue).ToList();
+        if (missingRoots.Count > 0)
+        {
+            var roots = await _db.Posts
+                .AsNoTracking()
+                .Include(p => p.Author)
+                .Where(p => missingRoots.Contains(p.Id) && p.ParentPostId == null)
+                .ToListAsync(ct);
+            foreach (var root in roots)
+                byId[root.Id] = root;
+        }
+
+        var hits = new List<SearchHitDto>();
+        foreach (var rootId in pageIds)
+        {
+            if (!byId.TryGetValue(rootId, out var root) || root.ParentPostId.HasValue || root.IsDeleted)
+                continue;
+            if (root.ForumId is not Guid searchForumId || !forumMeta.TryGetValue(searchForumId, out var meta)) continue;
+            var mapped = await MapRootPostsAsync([root], searchForumId, viewerUserId, ct);
+            if (mapped.Count == 0) continue;
+            snippetByRoot.TryGetValue(rootId, out var snippet);
+            hits.Add(new SearchHitDto(
+                new RecentThreadDto(
+                    mapped[0],
+                    meta.Slug,
+                    meta.Name,
+                    meta.ParentSlug,
+                    localNode.BaseUrl,
+                    localNode.Did),
+                snippet.Snippet,
+                snippet.MatchedInReply));
+        }
+
+        return hits;
+    }
+
+    private async Task<IReadOnlyList<SearchHitDto>> HydrateSearchHitsAsync(
+        IReadOnlyList<PostSearchMatch> matches,
+        IReadOnlyDictionary<Guid, (string Slug, string Name, string? ParentSlug)> forumMeta,
+        NodeConfig localNode,
+        Guid? viewerUserId,
+        CancellationToken ct)
+    {
+        if (matches.Count == 0) return [];
+
+        var rootIds = matches.Select(m => m.ThreadRootId).Distinct().ToList();
+        var roots = await _db.Posts
+            .AsNoTracking()
+            .Include(p => p.Author)
+            .Where(p => rootIds.Contains(p.Id) && p.ParentPostId == null && !p.IsDeleted)
+            .ToListAsync(ct);
+        var byId = roots.ToDictionary(p => p.Id);
+
+        var hits = new List<SearchHitDto>();
+        foreach (var match in matches)
+        {
+            if (!byId.TryGetValue(match.ThreadRootId, out var root)) continue;
+            if (root.ForumId is not Guid searchForumId || !forumMeta.TryGetValue(searchForumId, out var meta)) continue;
+            var mapped = await MapRootPostsAsync([root], searchForumId, viewerUserId, ct);
+            if (mapped.Count == 0) continue;
+            hits.Add(new SearchHitDto(
+                new RecentThreadDto(
+                    mapped[0],
+                    meta.Slug,
+                    meta.Name,
+                    meta.ParentSlug,
+                    localNode.BaseUrl,
+                    localNode.Did),
+                match.Snippet,
+                match.MatchedInReply));
+        }
+
+        return hits;
+    }
+
     public async Task<PostDto?> GetThreadAsync(Guid postId, Guid? viewerUserId = null, CancellationToken ct = default)
     {
         var probe = await _db.Posts.AsNoTracking().FirstOrDefaultAsync(p => p.Id == postId, ct);
@@ -642,6 +840,7 @@ public class PostService : IPostService
         post.EditedAt = payload.EditedAt;
         post.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await TryIndexPostAsync(post, ct);
     }
 
     public async Task ApplyFederatedDeleteAsync(FederatedPostDeletePayload payload, CancellationToken ct = default)
@@ -653,6 +852,7 @@ public class PostService : IPostService
         post.DeletedAt = payload.DeletedAt;
         post.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await TryIndexPostAsync(post, ct);
     }
 
     public async Task UpsertFederatedAsync(FederatedPostPayload payload, Guid sourceNodeId, string sourceNodeUrl, CancellationToken ct = default)
@@ -708,6 +908,7 @@ public class PostService : IPostService
 
         _db.Posts.Add(post);
         await _db.SaveChangesAsync(ct);
+        await TryIndexPostAsync(post, ct);
     }
 
     private async Task<IReadOnlyList<PostDto>> MapRootPostsAsync(
@@ -1055,5 +1256,92 @@ public class PostService : IPostService
         if (!post.ForumId.HasValue) return false;
         var forumPerms = await _permissions.GetForumPermissionsAsync(userId, post.ForumId.Value, ct);
         return forumPerms.HasFlag(ForumPermissions.ManagePosts);
+    }
+
+    private async Task TryIndexPostAsync(Post post, CancellationToken ct)
+    {
+        if (!_searchIndex.IsEnabled) return;
+        try
+        {
+            var username = post.Author?.Username;
+            if (string.IsNullOrEmpty(username))
+            {
+                username = await _db.Users.AsNoTracking()
+                    .Where(u => u.Id == post.AuthorUserId)
+                    .Select(u => u.Username)
+                    .FirstOrDefaultAsync(ct) ?? "";
+            }
+
+            var rootId = await GetThreadRootIdAsync(post.Id, ct);
+            await _searchIndex.IndexAsync(PostSearchDocuments.From(post, rootId, username), ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "OpenSearch index failed for post {PostId}", post.Id);
+        }
+    }
+
+    private async Task TryDeleteFromIndexAsync(Guid postId, CancellationToken ct)
+    {
+        if (!_searchIndex.IsEnabled) return;
+        try
+        {
+            await _searchIndex.DeleteAsync(postId, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "OpenSearch delete failed for post {PostId}", postId);
+        }
+    }
+
+    private static IReadOnlyList<string> TokenizeSearchQuery(string? query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return [];
+        return query
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(token => token.Length > 64 ? token[..64] : token)
+            .Take(8)
+            .ToList();
+    }
+
+    private static string EscapeLike(string value) =>
+        value.Replace("\\", "", StringComparison.Ordinal)
+            .Replace("%", "", StringComparison.Ordinal)
+            .Replace("_", "", StringComparison.Ordinal);
+
+    private static string MakeSnippet(string text, IReadOnlyList<string> tokens, int max = 180)
+    {
+        var normalized = text.ReplaceLineEndings(" ").Trim();
+        if (normalized.Length == 0) return "";
+        var index = -1;
+        foreach (var token in tokens)
+        {
+            index = normalized.IndexOf(token, StringComparison.OrdinalIgnoreCase);
+            if (index >= 0) break;
+        }
+
+        if (index < 0)
+            return normalized.Length <= max ? normalized : normalized[..max] + "\u2026";
+
+        var start = Math.Max(0, index - 40);
+        var length = Math.Min(max, normalized.Length - start);
+        var slice = normalized.Substring(start, length);
+        if (start > 0) slice = "\u2026" + slice;
+        if (start + length < normalized.Length) slice += "\u2026";
+        return slice;
+    }
+
+    private static Guid? RootIdFromLoaded(Post post, IReadOnlyDictionary<Guid, Post> byId)
+    {
+        var current = post;
+        var guard = 0;
+        while (current.ParentPostId.HasValue && guard++ < 32)
+        {
+            if (!byId.TryGetValue(current.ParentPostId.Value, out var parent))
+                return current.ParentPostId;
+            current = parent;
+        }
+
+        return current.ParentPostId.HasValue ? current.ParentPostId : current.Id;
     }
 }

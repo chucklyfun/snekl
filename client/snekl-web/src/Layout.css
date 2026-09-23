@@ -1194,3 +1194,26 @@ a.btn-icon-danger:hover {
   padding: 0.25rem 0.4rem;
   width: 100%;
 }
+
+.header-search {
+  flex: 1;
+  max-width: 22rem;
+  min-width: 8rem;
+}
+
+.header-search input {
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+}
+
+.search-page-form {
+  display: flex;
+  gap: 0.5rem;
+  max-width: 36rem;
+  margin: 0 0 1.5rem;
+}
+
+.search-page-form input[type='search'] {
+  flex: 1;
+  min-width: 0;
+}

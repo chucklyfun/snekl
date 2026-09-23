@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Snekl.Infrastructure.Data;
+using Snekl.Infrastructure.Search;
 using Snekl.Infrastructure.Security;
 using Snekl.Infrastructure.Services;
 using Snekl.Infrastructure.Storage;
@@ -30,6 +31,7 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IForumService, ForumService>();
         services.AddScoped<IPostService, PostService>();
+        AddPostSearch(services, config);
         services.AddScoped<IPostUpvoteService, PostUpvoteService>();
         services.AddScoped<IMediaService, MediaService>();
         services.AddScoped<IEmoteService, EmoteService>();
@@ -55,5 +57,23 @@ public static class DependencyInjection
         services.AddSiteAdminAuthorization();
 
         return services;
+    }
+
+    private static void AddPostSearch(IServiceCollection services, IConfiguration config)
+    {
+        services.Configure<OpenSearchOptions>(config.GetSection(OpenSearchOptions.SectionName));
+        var url = config.GetConnectionString("OpenSearch");
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            services.AddSingleton<IPostSearchIndex, NullPostSearchIndex>();
+            return;
+        }
+
+        services.AddHttpClient<IPostSearchIndex, OpenSearchPostIndex>(client =>
+        {
+            client.BaseAddress = new Uri(url.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+        services.AddHostedService<PostSearchBootstrap>();
     }
 }

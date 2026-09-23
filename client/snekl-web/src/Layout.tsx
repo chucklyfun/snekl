@@ -1,9 +1,33 @@
-import { Link } from 'react-router';
+import { type FormEvent, useState } from 'react';
+import { Link, useNavigate } from 'react-router';
 import { hasPermission } from './api';
 import { useAuth } from './AuthContext';
 import { useServerRegistry } from './ServerRegistryContext';
 import { createForumPath, serverSettingsPath } from './serverDid';
 import './Layout.css';
+
+function HeaderSearch() {
+  const navigate = useNavigate();
+  const [q, setQ] = useState('');
+
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    const next = q.trim();
+    navigate(next ? `/search?q=${encodeURIComponent(next)}` : '/search');
+  };
+
+  return (
+    <form className="header-search" onSubmit={onSubmit} role="search">
+      <input
+        type="search"
+        value={q}
+        onChange={(event) => setQ(event.target.value)}
+        placeholder="Search posts"
+        aria-label="Search posts"
+      />
+    </form>
+  );
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout, isSuperUser, serverPermissions } = useAuth();
@@ -23,6 +47,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <span className="brand-mark">S</span>
           Snekl
         </Link>
+        <HeaderSearch />
         <nav className="nav-links">
           <Link to="/">Forums</Link>
           <Link to="/servers">Servers</Link>

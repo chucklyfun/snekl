@@ -56,6 +56,7 @@ public class PostService : IPostService
     private readonly IPostUpvoteService _upvotes;
     private readonly INodeService _node;
     private readonly IForumModerationService _moderation;
+    private readonly IEmoteService _emotes;
 
     public PostService(
         SneklDbContext db,
@@ -64,7 +65,8 @@ public class PostService : IPostService
         IForumService forums,
         IPostUpvoteService upvotes,
         INodeService node,
-        IForumModerationService moderation)
+        IForumModerationService moderation,
+        IEmoteService emotes)
     {
         _db = db;
         _presentation = presentation;
@@ -73,6 +75,7 @@ public class PostService : IPostService
         _upvotes = upvotes;
         _node = node;
         _moderation = moderation;
+        _emotes = emotes;
     }
 
     public async Task<PostDto> CreateAsync(Guid userId, CreatePostRequest request, Guid? viewerUserId = null, CancellationToken ct = default)
@@ -291,6 +294,9 @@ public class PostService : IPostService
 
         var upvotes = await _db.PostUpvotes.Where(u => u.PostId == postId).ToListAsync(ct);
         _db.PostUpvotes.RemoveRange(upvotes);
+
+        var reactions = await _db.PostReactions.Where(r => r.PostId == postId).ToListAsync(ct);
+        _db.PostReactions.RemoveRange(reactions);
 
         _db.Posts.Remove(post);
         await _db.SaveChangesAsync(ct);
@@ -848,7 +854,9 @@ public class PostService : IPostService
     {
         var actions = await BuildViewerActionsAsync(post, viewerUserId, ct);
         var quoted = await MapQuotedAsync(post, viewerUserId, ct);
-        return ToDto(post, author, replies, viewerUpvotes, actions, quoted);
+        var reactionMap = await _emotes.GetReactionsByPostIdsAsync([post.Id], viewerUserId, ct);
+        reactionMap.TryGetValue(post.Id, out var reactionList);
+        return ToDto(post, author, replies, viewerUpvotes, actions, quoted, reactions: reactionList);
     }
 
     public static PostDto ToDto(
@@ -858,7 +866,8 @@ public class PostService : IPostService
         IReadOnlySet<Guid> viewerUpvotes,
         PostViewerActionsDto? viewerActions = null,
         QuotedPostDto? quotedPost = null,
-        IReadOnlyList<PostDto>? ancestors = null) => new(
+        IReadOnlyList<PostDto>? ancestors = null,
+        IReadOnlyList<PostReactionDto>? reactions = null) => new(
         post.Id,
         post.ForumId,
         post.ParentPostId,
@@ -876,6 +885,7 @@ public class PostService : IPostService
         post.CreatedAt,
         replies,
         viewerActions,
+        Reactions: reactions,
         WatercoolerId: post.WatercoolerId,
         QuotedPostId: post.QuotedPostId,
         QuoteCount: post.QuoteCount,

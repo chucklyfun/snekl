@@ -2,6 +2,8 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { createContentClient, hasPermission } from '../api';
 import { UpvoteButton } from '../components/UpvoteButton';
+import { PostBody } from '../components/PostBody';
+import { ReactionBar } from '../components/ReactionBar';
 import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';
 import { useServerRegistry } from '../ServerRegistryContext';
@@ -18,16 +20,20 @@ import {
   watercoolerPath,
 } from '../serverDid';
 import type { Forum, Post } from '../types';
+import { loadContextEmotes } from '../emoteCatalog';
+import type { CatalogEmote } from '../emotes';
 import { usePostRealtime } from '../usePostRealtime';
 
 function ThreadPreview({
   post,
   serverDid,
   baseUrl,
+  emotes,
 }: {
   post: Post;
   serverDid: string;
   baseUrl: string;
+  emotes: CatalogEmote[];
 }) {
   return (
     <div className="card thread-card">
@@ -47,10 +53,10 @@ function ThreadPreview({
               {post.isLocked && <span className="thread-badge thread-badge-locked">Locked</span>}
             </div>
           )}
-          <p className="post-body">
-            {post.message.slice(0, 200)}
-            {post.message.length > 200 ? '…' : ''}
-          </p>
+          <PostBody
+            message={`${post.message.slice(0, 200)}${post.message.length > 200 ? '…' : ''}`}
+            emotes={emotes}
+          />
           <div className="card-meta">{post.replyCount} replies</div>
         </Link>
       </div>
@@ -72,6 +78,7 @@ export function ForumPage() {
   const [message, setMessage] = useState('');
   const [feedMessage, setFeedMessage] = useState('');
   const [feedPosts, setFeedPosts] = useState<Post[]>([]);
+  const [emotes, setEmotes] = useState<CatalogEmote[]>([]);
   const [error, setError] = useState('');
 
   const serverDid = encodedDid ? decodeServerDid(encodedDid) : '';
@@ -114,6 +121,17 @@ export function ForumPage() {
 
   useEffect(load, [slug, parentSlug, client, sort]);
 
+  useEffect(() => {
+    if (!client || !forum) return;
+    loadContextEmotes({
+      homeClient: client,
+      forumId: forum.id,
+      destPermissions: forum.viewerPermissions,
+    })
+      .then(setEmotes)
+      .catch(() => setEmotes([]));
+  }, [client, forum]);
+
   usePostRealtime({
     baseUrl,
     forumId: forum?.id,
@@ -132,6 +150,7 @@ export function ForumPage() {
         evt.type === 'thread.locked' ||
         evt.type === 'thread.pinned' ||
         evt.type === 'post.upvoted'
+        || evt.type === 'post.reacted'
       ) {
         load();
       }
@@ -222,7 +241,15 @@ export function ForumPage() {
           {feedPosts.slice(-8).map((post) => (
             <div key={post.id} style={{ marginTop: '0.75rem' }}>
               <UserByline presentation={post.author} timestamp={post.createdAt} showStatus={false} />
-              <p className="post-body">{post.message}</p>
+              <PostBody message={post.message} emotes={emotes} />
+              <ReactionBar
+                postId={post.id}
+                baseUrl={baseUrl}
+                reactions={post.reactions ?? []}
+                emotes={emotes}
+                forumId={forum?.id}
+                disabled={post.isFederated}
+              />
             </div>
           ))}
           {user && pinnedCooler.viewerCanSpeak && (
@@ -323,7 +350,7 @@ export function ForumPage() {
 
       <div style={{ marginTop: '1rem' }}>
         {threads.map((thread) => (
-          <ThreadPreview key={thread.id} post={thread} serverDid={serverDid} baseUrl={baseUrl} />
+          <ThreadPreview key={thread.id} post={thread} serverDid={serverDid} baseUrl={baseUrl} emotes={emotes} />
         ))}
       </div>
     </div>

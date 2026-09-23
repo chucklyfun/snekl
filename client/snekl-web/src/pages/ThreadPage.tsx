@@ -1,9 +1,13 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { createContentClient } from '../api';
+import { PostBody } from '../components/PostBody';
+import { ReactionBar } from '../components/ReactionBar';
 import { UpvoteButton } from '../components/UpvoteButton';
 import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';
+import { loadContextEmotes } from '../emoteCatalog';
+import type { CatalogEmote } from '../emotes';
 import { useServerRegistry } from '../ServerRegistryContext';
 import { postOwnerBaseUrl } from '../postOwner';
 import { decodeServerDid, resolveServerBaseUrl } from '../serverDid';
@@ -25,6 +29,7 @@ function PostNode({
   setThreadLocked,
   setThreadPinned,
   reportPost,
+  emotes = [],
 }: {
   post: Post;
   forumId?: string | null;
@@ -45,6 +50,7 @@ function PostNode({
   setThreadLocked: (postId: string, locked: boolean) => Promise<void>;
   setThreadPinned: (postId: string, pinned: boolean) => Promise<void>;
   reportPost: (postId: string, reason: string) => Promise<void>;
+  emotes?: CatalogEmote[];
 }) {
   const { user } = useAuth();
   const [reply, setReply] = useState('');
@@ -228,14 +234,22 @@ function PostNode({
                 {post.quotedPost.viewerCanView ? (
                   <>
                     <UserByline presentation={post.quotedPost.author} timestamp={post.quotedPost.createdAt} showStatus={false} />
-                    <p className="post-body">{post.quotedPost.message}</p>
+                    <PostBody message={post.quotedPost.message} emotes={emotes} />
                   </>
                 ) : (
                   <p className="card-meta">Quoted post is locked.</p>
                 )}
               </div>
             )}
-            <p className="post-body">{post.message}</p>
+            <PostBody message={post.message} emotes={emotes} />
+            <ReactionBar
+              postId={post.id}
+              baseUrl={baseUrl}
+              reactions={post.reactions ?? []}
+              emotes={emotes}
+              forumId={forumId ?? undefined}
+              disabled={post.isFederated}
+            />
             </>
           )}
           {error && !showEdit && !showReport && <div className="error-banner">{error}</div>}
@@ -356,6 +370,7 @@ function PostNode({
             setThreadLocked={setThreadLocked}
             setThreadPinned={setThreadPinned}
             reportPost={reportPost}
+            emotes={emotes}
           />
         ))}
       </div>
@@ -369,6 +384,7 @@ export function ThreadPage() {
   const [thread, setThread] = useState<Post | null>(null);
   const [error, setError] = useState('');
   const [removed, setRemoved] = useState(false);
+  const [emotes, setEmotes] = useState<CatalogEmote[]>([]);
 
   const serverDid = encodedDid ? decodeServerDid(encodedDid) : '';
   const baseUrl = resolveServerBaseUrl(serverDid, resolveBaseUrl);
@@ -391,6 +407,13 @@ export function ThreadPage() {
     watercoolerId: thread?.watercoolerId,
     onEvent: () => load(),
   });
+
+  useEffect(() => {
+    if (!client) return;
+    loadContextEmotes({ homeClient: client, forumId: thread?.forumId ?? undefined })
+      .then(setEmotes)
+      .catch(() => setEmotes([]));
+  }, [client, thread?.forumId]);
 
   const handleDelete = async (targetPostId: string, hard?: boolean) => {
     if (!client) return;
@@ -440,6 +463,7 @@ export function ThreadPage() {
               setThreadLocked={async (id, locked) => { await client.setThreadLocked(id, locked); }}
               setThreadPinned={async (id, pinned) => { await client.setThreadPinned(id, pinned); }}
               reportPost={async (id, reason) => { await client.reportPost(id, reason); }}
+              emotes={emotes}
             />
           ))}
           <PostNode
@@ -461,6 +485,7 @@ export function ThreadPage() {
             reportPost={async (id, reason) => {
               await client.reportPost(id, reason);
             }}
+            emotes={emotes}
           />
         </div>
       )}

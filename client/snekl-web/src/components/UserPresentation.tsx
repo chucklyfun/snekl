@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { defaultEmoteGlyph } from '../emotes';
 import type { ListAnnotation, Overlay } from '../types';
 import './UserPresentation.css';
 
@@ -43,13 +44,28 @@ export function UserAvatar({
   );
 }
 
-export function FlairBadge({ emoji, iconUrl, title }: { emoji?: string | null; iconUrl?: string | null; title?: string }) {
+export function FlairBadge({
+  emoji,
+  iconUrl,
+  title,
+  boxed = true,
+}: {
+  emoji?: string | null;
+  iconUrl?: string | null;
+  title?: string;
+  boxed?: boolean;
+}) {
   if (!emoji && !iconUrl) return null;
-  return (
-    <span className="flair-badge" title={title}>
-      {iconUrl ? <img src={iconUrl} alt="" width={16} height={16} /> : emoji}
+  const glyph = defaultEmoteGlyph(emoji);
+  const src = glyph ? null : iconUrl?.trim() || null;
+  const markTitle = [...new Set([title, emoji].filter((part): part is string => Boolean(part)))].join(' · ') || undefined;
+  const mark = (
+    <span className="flair-badge" title={markTitle}>
+      {src ? <img src={src} alt="" width={16} height={16} /> : <span className="emoji-glyph">{glyph ?? emoji}</span>}
     </span>
   );
+  if (!boxed) return mark;
+  return <span className="flair-box user-flair-box">{mark}</span>;
 }
 
 export function AnnotationTooltip({ annotation, children }: { annotation: ListAnnotation; children: ReactNode }) {
@@ -122,6 +138,8 @@ export function UserByline({
 
   const status = presentation.activeStatus;
   const statusLine = status?.message || status?.emoji;
+  const listMarks = presentation.annotations.filter((a) => a.flairEmoji || a.flairIconUrl);
+  const hasUserFlair = Boolean(presentation.flair?.emoji || presentation.flair?.iconUrl);
 
   return (
     <div className="user-byline">
@@ -132,18 +150,28 @@ export function UserByline({
             <span className="display-name" style={nameStyle}>
               {presentation.effectiveDisplayName}
             </span>
-            {presentation.flair ? (
+            {hasUserFlair ? (
               <FlairBadge
-                emoji={presentation.flair.emoji}
-                iconUrl={presentation.flair.iconUrl}
-                title={presentation.flair.label ?? 'User flair'}
+                emoji={presentation.flair?.emoji}
+                iconUrl={presentation.flair?.iconUrl}
+                title={presentation.flair?.label ?? 'User flair'}
               />
             ) : null}
-            {presentation.annotations.map((a) => (
-              <AnnotationTooltip key={a.listId} annotation={a}>
-                <FlairBadge emoji={a.flairEmoji} iconUrl={a.flairIconUrl} title={a.label} />
-              </AnnotationTooltip>
-            ))}
+            {hasUserFlair && listMarks.length > 0 ? (
+              <span className="byline-mark-split" aria-hidden="true" />
+            ) : null}
+            {listMarks.length > 0 ? (
+              <span className="flair-box list-flair-box">
+                {listMarks.map((a, i) => (
+                  <Fragment key={a.listId}>
+                    {i > 0 ? <span className="list-flair-split" aria-hidden="true" /> : null}
+                    <AnnotationTooltip annotation={a}>
+                      <FlairBadge boxed={false} emoji={a.flairEmoji} iconUrl={a.flairIconUrl} title={a.label} />
+                    </AnnotationTooltip>
+                  </Fragment>
+                ))}
+              </span>
+            ) : null}
             {presentation.isFederated ? <span className="badge badge-federated">federated</span> : null}
           </div>
           <div className="byline-meta">

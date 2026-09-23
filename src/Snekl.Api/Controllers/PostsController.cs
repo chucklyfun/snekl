@@ -20,6 +20,7 @@ public class PostsController : ControllerBase
     private readonly IWebHostEnvironment _environment;
     private readonly IConfiguration _configuration;
     private readonly IForumModerationService _moderation;
+    private readonly IEmoteService _emotes;
 
     public PostsController(
         IPostService posts,
@@ -29,7 +30,8 @@ public class PostsController : ControllerBase
         IRealtimePublisher realtime,
         IWebHostEnvironment environment,
         IConfiguration configuration,
-        IForumModerationService moderation)
+        IForumModerationService moderation,
+        IEmoteService emotes)
     {
         _posts = posts;
         _upvotes = upvotes;
@@ -39,6 +41,7 @@ public class PostsController : ControllerBase
         _environment = environment;
         _configuration = configuration;
         _moderation = moderation;
+        _emotes = emotes;
     }
 
     [HttpGet("recent")]
@@ -149,6 +152,40 @@ public class PostsController : ControllerBase
             }
 
             return Ok(result);
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("{postId:guid}/reactions")]
+    public async Task<ActionResult<IReadOnlyList<PostReactionDto>>> ToggleReaction(
+        Guid postId,
+        ToggleReactionRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var thread = await _posts.GetThreadAsync(postId, userId, ct);
+            if (thread is null) return NotFound();
+
+            var reactions = await _emotes.ToggleReactionAsync(postId, userId, request, ct);
+            var post = await _posts.GetEntityAsync(postId, ct);
+            if (post is not null)
+            {
+                var threadId = await _posts.GetThreadRootIdAsync(postId, ct);
+                await _realtime.PublishPostEventAsync(
+                    new RealtimePostEvent(
+                        "post.reacted",
+                        threadId,
+                        post.ForumId,
+                        post.Id,
+                        post.ParentPostId,
+                        WatercoolerId: post.WatercoolerId),
+                    ct);
+            }
+
+            return Ok(reactions);
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }

@@ -17,6 +17,8 @@ public class Post : ExternalEntity
     public string? AuthorDid { get; set; }
     public string Message { get; set; } = string.Empty;
 
+    public ICollection<PostMedia> Media { get; set; } = new List<PostMedia>();
+
     /// <summary>Total number of descendant replies in this post's subtree (not direct-only).</summary>
     public int ReplyCount { get; set; }
 
@@ -37,6 +39,8 @@ public class Post : ExternalEntity
     public DateTime? PinnedAt { get; set; }
 
     public ICollection<PostUpvote> Upvotes { get; set; } = new List<PostUpvote>();
+
+    public ICollection<PostReaction> Reactions { get; set; } = new List<PostReaction>();
 
     public ICollection<PostRevision> Revisions { get; set; } = new List<PostRevision>();
 

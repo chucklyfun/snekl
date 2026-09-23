@@ -27,11 +27,18 @@ function PostNode({
   reportPost,
 }: {
   post: Post;
-  forumId: string;
+  forumId?: string | null;
   baseUrl: string;
   threadLocked: boolean;
   onChanged: () => void;
-  createPost: (forumId: string, message: string, parentPostId?: string) => Promise<Post>;
+  createPost: (
+    forumId: string | undefined,
+    message: string,
+    parentPostId?: string,
+    title?: string,
+    mediaAssetIds?: string[],
+    watercoolerId?: string,
+  ) => Promise<Post>;
   updatePost: (postId: string, message: string) => Promise<Post>;
   deletePost: (postId: string, hard?: boolean) => Promise<void>;
   getPostRevisions: (postId: string) => Promise<PostRevision[]>;
@@ -66,7 +73,7 @@ function PostNode({
     setError('');
     setBusy(true);
     try {
-      await createPost(forumId, reply.trim(), post.id);
+      await createPost(post.forumId ?? undefined, reply.trim(), post.id, undefined, undefined, post.watercoolerId ?? undefined);
       setReply('');
       setShowReply(false);
       onChanged();
@@ -215,7 +222,21 @@ function PostNode({
               </div>
             </form>
           ) : (
+            <>
+            {post.quotedPost && (
+              <div className="card" style={{ margin: '0.5rem 0' }}>
+                {post.quotedPost.viewerCanView ? (
+                  <>
+                    <UserByline presentation={post.quotedPost.author} timestamp={post.quotedPost.createdAt} showStatus={false} />
+                    <p className="post-body">{post.quotedPost.message}</p>
+                  </>
+                ) : (
+                  <p className="card-meta">Quoted post is locked.</p>
+                )}
+              </div>
+            )}
             <p className="post-body">{post.message}</p>
+            </>
           )}
           {error && !showEdit && !showReport && <div className="error-banner">{error}</div>}
           <div className="post-actions">
@@ -367,6 +388,7 @@ export function ThreadPage() {
   usePostRealtime({
     baseUrl,
     threadId: postId,
+    watercoolerId: thread?.watercoolerId,
     onEvent: () => load(),
   });
 
@@ -403,6 +425,23 @@ export function ThreadPage() {
       {error && <div className="error-banner">{error}</div>}
       {thread && client && (
         <div className="card">
+          {(thread.ancestors ?? []).map((ancestor) => (
+            <PostNode
+              key={ancestor.id}
+              post={ancestor}
+              forumId={thread.forumId}
+              baseUrl={baseUrl}
+              threadLocked={thread.isLocked}
+              onChanged={load}
+              createPost={client.createPost.bind(client)}
+              updatePost={client.updatePost.bind(client)}
+              deletePost={handleDelete}
+              getPostRevisions={client.getPostRevisions.bind(client)}
+              setThreadLocked={async (id, locked) => { await client.setThreadLocked(id, locked); }}
+              setThreadPinned={async (id, pinned) => { await client.setThreadPinned(id, pinned); }}
+              reportPost={async (id, reason) => { await client.reportPost(id, reason); }}
+            />
+          ))}
           <PostNode
             post={thread}
             forumId={thread.forumId}

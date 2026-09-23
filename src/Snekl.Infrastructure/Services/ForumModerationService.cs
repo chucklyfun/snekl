@@ -119,10 +119,23 @@ public class ForumModerationService : IForumModerationService
             throw new InvalidOperationException("You already have an open report on this post.");
 
         var reporter = await _db.Users.FindAsync([reporterUserId], ct);
+        Guid forumId;
+        if (post.ForumId.HasValue)
+            forumId = post.ForumId.Value;
+        else if (post.WatercoolerId.HasValue)
+        {
+            var cooler = await _db.Watercoolers.AsNoTracking().FirstOrDefaultAsync(w => w.Id == post.WatercoolerId.Value, ct)
+                ?? throw new InvalidOperationException("Watercooler not found.");
+            forumId = cooler.ParentForumId
+                ?? throw new InvalidOperationException("Server watercoolers do not have a forum report queue yet.");
+        }
+        else
+            throw new InvalidOperationException("Post not found.");
+
         var report = new PostReport
         {
             PostId = postId,
-            ForumId = post.ForumId,
+            ForumId = forumId,
             ReporterUserId = reporterUserId,
             Reason = trimmed
         };
@@ -169,7 +182,7 @@ public class ForumModerationService : IForumModerationService
     private static PostReportDto ToReportDto(PostReport report, Post post, User reporter)
     {
         var preview = post.IsDeleted ? "[deleted]" : post.Message;
-        if (preview.Length > 120) preview = preview[..120] + "…";
+        if (preview.Length > 120) preview = preview[..120] + "ΓÇª";
 
         return new PostReportDto(
             report.Id,

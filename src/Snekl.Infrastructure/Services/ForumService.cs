@@ -218,6 +218,36 @@ public class ForumService : IForumService
             viewerPerms = PermissionNames.ToNames(perms);
         }
 
+        var watercoolers = new List<WatercoolerSummaryDto>();
+        var coolerRows = await _db.Watercoolers
+            .Where(w => w.ParentForumId == forum.Id)
+            .OrderBy(w => w.Name)
+            .ToListAsync(ct);
+        foreach (var cooler in coolerRows)
+        {
+            if (!await _permissions.CanSeeWatercoolerAsync(viewerUserId, cooler.Id, ct)) continue;
+            var coolerCount = await _db.Posts.CountAsync(p => p.WatercoolerId == cooler.Id && p.ParentPostId == null, ct);
+            var canViewCooler = await _permissions.CanViewWatercoolerAsync(viewerUserId, cooler.Id, ct);
+            var canSpeakCooler = await _permissions.CanSpeakWatercoolerAsync(viewerUserId, cooler.Id, ct);
+            watercoolers.Add(new WatercoolerSummaryDto(
+                cooler.Id,
+                cooler.Name,
+                cooler.Slug,
+                coolerCount,
+                cooler.AllowUpvotes,
+                cooler.NewestAtBottom,
+                cooler.ApprovalStatus,
+                canViewCooler,
+                canSpeakCooler));
+        }
+
+        var contentBlocks = await _db.ForumContentBlocks
+            .Where(b => b.ForumId == forum.Id)
+            .OrderBy(b => b.Slot)
+            .ThenBy(b => b.Position)
+            .Select(b => new ForumContentBlockDto(b.Id, b.TypeKey, b.WatercoolerId, b.Slot, b.Position))
+            .ToListAsync(ct);
+
         return new ForumDto(
             forum.Id,
             forum.Name,
@@ -232,6 +262,13 @@ public class ForumService : IForumService
             forum.ParentForum?.Slug,
             subforumSummaries,
             viewerPerms,
-            forum.AllowAliases);
+            forum.AllowAliases,
+            string.IsNullOrWhiteSpace(forum.ApprovalStatus) ? ForumApprovalStatuses.Approved : forum.ApprovalStatus,
+            false,
+            false,
+            false,
+            false,
+            watercoolers,
+            contentBlocks);
     }
 }

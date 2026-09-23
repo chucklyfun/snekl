@@ -82,6 +82,22 @@ public class PostsController : ControllerBase
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }
 
+    [HttpGet("watercooler/{watercoolerId:guid}")]
+    public async Task<ActionResult<IReadOnlyList<PostDto>>> GetWatercoolerStream(
+        Guid watercoolerId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string sort = "new",
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var postSort = ParseSort(sort);
+            return Ok(await _posts.GetWatercoolerStreamAsync(watercoolerId, page, pageSize, postSort, this.ViewerUserId(), ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
     [HttpGet("{postId:guid}")]
     public async Task<ActionResult<PostDto>> GetThread(Guid postId, CancellationToken ct)
     {
@@ -127,7 +143,8 @@ public class PostsController : ControllerBase
                         post.ForumId,
                         post.Id,
                         post.ParentPostId,
-                        UpvoteCount: result.UpvoteCount),
+                        UpvoteCount: result.UpvoteCount,
+                        WatercoolerId: post.WatercoolerId),
                     ct);
             }
 
@@ -158,7 +175,8 @@ public class PostsController : ControllerBase
                         threadId,
                         post.ForumId,
                         post.Id,
-                        post.ParentPostId),
+                        post.ParentPostId,
+                        WatercoolerId: post.WatercoolerId),
                     ct);
             }
 
@@ -187,7 +205,8 @@ public class PostsController : ControllerBase
                         post.ForumId,
                         post.Id,
                         post.ParentPostId,
-                        IsDeleted: post.IsDeleted),
+                        IsDeleted: post.IsDeleted,
+                        WatercoolerId: post.WatercoolerId),
                     ct);
             }
 
@@ -209,6 +228,7 @@ public class PostsController : ControllerBase
             var threadId = await _posts.GetThreadRootIdAsync(postId, ct);
             var forumId = existing.ForumId;
             var parentPostId = existing.ParentPostId;
+            var watercoolerId = existing.WatercoolerId;
 
             if (hard)
             {
@@ -223,7 +243,8 @@ public class PostsController : ControllerBase
                         forumId,
                         postId,
                         parentPostId,
-                        IsDeleted: true),
+                        IsDeleted: true,
+                        WatercoolerId: watercoolerId),
                     ct);
                 return NoContent();
             }
@@ -240,7 +261,8 @@ public class PostsController : ControllerBase
                     forumId,
                     postId,
                     parentPostId,
-                    IsDeleted: true),
+                    IsDeleted: true,
+                    WatercoolerId: watercoolerId),
                 ct);
 
             return Ok(postDto);
@@ -263,7 +285,8 @@ public class PostsController : ControllerBase
                     postDto.ForumId,
                     postDto.Id,
                     null,
-                    IsLocked: postDto.IsLocked),
+                    IsLocked: postDto.IsLocked,
+                    WatercoolerId: postDto.WatercoolerId),
                 ct);
             return Ok(postDto);
         }
@@ -285,7 +308,8 @@ public class PostsController : ControllerBase
                     postDto.ForumId,
                     postDto.Id,
                     null,
-                    IsPinned: postDto.IsPinned),
+                    IsPinned: postDto.IsPinned,
+                    WatercoolerId: postDto.WatercoolerId),
                 ct);
             return Ok(postDto);
         }

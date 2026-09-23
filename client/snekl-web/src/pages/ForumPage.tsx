@@ -13,7 +13,9 @@ import {
   forumSettingsPath,
   resolveServerBaseUrl,
   subforumPath,
+  createWatercoolerPath,
   threadPath,
+  watercoolerPath,
 } from '../serverDid';
 import type { Forum, Post } from '../types';
 import { usePostRealtime } from '../usePostRealtime';
@@ -68,12 +70,29 @@ export function ForumPage() {
   const [threads, setThreads] = useState<Post[]>([]);
   const [sort, setSort] = useState<PostSort>('hot');
   const [message, setMessage] = useState('');
+  const [feedMessage, setFeedMessage] = useState('');
+  const [feedPosts, setFeedPosts] = useState<Post[]>([]);
   const [error, setError] = useState('');
 
   const serverDid = encodedDid ? decodeServerDid(encodedDid) : '';
   const baseUrl = resolveServerBaseUrl(serverDid, resolveBaseUrl);
   const client = useMemo(() => (baseUrl ? createContentClient(baseUrl) : null), [baseUrl]);
 
+  const pinnedFeed = forum?.contentBlocks?.find((b) => b.typeKey === 'cooler-feed' && b.slot === 'main');
+  const pinnedCooler = forum?.watercoolers?.find((c) => c.id === pinnedFeed?.watercoolerId);
+
+  useEffect(() => {
+    if (!client || !pinnedCooler?.viewerCanView) {
+      setFeedPosts([]);
+      return;
+    }
+    void client
+      .getWatercoolerStream(pinnedCooler.id, pinnedCooler.allowUpvotes ? 'hot' : 'new', 1, 15)
+      .then(setFeedPosts)
+      .catch(() => setFeedPosts([]));
+  }, [client, pinnedCooler?.id, pinnedCooler?.viewerCanView, pinnedCooler?.allowUpvotes]);
+
+  const canManageForum = hasPermission(forum?.viewerPermissions, 'ManageForum');
   const canCreateThread = hasPermission(forum?.viewerPermissions, 'CreateThread');
   const canAccessSettings =
     hasPermission(forum?.viewerPermissions, 'ManageForum') ||
@@ -98,7 +117,14 @@ export function ForumPage() {
   usePostRealtime({
     baseUrl,
     forumId: forum?.id,
+    watercoolerId: pinnedCooler?.id,
     onEvent: (evt) => {
+      if (pinnedCooler && evt.watercoolerId === pinnedCooler.id && client) {
+        void client
+          .getWatercoolerStream(pinnedCooler.id, pinnedCooler.allowUpvotes ? 'hot' : 'new', 1, 15)
+          .then(setFeedPosts)
+          .catch(() => undefined);
+      }
       if (
         evt.type === 'post.created' ||
         evt.type === 'post.deleted' ||
@@ -146,14 +172,90 @@ export function ForumPage() {
           <h1 className="page-title">{forum?.name}</h1>
           <p className="page-subtitle">{forum?.description}</p>
         </div>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {user && canManageForum && forum && (
+            <Link to={createWatercoolerPath(serverDid, forum.id)} className="btn-ghost">
+              New watercooler
+            </Link>
+          )}
         {user && canAccessSettings && forum && (
           <Link to={forumSettingsPath(serverDid, forum.slug, parentSlug ?? forum.parentSlug ?? undefined)} className="btn-ghost">
             Settings
           </Link>
         )}
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {forum && forum.watercoolers && forum.watercoolers.length > 0 && (
+        <section className="card" style={{ marginBottom: '1rem' }}>
+          <h2 className="card-title">Watercoolers</h2>
+          <div className="subforum-grid">
+            {forum.watercoolers.map((cooler) => (
+              <Link
+                key={cooler.id}
+                to={watercoolerPath(serverDid, cooler.slug, forum.slug, parentSlug ?? forum.parentSlug ?? undefined)}
+                className="card card-link"
+                style={{ padding: '0.75rem 1rem' }}
+              >
+                <strong>{cooler.name}</strong>
+                <div className="card-meta">
+                  {cooler.allowUpvotes ? 'Plaza' : 'Channel'} · {cooler.postCount} posts
+                  {!cooler.viewerCanView ? ' · locked' : ''}
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {pinnedCooler && pinnedCooler.viewerCanView && client && (
+        <section className="card" style={{ marginBottom: '1rem' }}>
+          <h2 className="card-title">{pinnedCooler.name}</h2>
+          <p className="card-meta">
+            Pinned watercooler ·{' '}
+            <Link to={watercoolerPath(serverDid, pinnedCooler.slug, forum!.slug, parentSlug ?? forum!.parentSlug ?? undefined)}>
+              Open room
+            </Link>
+          </p>
+          {feedPosts.slice(-8).map((post) => (
+            <div key={post.id} style={{ marginTop: '0.75rem' }}>
+              <UserByline presentation={post.author} timestamp={post.createdAt} showStatus={false} />
+              <p className="post-body">{post.message}</p>
+            </div>
+          ))}
+          {user && pinnedCooler.viewerCanSpeak && (
+            <form
+              style={{ marginTop: '1rem' }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!feedMessage.trim()) return;
+                void client
+                  .createPost(undefined, feedMessage.trim(), undefined, undefined, undefined, pinnedCooler.id)
+                  .then(() => {
+                    setFeedMessage('');
+                    return client.getWatercoolerStream(pinnedCooler.id, pinnedCooler.allowUpvotes ? 'hot' : 'new', 1, 15);
+                  })
+                  .then(setFeedPosts)
+                  .catch((err) => setError(err instanceof Error ? err.message : 'Failed to post'));
+              }}
+            >
+              <div className="form-group">
+                <textarea
+                  value={feedMessage}
+                  onChange={(e) => setFeedMessage(e.target.value)}
+                  placeholder={`Message ${pinnedCooler.name}`}
+                  required
+                />
+              </div>
+              <button type="submit" className="btn-primary">
+                Post
+              </button>
+            </form>
+          )}
+        </section>
+      )}
 
       {forum && forum.subforums && forum.subforums.length > 0 && (
         <section className="card" style={{ marginBottom: '1rem' }}>

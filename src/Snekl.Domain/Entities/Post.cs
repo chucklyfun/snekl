@@ -2,7 +2,7 @@ namespace Snekl.Domain.Entities;
 
 public class Post : ExternalEntity
 {
-    public Guid ForumId { get; set; }
+    public Guid? ForumId { get; set; }
     public Forum? Forum { get; set; }
     public Guid? WatercoolerId { get; set; }
     public Watercooler? Watercooler { get; set; }

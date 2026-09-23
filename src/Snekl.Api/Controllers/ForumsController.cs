@@ -12,12 +12,18 @@ namespace Snekl.Api.Controllers;
 public class ForumsController : ControllerBase
 {
     private readonly IForumService _forums;
+    private readonly IWatercoolerService _watercoolers;
     private readonly IFederationService _federation;
     private readonly IAuthService _auth;
 
-    public ForumsController(IForumService forums, IFederationService federation, IAuthService auth)
+    public ForumsController(
+        IForumService forums,
+        IWatercoolerService watercoolers,
+        IFederationService federation,
+        IAuthService auth)
     {
         _forums = forums;
+        _watercoolers = watercoolers;
         _federation = federation;
         _auth = auth;
     }
@@ -53,6 +59,40 @@ public class ForumsController : ControllerBase
             var forumEntity = await _forums.CreateAsync(userId, request, userId, ct);
             await BroadcastForumIfPossible(forumEntity.Slug, userId, ct);
             return CreatedAtAction(nameof(Get), new { slug = forumEntity.Slug }, forumEntity);
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpGet("{slug}/content-blocks")]
+    public async Task<ActionResult<IReadOnlyList<ForumContentBlockDto>>> ListBlocks(
+        string slug,
+        [FromQuery] string? parentSlug,
+        CancellationToken ct)
+    {
+        try
+        {
+            var forum = await _forums.GetEntityBySlugAsync(slug, parentSlug, ct);
+            if (forum is null) return NotFound();
+            return Ok(await _watercoolers.ListForumBlocksAsync(forum.Id, this.ViewerUserId(), ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPut("{slug}/content-blocks")]
+    public async Task<ActionResult<IReadOnlyList<ForumContentBlockDto>>> ReplaceBlocks(
+        string slug,
+        UpsertForumContentBlocksRequest request,
+        [FromQuery] string? parentSlug,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var forum = await _forums.GetEntityBySlugAsync(slug, parentSlug, ct);
+            if (forum is null) return NotFound();
+            return Ok(await _watercoolers.ReplaceForumBlocksAsync(forum.Id, userId, request, ct));
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }

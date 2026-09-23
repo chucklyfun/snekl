@@ -4,8 +4,13 @@ public class Post : ExternalEntity
 {
     public Guid ForumId { get; set; }
     public Forum? Forum { get; set; }
+    public Guid? WatercoolerId { get; set; }
+    public Watercooler? Watercooler { get; set; }
     public Guid? ParentPostId { get; set; }
     public Post? ParentPost { get; set; }
+    public Guid? QuotedPostId { get; set; }
+    public Post? QuotedPost { get; set; }
+    public int QuoteCount { get; set; }
     public Guid AuthorUserId { get; set; }
     public User? Author { get; set; }
     public Guid? AuthorPersonClusterId { get; set; }

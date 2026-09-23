@@ -14,7 +14,16 @@ public sealed class SignalRRealtimePublisher : IRealtimePublisher
     {
         await _hub.Clients.Group(ThreadHub.ThreadGroup(evt.ThreadId))
             .SendAsync("postEvent", evt, ct);
-        await _hub.Clients.Group(ThreadHub.ForumGroup(evt.ForumId))
-            .SendAsync("postEvent", evt, ct);
+        if (evt.ForumId.HasValue)
+        {
+            await _hub.Clients.Group(ThreadHub.ForumGroup(evt.ForumId.Value))
+                .SendAsync("postEvent", evt, ct);
+        }
+
+        if (evt.WatercoolerId.HasValue)
+        {
+            await _hub.Clients.Group(ThreadHub.WatercoolerGroup(evt.WatercoolerId.Value))
+                .SendAsync("postEvent", evt, ct);
+        }
     }
 }

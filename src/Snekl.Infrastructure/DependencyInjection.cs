@@ -55,6 +55,7 @@ public static class DependencyInjection
         services.AddScoped<IForumModerationService, ForumModerationService>();
         services.AddScoped<IWatercoolerService, WatercoolerService>();
         services.AddScoped<IDirectConversationService, DirectConversationService>();
+        services.AddScoped<IContentBlockCatalogService, ContentBlockCatalogService>();
         services.AddHttpClient<IFederationClient, FederationClient>();
         services.AddScoped<IExtensionInstallService, ExtensionInstallService>();
         services.AddScoped<IHubFeedPublisher, HubFeedPublisher>();

@@ -253,8 +253,10 @@ paket-files/
 
 # Modern stack
 client/snekl-web/dist/
+client/snekl-web/dist-admin/
 client/snekl-web/node_modules/
 client/snekl-web/.env
 .snekl/
+artifacts/
 **/obj/
 **/bin/

@@ -1,0 +1,230 @@
+# Single-host Linux runtime. Images: snekl/auth, snekl/hub, snekl/content.
+# Default host target is 2gb (Redis on, OpenSearch off): ./up.sh
+# From the repo: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.build.yml --env-file deploy/.env --env-file deploy/targets/2gb.env up --build -d
+
+name: snekl
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      AUTH_HOST: ${AUTH_HOST}
+      HUB_HOST: ${HUB_HOST}
+      CONTENT_HOST: ${CONTENT_HOST}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./${CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      default:
+        aliases:
+          - ${AUTH_HOST}
+          - ${HUB_HOST}
+          - ${CONTENT_HOST}
+    depends_on:
+      - auth
+      - hub
+      - content
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-snekl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: snekl
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-128MB}
+      - -c
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-256MB}
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-50}
+      - -c
+      - work_mem=${POSTGRES_WORK_MEM:-4MB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init-databases.sql:/docker-entrypoint-initdb.d/01-init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d snekl"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    expose:
+      - "5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-64mb}
+      - --maxmemory-policy
+      - ${REDIS_MAXMEMORY_POLICY:-allkeys-lru}
+      - --save
+      - "60"
+      - "1000"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    expose:
+      - "6379"
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    expose:
+      - "9000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-snekl-media}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD; do sleep 1; done;
+      mc mb --ignore-existing local/$$MINIO_BUCKET;
+      exit 0;
+      "
+
+  opensearch:
+    profiles: ["search"]
+    image: opensearchproject/opensearch:2.18.0
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: ${OPENSEARCH_JAVA_OPTS:--Xms512m -Xmx512m}
+      cluster.name: snekl
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    expose:
+      - "9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  auth:
+    image: snekl/auth:${SNEKL_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=snekl_auth;Username=${POSTGRES_USER:-snekl};Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__Redis: redis:6379
+      Auth__Name: ${AUTH_NAME:-Snekl Auth}
+      Auth__BaseUrl: https://${AUTH_HOST}
+      Auth__SigningKey: ${AUTH_SIGNING_KEY}
+      Auth__AdminSigningKey: ${AUTH_ADMIN_SIGNING_KEY}
+      Auth__AllowDevPasswordReset: "false"
+      Frontend__BaseUrl: https://${HUB_HOST}
+      Email__FromAddress: ${EMAIL_FROM:-noreply@localhost}
+      Email__FromName: ${EMAIL_FROM_NAME:-Snekl Auth}
+      Email__AutoVerify: ${EMAIL_AUTO_VERIFY:-false}
+      Smtp__Host: ${SMTP_HOST:-}
+      Smtp__Port: ${SMTP_PORT:-587}
+      Smtp__Username: ${SMTP_USERNAME:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__UseTls: ${SMTP_USE_TLS:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "8080"
+
+  hub:
+    image: snekl/hub:${SNEKL_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Hub: Host=postgres;Port=5432;Database=snekl_hub;Username=${POSTGRES_USER:-snekl};Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__Redis: redis:6379
+      Hub__Name: ${HUB_NAME:-Snekl Hub}
+      Hub__BaseUrl: https://${HUB_HOST}
+      Hub__AuthBaseUrl: https://${AUTH_HOST}
+      Hub__AuthSigningKey: ${AUTH_SIGNING_KEY}
+      Hub__AdminSigningKey: ${HUB_ADMIN_SIGNING_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      auth:
+        condition: service_started
+    expose:
+      - "8080"
+
+  content:
+    image: snekl/content:${SNEKL_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=snekl;Username=${POSTGRES_USER:-snekl};Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__Redis: redis:6379
+      ConnectionStrings__OpenSearch: ${OPENSEARCH_URL:-}
+      OpenSearch__Index: ${OPENSEARCH_INDEX:-snekl-posts}
+      Node__Name: ${NODE_NAME:-Snekl}
+      Node__BaseUrl: https://${CONTENT_HOST}
+      Node__Description: ${NODE_DESCRIPTION:-A federated forum node}
+      AuthIssuers__0__Name: ${AUTH_NAME:-Snekl Auth}
+      AuthIssuers__0__IssuerUrl: https://${AUTH_HOST}
+      AuthIssuers__0__JwksUrl: http://auth:8080/.well-known/jwks.json
+      AuthIssuers__1__Name: ""
+      AuthIssuers__1__IssuerUrl: ""
+      AuthIssuers__1__JwksUrl: ""
+      Jwt__Key: ${CONTENT_JWT_KEY}
+      ObjectStorage__Endpoint: http://minio:9000
+      ObjectStorage__AccessKey: ${MINIO_ROOT_USER}
+      ObjectStorage__SecretKey: ${MINIO_ROOT_PASSWORD}
+      ObjectStorage__Bucket: ${MINIO_BUCKET:-snekl-media}
+      ObjectStorage__ForcePathStyle: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      auth:
+        condition: service_started
+    expose:
+      - "8080"
+
+volumes:
+  postgres-data:
+  minio-data:
+  opensearch-data:
+  caddy-data:
+  caddy-config:

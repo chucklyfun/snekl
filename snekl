@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+PROJECT="$ROOT/src/Snekl.Server/Snekl.Server.csproj"
+EXE_UNIX="$ROOT/src/Snekl.Server/bin/Debug/net8.0/snekl"
+EXE_WIN="$ROOT/src/Snekl.Server/bin/Debug/net8.0/snekl.exe"
+if [[ -f "$EXE_WIN" ]]; then
+  EXE="$EXE_WIN"
+elif [[ -f "$EXE_UNIX" ]]; then
+  EXE="$EXE_UNIX"
+else
+  EXE=""
+fi
+
+run_built() {
+  if [[ -n "$EXE" ]]; then
+    exec "$EXE" "$@"
+  fi
+  exec dotnet run --project "$PROJECT" --no-launch-profile --no-build -- "$@"
+}
+
+orchestrator_running() {
+  if command -v powershell.exe >/dev/null 2>&1; then
+    local count
+    count="$(powershell.exe -NoProfile -Command '@(Get-Process -Name snekl -ErrorAction SilentlyContinue).Count' 2>/dev/null | tr -d '\r' || true)"
+    [[ "${count:-0}" =~ ^[1-9][0-9]*$ ]]
+    return
+  fi
+  pgrep -x snekl >/dev/null 2>&1
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  stop)
+    # Older snekl.exe only kills when --force is present; new builds ignore the flag.
+    run_built stop --force
+    ;;
+  status|help|--help|-h)
+    run_built "$@"
+    ;;
+  pack)
+    SIDE="$ROOT/.snekl/cli"
+    mkdir -p "$SIDE"
+    dotnet build "$PROJECT" -c Release -o "$SIDE" --nologo
+    if [[ -f "$SIDE/snekl.exe" ]]; then
+      exec "$SIDE/snekl.exe" "$@"
+    fi
+    exec "$SIDE/snekl" "$@"
+    ;;
+  *)
+    if orchestrator_running; then
+      echo "snekl.exe is still running and locks the Debug build output." >&2
+      echo "Stop it first:  ./snekl stop" >&2
+      exit 1
+    fi
+    exec dotnet run --project "$PROJECT" --no-launch-profile -- "$@"
+    ;;
+esac

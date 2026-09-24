@@ -9,6 +9,29 @@ services:
       timeout: 5s
       retries: 5
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: snekl
+      MINIO_ROOT_PASSWORD: sneklsecret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 snekl sneklsecret; do sleep 1; done;
+      mc mb --ignore-existing local/snekl-media;
+      exit 0;
+      "
+
   postgres-auth-alpha:
     image: postgres:16-alpine
     environment:
@@ -103,6 +126,25 @@ services:
       timeout: 5s
       retries: 5
 
+  opensearch:
+    image: opensearchproject/opensearch:2.18.0
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      cluster.name: snekl
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
   api-alpha:
     build:
       context: .
@@ -121,10 +163,21 @@ services:
       AuthIssuers__0__IssuerUrl: http://localhost:5100
       AuthIssuers__0__JwksUrl: http://host.docker.internal:5100/.well-known/jwks.json
       ConnectionStrings__Redis: redis:6379
+      ObjectStorage__Endpoint: http://minio:9000
+      ObjectStorage__AccessKey: snekl
+      ObjectStorage__SecretKey: sneklsecret
+      ObjectStorage__Bucket: snekl-media
+      ObjectStorage__ForcePathStyle: "true"
+      ConnectionStrings__OpenSearch: http://opensearch:9200
+      OpenSearch__Index: snekl-posts-alpha
     depends_on:
       postgres-alpha:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      opensearch:
         condition: service_healthy
 
   api-beta:
@@ -142,10 +195,21 @@ services:
       Node__BaseUrl: http://localhost:5002
       Node__Description: Secondary federated forum node
       ConnectionStrings__Redis: redis:6379
+      ObjectStorage__Endpoint: http://minio:9000
+      ObjectStorage__AccessKey: snekl
+      ObjectStorage__SecretKey: sneklsecret
+      ObjectStorage__Bucket: snekl-media
+      ObjectStorage__ForcePathStyle: "true"
+      ConnectionStrings__OpenSearch: http://opensearch:9200
+      OpenSearch__Index: snekl-posts-beta
     depends_on:
       postgres-beta:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      opensearch:
         condition: service_healthy
 
 volumes:
@@ -153,3 +217,5 @@ volumes:
   postgres-auth-beta-data:
   postgres-alpha-data:
   postgres-beta-data:
+  minio-data:
+  opensearch-data:

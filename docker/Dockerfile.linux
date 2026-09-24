@@ -1,0 +1,65 @@
+# Production images for a single Linux host (Auth, Hub, Content).
+# Build: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.build.yml build
+
+FROM node:22-alpine AS web
+WORKDIR /web
+COPY client/snekl-web/package.json client/snekl-web/package-lock.json ./
+RUN npm ci
+COPY client/snekl-web ./
+RUN npm run build && npm run build:admin
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS dotnet
+WORKDIR /src
+COPY Snekl.Modern.sln ./
+COPY src/Snekl.Domain/Snekl.Domain.csproj src/Snekl.Domain/
+COPY src/Snekl.Redis/Snekl.Redis.csproj src/Snekl.Redis/
+COPY src/Snekl.DevSession/Snekl.DevSession.csproj src/Snekl.DevSession/
+COPY src/Snekl.Account.Domain/Snekl.Account.Domain.csproj src/Snekl.Account.Domain/
+COPY src/Snekl.Account.Infrastructure/Snekl.Account.Infrastructure.csproj src/Snekl.Account.Infrastructure/
+COPY src/Snekl.Account.Api/Snekl.Account.Api.csproj src/Snekl.Account.Api/
+COPY src/Snekl.Infrastructure/Snekl.Infrastructure.csproj src/Snekl.Infrastructure/
+COPY src/Snekl.Api/Snekl.Api.csproj src/Snekl.Api/
+COPY src/Snekl.Hub.Domain/Snekl.Hub.Domain.csproj src/Snekl.Hub.Domain/
+COPY src/Snekl.Hub.Infrastructure/Snekl.Hub.Infrastructure.csproj src/Snekl.Hub.Infrastructure/
+COPY src/Snekl.Hub/Snekl.Hub.csproj src/Snekl.Hub/
+COPY src/ src/
+RUN dotnet restore src/Snekl.Account.Api/Snekl.Account.Api.csproj \
+ && dotnet restore src/Snekl.Hub/Snekl.Hub.csproj \
+ && dotnet restore src/Snekl.Api/Snekl.Api.csproj
+
+FROM dotnet AS auth-build
+RUN dotnet publish src/Snekl.Account.Api/Snekl.Account.Api.csproj -c Release -o /app/publish --no-restore
+
+FROM dotnet AS hub-build
+RUN dotnet publish src/Snekl.Hub/Snekl.Hub.csproj -c Release -o /app/publish --no-restore
+
+FROM dotnet AS content-build
+RUN dotnet publish src/Snekl.Api/Snekl.Api.csproj -c Release -o /app/publish --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS auth
+WORKDIR /app
+COPY --from=auth-build /app/publish .
+COPY --from=web /web/dist-admin ./wwwroot/admin
+ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "Snekl.Account.Api.dll"]
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS hub
+WORKDIR /app
+COPY --from=hub-build /app/publish .
+COPY --from=web /web/dist ./wwwroot
+COPY --from=web /web/dist-admin ./wwwroot/admin
+ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "Snekl.Hub.dll"]
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS content
+WORKDIR /app
+COPY --from=content-build /app/publish .
+COPY --from=web /web/dist-admin ./wwwroot/admin
+ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "Snekl.Api.dll"]

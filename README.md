@@ -34,11 +34,12 @@ Snekl separates **auth servers** (identity ring) from **content servers** (forum
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **API** | ASP.NET Core 8, EF Core | REST web services, JWT auth, federation inbox |
-| **Account API** | ASP.NET Core 8 | Auth ring: login, PersonCluster, partner trust |
+| **Hub** | ASP.NET Core 8 | Federation registry, feed index API, optional SPA host (`:5200` local) |
+| **Account API** | ASP.NET Core 8 | Auth webservice: login, PersonCluster, partner trust (`:5100`) |
+| **API** | ASP.NET Core 8, EF Core | Content origins: REST, JWT auth, federation inbox |
 | **Domain** | C# class library | Users, forums, threaded posts, peer nodes |
-| **Database** | PostgreSQL | Independent per-node storage |
-| **Frontend** | React 19, TypeScript, Vite | Forum browsing, posting, federation management |
+| **Database** | PostgreSQL | Independent per-node / hub / auth storage |
+| **Frontend** | React 19, TypeScript, Vite | Member SPA (login UI calls auth; feed will use hub) |
 
 ### Federation protocol
 
@@ -49,7 +50,9 @@ Each node exposes:
 - `POST /api/federation/inbox` — receive federated content
 - `DELETE /api/federation/peers/{id}` — unsubscribe
 
-When a user creates a forum or post locally, the node broadcasts an envelope to all subscribed peers. Federated content is stored locally with origin metadata and displayed alongside local content.
+**Today:** when a user creates a forum or post locally, the node broadcasts an envelope to subscribed peers. Federated content is stored locally with origin metadata and shown alongside local content.
+
+**Planned:** named federations use official hubs that host the member SPA and hub APIs, own the federation registry, and index feed cards. **Auth stays a separate webservice** (login UI in the Hub SPA calls it over HTTP). Origins stay API-canonical for threads. The SPA may merge feeds across federations without leaking that data between hubs. See [hub feed architecture](docs/architecture-hub-feed.md).
 
 ## Quick start (local development)
 
@@ -58,22 +61,45 @@ When a user creates a forum or post locally, the node broadcasts an envelope to 
 From the repository root, with [Docker](https://docs.docker.com/get-docker/) running:
 
 ```bash
-dotnet run --project src/Snekl.Server --no-launch-profile -- dev
+./snekl dev
 ```
 
-This starts **Redis + PostgreSQL** in Docker, then launches locally:
+On Windows: `.\snekl dev`. Equivalent: `dotnet run --project src/Snekl.Server --no-launch-profile -- dev`.
+
+This starts **Redis + PostgreSQL + MinIO + OpenSearch** in Docker, then launches locally:
 
 - **Auth:** http://localhost:5100
-- **Content:** http://localhost:5001
+- **Hub:** http://localhost:5200
+- **Content:** http://localhost:5001 (beta `:5002`)
+- **Faker extension:** http://localhost:5300
 - **Frontend:** http://localhost:5173
+
+Faker is an out-of-process extension. Open its admin; **Connect**, create bots, and fill **Alpha** (`:5001`) and **Beta** (`:5002`) separately (you must be an admin on that node). Then start keep-posting to exercise SignalR on every filled node.
+- **MinIO API / console:** http://localhost:9000 / http://localhost:9001 (bucket `snekl-media`, user/pass `snekl` / `sneklsecret`)
+- **OpenSearch:** http://localhost:9200 (security plugin disabled in dev; alpha/beta use `snekl-posts-alpha` / `snekl-posts-beta`)
 
 Other commands:
 
 ```bash
-dotnet run --project src/Snekl.Server --no-launch-profile -- up          # full Docker stack
-dotnet run --project src/Snekl.Server --no-launch-profile -- down        # stop full stack
-dotnet run --project src/Snekl.Server --no-launch-profile -- deps        # Redis + Postgres only
-dotnet run --project src/Snekl.Server --no-launch-profile -- dev --no-frontend
+./snekl up            # full Docker stack
+./snekl down          # stop full stack
+./snekl deps          # Redis + Postgres + MinIO + OpenSearch only
+./snekl status        # running APIs and recent request activity
+./snekl stop          # stop local APIs (skips rebuild if snekl.exe is locked)
+./snekl pack          # Linux host tarball (Caddy + Auth/Hub/Content images)
+./snekl dev --no-frontend
+```
+
+### Deploy to a Linux host
+
+Same-server production uses Caddy on 80/443 in front of Auth, Hub, and Content. See [deploy/README.md](deploy/README.md).
+
+```bash
+./snekl pack
+# copy artifacts/snekl-linux-deploy.tar.gz to the host, then:
+# tar -xzf snekl-linux-deploy.tar.gz && cd snekl-linux-deploy
+# cp .env.example .env && ./gen-env.sh   # then edit hostnames
+# ./up.sh                # 2 GB target: Redis on, OpenSearch off
 ```
 
 ### Manual setup
@@ -134,16 +160,22 @@ docker compose up --build
 - **Content Alpha:** http://localhost:5001
 - **Content Beta:** http://localhost:5002
 
-Point the React app at a content node via `VITE_API_URL` and auth via `VITE_AUTH_URL` in `client/snekl-web/.env`:
+Point the React app at Auth via `VITE_AUTH_URL` in `client/snekl-web/.env` (first-run only; after login the client remembers the URL you typed):
 
 ```bash
-VITE_API_URL=http://localhost:5001
 VITE_AUTH_URL=http://localhost:5100
+VITE_ALLOW_DEV_PASSWORD_RESET=true
 ```
 
-Register and log in through the auth server; the React client generates a `did:key` in the browser and sends an ownership proof on signup.
+Register and log in through the auth server; the React client generates a `did:key` in the browser and sends an ownership proof on signup. Federations and content origins are URLs on your account (paste them on **Servers**).
 
-To connect content nodes running in Docker, subscribe using `http://host.docker.internal:5002` from the Alpha federation page (containers reach the host network this way).
+Operator UIs use the same React visuals as the member app, labeled **Admin**, at `{host}/admin/`:
+
+- **Auth admin:** `http://localhost:5100/admin/`
+- **Hub admin:** `http://localhost:5200/admin/`
+- **Content admin:** `http://localhost:5001/admin/`
+
+Sign in with a regular Account, then an admin password that lives **only on that host**. The first Account user to open admin claims the server and chooses that password; later operators are invited and set their own password on first login. Hub operators send federation invites; the origin’s site admin accepts them under **Incoming hub requests**. The requester’s member JWT is checked on the content node for `RequestFederation`.
 
 ### 5. Run auth server locally
 
@@ -182,6 +214,10 @@ Auth API listens on `http://localhost:5100`.
 | GET | `/api/identity/clusters/{id}` | PersonCluster reference (external auth) |
 | POST | `/api/identity/map` | Map `(iss, sub)` → PersonCluster |
 | GET/POST | `/api/identity/issuers` | Trusted auth issuers |
+| GET | `/api/extensions` | Active extension installs on this node |
+| GET | `/api/extensions/install-options` | Resources the current admin can authorize |
+| POST | `/api/extensions/installs` | Clip permissions to the authorizer and create an install |
+| GET | `/api/extensions/installs/{id}` | Install details (installer JWT; Auth uses this during consent) |
 
 ### Auth server endpoints
 
@@ -196,7 +232,11 @@ Auth API listens on `http://localhost:5100`.
 | POST | `/api/partners/trust` | Establish mutual partner trust |
 | POST | `/api/partners/provision` | Accept vouched identity |
 | GET | `/.well-known/did.json` | Auth server DID document (`did:web`) |
-| GET | `/.well-known/jwks.json` | JWKS for content server JWT trust |
+| GET | `/api/oauth/apps/{clientId}` | Public app metadata |
+| POST | `/api/oauth/apps` | Register an extension (auth required) |
+| POST | `/api/oauth/authorize` | Admin consent → authorization code |
+| POST | `/api/oauth/token` | Code/refresh → install or bot token |
+| POST | `/api/oauth/bots` | Create an app-owned bot (install token) |
 
 ## Project structure
 
@@ -209,6 +249,7 @@ src/
   Snekl.Account.Domain/  # Auth ring entities and DTOs
   Snekl.Account.Infrastructure/
   Snekl.Account.Api/     # Auth ring REST API
+  Snekl.Faker/           # Dev extension: bot personas + fake forum traffic
 docs/
   architecture-auth-ring.md
 client/
@@ -249,13 +290,30 @@ Local Redis: `docker run -d -p 6379:6379 redis:7-alpine`
 
 ## Roadmap
 
+### Done
+
+- [x] Soft delete + edit history
 - [x] Signed federation envelopes (node key pairs)
 - [x] Moderation tools per forum
+- [x] Upvotes + hot/new ranking
+- [x] Multi-server subscribe (auth) + client-aggregated home feed
 - [x] Real-time updates via SignalR
-- Full-text search across local + federated content (OpenSearch)
-- Reliable federation delivery (async outbox)
+- [x] Extension host (OAuth install grants, app-owned bots, Extensions menu, Faker)
+- [x] Origin full-text search (`GET /api/search`) via OpenSearch when configured, with Postgres `ILIKE` fallback
+- [x] Hub-wide search (`GET /api/hub/search`) over visible feed cards; the SPA merges hub hits with origin FTS
+- [x] Official **hub** (`:5200`) — federation config, hub-owned registry, portable SPA (Auth `:5100` + content URLs). Origins enqueue signed cards, scores, and memberships in `HubOutbox` and deliver with retries. Hub ingest verifies envelopes (`Hub:RequireSignatures`, default true) against the active registry and origin `did:web`. Public `GET /api/hub/feed` ranks from stored upvote count + `createdAt` (Redis ZSETs when available). Hub start and hub admin **Refresh public feed** pull last-updated public threads from active origins (`sort=updated`). SPA registry refresh calls `POST /api/forums/hub-memberships/sync` so members-only cards can appear in that user’s hub feed.
+- [x] Bot tokens on Content: deny-by-default for writes that are not mapped to the install grant (forum/server/post/media/federation-invite). Reads stay permission-filtered. Install tokens still cannot act as the authorizing user.
+
+### Next
+
+- Host **admin** (`:5100/admin/`, `:5200/admin/`, `:5001/admin/`) — Account identity plus a per-host operator password (first user claims the server)
+- Richer extension placements (beyond the Extensions menu)
+
+### Later / deferred
+
 - ActivityPub compatibility layer
 - Mobile-friendly PWA
+- Notifications (can reuse hub card/score channels)
 
 ## License
 

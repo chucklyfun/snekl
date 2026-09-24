@@ -6,7 +6,16 @@ namespace Snekl.Server;
 
 public static class DevProcessCommands
 {
-    private static readonly string[] ServiceProcessNames = ["Snekl.Api", "Snekl.Account.Api"];
+    /// <summary>Content, Auth, Hub, and Faker — anything that locks Debug output under src/.</summary>
+    private static readonly string[] ServiceProcessNames =
+    [
+        "Snekl.Api",
+        "Snekl.Account.Api",
+        "Snekl.Hub",
+        "Snekl.Faker",
+    ];
+
+    private static readonly int[] DevListenPorts = [5001, 5002, 5100, 5200, 5300];
 
     public static int RunStatus(string root)
     {
@@ -30,12 +39,11 @@ public static class DevProcessCommands
             Console.WriteLine();
         }
 
-        Console.WriteLine("Stop when ready:");
-        Console.WriteLine("  dotnet run --project src/Snekl.Server --no-launch-profile -- stop --force");
+        Console.WriteLine($"Stop when ready:  {CliHints.StopCommand}");
         return 0;
     }
 
-    public static int RunStop(string root, bool force)
+    public static int RunStop(string root)
     {
         var store = new DevSessionStore(root);
         var sessions = store.Load().Sessions.ToDictionary(s => s.Pid);
@@ -47,7 +55,7 @@ public static class DevProcessCommands
             return 0;
         }
 
-        Console.WriteLine(force ? "Stopping Snekl API processes:" : "Snekl API processes (use --force to stop):");
+        Console.WriteLine("Stopping Snekl API processes:");
         Console.WriteLine();
 
         foreach (var process in processes.OrderBy(p => p.ProcessName).ThenBy(p => p.Id))
@@ -55,13 +63,6 @@ public static class DevProcessCommands
             sessions.TryGetValue(process.Id, out var session);
             WriteProcessBlock(process, session);
             Console.WriteLine();
-        }
-
-        if (!force)
-        {
-            Console.WriteLine("Review activity above. To stop all listed processes:");
-            Console.WriteLine("  dotnet run --project src/Snekl.Server --no-launch-profile -- stop --force");
-            return 0;
         }
 
         var failures = 0;
@@ -93,26 +94,143 @@ public static class DevProcessCommands
 
     private static List<Process> FindRunningServices()
     {
-        var results = new List<Process>();
+        var byId = new Dictionary<int, Process>();
+        var selfPid = Environment.ProcessId;
+
         foreach (var name in ServiceProcessNames)
+            AddMatchingProcesses(byId, name);
+
+        // Orphan orchestrators from prior `snekl dev` sessions (never the current stop/status process).
+        foreach (var process in Process.GetProcessesByName("snekl"))
         {
-            foreach (var process in Process.GetProcessesByName(name))
+            if (process.Id == selfPid)
             {
-                try
+                process.Dispose();
+                continue;
+            }
+
+            try
+            {
+                var path = process.MainModule?.FileName;
+                if (path is not null &&
+                    path.Contains("Snekl", StringComparison.OrdinalIgnoreCase) &&
+                    path.Contains("Snekl.Server", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (process.MainModule?.FileName?.Contains("Snekl", StringComparison.OrdinalIgnoreCase) == true)
-                        results.Add(process);
-                    else
-                        process.Dispose();
+                    byId[process.Id] = process;
                 }
-                catch
+                else
                 {
-                    results.Add(process);
+                    process.Dispose();
                 }
+            }
+            catch
+            {
+                byId[process.Id] = process;
             }
         }
 
-        return results;
+        // Anything still bound to the known API ports (covers rename / hostfxr edge cases).
+        foreach (var pid in FindPidsListeningOnDevPorts())
+            TryAddPid(byId, pid, selfPid);
+
+        // Parent `dotnet run --project src/Snekl.*` hosts also lock Debug output.
+        foreach (var pid in FindDotnetHostPids())
+            TryAddPid(byId, pid, selfPid);
+
+        return byId.Values.ToList();
+    }
+
+    private static void AddMatchingProcesses(Dictionary<int, Process> byId, string name)
+    {
+        foreach (var process in Process.GetProcessesByName(name))
+        {
+            if (byId.ContainsKey(process.Id))
+            {
+                process.Dispose();
+                continue;
+            }
+
+            try
+            {
+                if (process.MainModule?.FileName?.Contains("Snekl", StringComparison.OrdinalIgnoreCase) == true)
+                    byId[process.Id] = process;
+                else
+                    process.Dispose();
+            }
+            catch
+            {
+                byId[process.Id] = process;
+            }
+        }
+    }
+
+    private static void TryAddPid(Dictionary<int, Process> byId, int pid, int selfPid)
+    {
+        if (pid == selfPid || byId.ContainsKey(pid)) return;
+        try
+        {
+            byId[pid] = Process.GetProcessById(pid);
+        }
+        catch
+        {
+            // Process may have exited between query and open.
+        }
+    }
+
+    private static IEnumerable<int> FindDotnetHostPids()
+    {
+        const string command =
+            @"Get-CimInstance Win32_Process -Filter ""Name = 'dotnet.exe'"" |
+              Where-Object {
+                $_.CommandLine -match 'Snekl\.(Api|Account\.Api|Hub|Faker|Server)' -and
+                $_.CommandLine -notmatch '\sstop(\s|$)'
+              } |
+              Select-Object -ExpandProperty ProcessId";
+        return QueryPidsViaPowerShell(command);
+    }
+
+    private static IEnumerable<int> FindPidsListeningOnDevPorts()
+    {
+        var ports = string.Join(',', DevListenPorts);
+        return QueryPidsViaPowerShell(
+            $"(Get-NetTCPConnection -LocalPort {ports} -State Listen -ErrorAction SilentlyContinue).OwningProcess | Select-Object -Unique");
+    }
+
+    private static IEnumerable<int> QueryPidsViaPowerShell(string command)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell",
+                ArgumentList = { "-NoProfile", "-Command", command },
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            using var process = Process.Start(psi);
+            if (process is null) return [];
+
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit(8000);
+            return ParsePidLines(output);
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static List<int> ParsePidLines(string output)
+    {
+        var pids = new List<int>();
+        foreach (var line in output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (int.TryParse(line.Trim(), out var pid) && pid > 0)
+                pids.Add(pid);
+        }
+        return pids;
     }
 
     private static void WriteProcessBlock(Process process, DevSessionRecord? session)

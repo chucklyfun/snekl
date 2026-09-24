@@ -12,6 +12,7 @@ public class AccountDbContext : DbContext
     public DbSet<AuthIdentity> AuthIdentities => Set<AuthIdentity>();
     public DbSet<AuthPartnerTrust> PartnerTrusts => Set<AuthPartnerTrust>();
     public DbSet<UserSettingsReplica> SettingsReplicas => Set<UserSettingsReplica>();
+    public DbSet<AuthOperator> AuthOperators => Set<AuthOperator>();
     public DbSet<RingSession> RingSessions => Set<RingSession>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
@@ -50,6 +51,14 @@ public class AccountDbContext : DbContext
         {
             e.HasKey(x => x.PersonClusterId);
             e.HasOne(x => x.PersonCluster).WithOne(x => x.Settings).HasForeignKey<UserSettingsReplica>(x => x.PersonClusterId);
+        });
+
+        modelBuilder.Entity<AuthOperator>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Did).IsUnique();
+            e.Property(x => x.Did).HasMaxLength(512);
+            e.Property(x => x.Username).HasMaxLength(128);
         });
 
         modelBuilder.Entity<RingSession>(e => e.HasKey(x => x.Id));
@@ -101,7 +110,7 @@ public class AccountDbContext : DbContext
         });
     }
 
-    public async Task EnsureSettingsListsSchemaAsync(CancellationToken ct = default)
+    public async Task EnsureOperatorSchemaAsync(CancellationToken ct = default)
     {
         await Database.ExecuteSqlRawAsync(
             """ALTER TABLE "SettingsReplicas" ADD COLUMN IF NOT EXISTS "FederationsJson" text NOT NULL DEFAULT '[]';""",
@@ -115,10 +124,20 @@ public class AccountDbContext : DbContext
         await Database.ExecuteSqlRawAsync(
             """ALTER TABLE "SettingsReplicas" ADD COLUMN IF NOT EXISTS "FollowsJson" text NOT NULL DEFAULT '[]';""",
             ct);
-    }
-
-    public async Task EnsureOAuthSchemaAsync(CancellationToken ct = default)
-    {
+        await Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS "AuthOperators" (
+                "Id" uuid NOT NULL,
+                "Did" character varying(512) NOT NULL,
+                "Username" character varying(128) NOT NULL,
+                "PasswordHash" text NULL,
+                "InvitedByOperatorId" uuid NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_AuthOperators" PRIMARY KEY ("Id")
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_AuthOperators_Did" ON "AuthOperators" ("Did");
+            """,
+            ct);
         await Database.ExecuteSqlRawAsync(
             """
             ALTER TABLE "PersonClusters" ADD COLUMN IF NOT EXISTS "IsBot" boolean NOT NULL DEFAULT false;

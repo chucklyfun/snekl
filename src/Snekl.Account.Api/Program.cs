@@ -23,6 +23,8 @@ builder.Services.AddAccountInfrastructure(connectionString, builder.Configuratio
 
 var signingKey = builder.Configuration["Auth:SigningKey"] ?? "snekl-auth-dev-signing-key-change-in-production-min-32";
 var authBaseUrl = (builder.Configuration["Auth:BaseUrl"] ?? "http://localhost:5100").TrimEnd('/');
+var adminSigningKey = builder.Configuration["Auth:AdminSigningKey"]
+    ?? "snekl-auth-admin-dev-signing-key-change-in-production-min-32";
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -37,9 +39,29 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = "snekl",
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey))
         };
+    })
+    .AddJwtBearer(AuthAdminAuth.Scheme, options =>
+    {
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = authBaseUrl,
+            ValidAudience = AuthAdminAuth.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(adminSigningKey))
+        };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(AuthAdminAuth.Policy, policy =>
+        policy.AddAuthenticationSchemes(AuthAdminAuth.Scheme)
+            .RequireAuthenticatedUser()
+            .RequireClaim(AuthAdminAuth.RoleClaim, AuthAdminAuth.Role));
+});
 
 builder.Services.AddCors(options =>
 {
@@ -60,7 +82,7 @@ using (var scope = app.Services.CreateScope())
         await db.Database.EnsureDeletedAsync();
     }
     await db.Database.EnsureCreatedAsync();
-    await db.EnsureSettingsListsSchemaAsync();
+    await db.EnsureOperatorSchemaAsync();
 
     var server = scope.ServiceProvider.GetRequiredService<IAuthServerService>();
     var config = await server.GetOrCreateAsync();
@@ -72,7 +94,6 @@ using (var scope = app.Services.CreateScope())
         await db.SaveChangesAsync();
     }
 
-    await db.EnsureOAuthSchemaAsync();
     var oauth = scope.ServiceProvider.GetRequiredService<IOauthService>();
     await oauth.EnsureDevAppsAsync();
 }
@@ -83,7 +104,15 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseSneklForwardedHeaders();
 app.UseCors();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path == "/admin" || context.Request.Path == "/admin/")
+        context.Request.Path = "/admin/index.html";
+    await next();
+});
+app.UseStaticFiles();
 app.UseSneklRateLimiting(builder.Configuration);
 app.UseAuthentication();
 app.UseAuthorization();

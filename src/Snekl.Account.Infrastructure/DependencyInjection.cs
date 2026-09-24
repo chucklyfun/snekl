@@ -32,6 +32,7 @@ public static class DependencyInjection
         services.AddScoped<IForumFavoriteService, ForumFavoriteService>();
         services.AddScoped<IFollowService, FollowService>();
         services.AddScoped<IForumNavLayoutService, ForumNavLayoutService>();
+        services.AddScoped<IAuthOperatorService, AuthOperatorService>();
         services.AddHttpClient("extension-install");
         services.AddScoped<IContentInstallLookup, ContentInstallLookup>();
         services.AddScoped<IOauthService, OauthService>();

@@ -16,11 +16,31 @@ public class AdminAuthController : ControllerBase
 
     public AdminAuthController(ISiteAdminAuthService adminAuth) => _adminAuth = adminAuth;
 
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpGet("operator-status")]
+    public async Task<ActionResult<OperatorStatusDto>> OperatorStatus(CancellationToken ct) =>
+        Ok(await _adminAuth.GetStatusAsync(this.RequireUserId(), ct));
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpPost("login")]
-    public async Task<ActionResult<SiteAdminAuthResponse>> Login(LoginRequest request, CancellationToken ct)
+    public async Task<ActionResult<SiteAdminAuthResponse>> Login(OperatorLoginRequest request, CancellationToken ct)
     {
-        var result = await _adminAuth.LoginAsync(request, ct);
-        return result is null ? Unauthorized(new { error = "Invalid admin credentials." }) : Ok(result);
+        try
+        {
+            return Ok(await _adminAuth.ElevateAsync(this.RequireUserId(), request, ct));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            var status = await _adminAuth.GetStatusAsync(this.RequireUserId(), ct);
+            var code = status.State == OperatorStates.Forbidden
+                ? StatusCodes.Status403Forbidden
+                : StatusCodes.Status401Unauthorized;
+            return StatusCode(code, new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
     [Authorize(Policy = SiteAdminAuthorization.SiteAdminPolicy)]
@@ -42,31 +62,34 @@ public class AdminSiteController : ControllerBase
     private readonly IFederationService _federation;
     private readonly IPersonClusterMappingService _identity;
     private readonly ISuperUserService _superUsers;
+    private readonly IHubInviteService _hubInvites;
+    private readonly ISiteAdminAuthService _adminAuth;
 
     public AdminSiteController(
         INodeService node,
         IFederationService federation,
         IPersonClusterMappingService identity,
-        ISuperUserService superUsers)
+        ISuperUserService superUsers,
+        IHubInviteService hubInvites,
+        ISiteAdminAuthService adminAuth)
     {
         _node = node;
         _federation = federation;
         _identity = identity;
         _superUsers = superUsers;
+        _hubInvites = hubInvites;
+        _adminAuth = adminAuth;
     }
 
     [HttpGet("node")]
-    public async Task<ActionResult<NodeInfoDto>> GetNode(CancellationToken ct)
-    {
-        var node = await _node.GetOrCreateAsync(ct);
-        return Ok(new NodeInfoDto(node.Id, node.Did, node.Name, node.BaseUrl, node.Description, node.CreatedAt));
-    }
+    public async Task<ActionResult<NodeInfoDto>> GetNode(CancellationToken ct) =>
+        Ok(await _node.GetInfoAsync(ct));
 
     [HttpPut("node")]
     public async Task<ActionResult<NodeInfoDto>> UpdateNode(UpdateNodeRequest request, CancellationToken ct)
     {
-        var node = await _node.UpdateAsync(request.Name, request.BaseUrl, request.Description, ct);
-        return Ok(new NodeInfoDto(node.Id, node.Did, node.Name, node.BaseUrl, node.Description, node.CreatedAt));
+        await _node.UpdateAsync(request.Name, request.BaseUrl, request.Description, ct);
+        return Ok(await _node.GetInfoAsync(ct));
     }
 
     [HttpGet("peers")]
@@ -134,6 +157,70 @@ public class AdminSiteController : ControllerBase
         try
         {
             await _superUsers.RevokeAsync(userId, ct);
+            return NoContent();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpGet("hub-invites")]
+    public async Task<ActionResult<IReadOnlyList<HubInviteDto>>> ListHubInvites(CancellationToken ct) =>
+        Ok(await _hubInvites.ListPendingAsync(ct));
+
+    [HttpPost("hub-invites/{inviteId:guid}/accept")]
+    public async Task<IActionResult> AcceptHubInvite(Guid inviteId, CancellationToken ct)
+    {
+        try
+        {
+            await _hubInvites.AcceptAsync(inviteId, ct);
+            return NoContent();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("hub-invites/{inviteId:guid}/decline")]
+    public async Task<IActionResult> DeclineHubInvite(Guid inviteId, CancellationToken ct)
+    {
+        try
+        {
+            await _hubInvites.DeclineAsync(inviteId, ct);
+            return NoContent();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpGet("operators")]
+    public async Task<ActionResult<IReadOnlyList<SiteAdminDto>>> ListOperators(CancellationToken ct) =>
+        Ok(await _adminAuth.ListAsync(ct));
+
+    [HttpPost("operators")]
+    public async Task<ActionResult<SiteAdminDto>> InviteOperator(InviteOperatorRequest request, CancellationToken ct)
+    {
+        try
+        {
+            var adminId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            return Ok(await _adminAuth.InviteAsync(adminId, request.Username, ct));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpDelete("operators/{operatorId:guid}")]
+    public async Task<IActionResult> RevokeOperator(Guid operatorId, CancellationToken ct)
+    {
+        try
+        {
+            await _adminAuth.RevokeAsync(operatorId, ct);
             return NoContent();
         }
         catch (InvalidOperationException ex)

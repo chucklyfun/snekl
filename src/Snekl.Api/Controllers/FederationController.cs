@@ -12,17 +12,29 @@ namespace Snekl.Api.Controllers;
 public class NodeController : ControllerBase
 {
     private readonly INodeService _node;
+    private readonly IPersonClusterMappingService _identity;
 
-    public NodeController(INodeService node) => _node = node;
+    public NodeController(INodeService node, IPersonClusterMappingService identity)
+    {
+        _node = node;
+        _identity = identity;
+    }
 
     [HttpGet]
-    public async Task<ActionResult<NodeInfoDto>> Get(CancellationToken ct)
-    {
-        return Ok(await _node.GetInfoAsync(ct));
-    }
+    public async Task<ActionResult<NodeInfoDto>> Get(CancellationToken ct) =>
+        Ok(await _node.GetInfoAsync(ct));
 
     [HttpGet(".well-known/snekl")]
     public Task<ActionResult<NodeInfoDto>> WellKnown(CancellationToken ct) => Get(ct);
+
+    /// <summary>Auth issuers this origin trusts. Independent of hub membership.</summary>
+    [HttpGet("auth")]
+    public async Task<ActionResult<NodeAuthInfoDto>> Auth(CancellationToken ct)
+    {
+        var issuers = await _identity.ListTrustedIssuersAsync(ct);
+        return Ok(new NodeAuthInfoDto(
+            issuers.Select(i => new TrustedAuthIssuerDto(i.Name, i.IssuerUrl, i.JwksUrl)).ToList()));
+    }
 }
 
 [ApiController]

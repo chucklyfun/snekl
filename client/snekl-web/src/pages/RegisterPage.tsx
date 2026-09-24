@@ -1,6 +1,7 @@
 import { type FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useAuth } from '../AuthContext';
+import { getAuthBaseUrl, setAuthBaseUrl } from '../hosts';
 
 export function RegisterPage() {
   const { register } = useAuth();
@@ -10,11 +11,13 @@ export function RegisterPage() {
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [authUrl, setAuthUrl] = useState(getAuthBaseUrl());
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     try {
+      setAuthBaseUrl(authUrl);
       await register(username, email, password, displayName);
       navigate('/');
     } catch (err) {
@@ -30,6 +33,10 @@ export function RegisterPage() {
       </p>
       {error && <div className="error-banner">{error}</div>}
       <form onSubmit={handleSubmit}>
+        <div className="form-group">
+          <label htmlFor="auth-url">Auth server URL</label>
+          <input id="auth-url" type="url" value={authUrl} onChange={(e) => setAuthUrl(e.target.value)} required />
+        </div>
         <div className="form-group">
           <label htmlFor="username">Username</label>
           <input id="username" value={username} onChange={(e) => setUsername(e.target.value)} required />

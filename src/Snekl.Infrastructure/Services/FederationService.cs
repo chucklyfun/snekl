@@ -76,6 +76,7 @@ public class FederationService : IFederationService
     private readonly IFederationEnvelopeValidator _validator;
     private readonly IRealtimePublisher _realtime;
     private readonly IRedisDedupService? _dedup;
+    private readonly IMediaService _media;
 
     public FederationService(
         SneklDbContext db,
@@ -86,6 +87,7 @@ public class FederationService : IFederationService
         IPostService postService,
         IFederationEnvelopeValidator validator,
         IRealtimePublisher realtime,
+        IMediaService media,
         IServiceProvider services)
     {
         _db = db;
@@ -96,6 +98,7 @@ public class FederationService : IFederationService
         _postService = postService;
         _validator = validator;
         _realtime = realtime;
+        _media = media;
         _dedup = services.GetService(typeof(IRedisDedupService)) as IRedisDedupService;
     }
 
@@ -180,6 +183,7 @@ public class FederationService : IFederationService
     public async Task BroadcastPostAsync(Post post, Forum forum, User author, CancellationToken ct = default)
     {
         var localNode = await _nodeService.GetOrCreateAsync(ct);
+        var attachmentUrls = await _media.GetAttachmentUrlsForPostAsync(post.Id, ct);
         var payload = new FederatedPostPayload(
             post.Id,
             forum.Id,
@@ -188,7 +192,9 @@ public class FederationService : IFederationService
             post.ParentPostId,
             new FederatedUserPayload(author.Id, author.Username, author.DisplayName, author.Bio, localNode.BaseUrl),
             post.Message,
-            post.CreatedAt);
+            post.CreatedAt,
+            post.Title,
+            attachmentUrls);
 
         await DeliverToPeersAsync(await CreateSignedEnvelopeAsync("post.create", payload, ct), ct);
     }

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import { createContentClient } from '../api';
 import { useAuth } from '../AuthContext';
 import { useServerRegistry } from '../ServerRegistryContext';
+import { getAuthBaseUrl } from '../hosts';
 import type { ExtensionInstall, ExtensionInstallOptions } from '../types';
 
 type OAuthApp = {
@@ -39,7 +40,7 @@ export function AuthorizeExtensionPage() {
   const codeChallenge = params.get('code_challenge') || '';
   const method = params.get('code_challenge_method') || 'S256';
   const contentUrl = params.get('content') || activeServers[0]?.baseUrl || '';
-  const authUrl = params.get('auth') || import.meta.env.VITE_AUTH_URL || 'http://localhost:5100';
+  const authUrl = params.get('auth') || getAuthBaseUrl();
   const returnTo = `/extensions/authorize?${params.toString()}`;
 
   const content = useMemo(

@@ -56,9 +56,15 @@ public class PostAggregationService : IPostAggregationService
             normalized.Select(url => FetchRecentAsync(url, 1, fetchSize, sort, authorizationHeader, ct)));
 
         var merged = results.SelectMany(threads => threads).ToList();
-        var ranked = sort == PostSort.New
-            ? merged.OrderByDescending(t => t.Post.CreatedAt).ToList()
-            : merged.OrderByDescending(t => PostRanking.HotScore(t.Post.UpvoteCount, t.Post.CreatedAt)).ToList();
+        var ranked = sort switch
+        {
+            PostSort.New => merged.OrderByDescending(t => t.Post.CreatedAt).ToList(),
+            PostSort.Updated => merged
+                .OrderByDescending(t => t.Post.EditedAt ?? t.Post.CreatedAt)
+                .ThenByDescending(t => t.Post.CreatedAt)
+                .ToList(),
+            _ => merged.OrderByDescending(t => PostRanking.HotScore(t.Post.UpvoteCount, t.Post.CreatedAt)).ToList()
+        };
 
         return ranked
             .Skip((page - 1) * pageSize)
@@ -74,7 +80,7 @@ public class PostAggregationService : IPostAggregationService
         string? authorizationHeader,
         CancellationToken ct)
     {
-        var sortParam = sort == PostSort.New ? "new" : "hot";
+        var sortParam = sort == PostSort.New ? "new" : sort == PostSort.Updated ? "updated" : "hot";
         var url = $"{baseUrl}/api/posts/recent?sort={sortParam}&page={page}&pageSize={pageSize}";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);

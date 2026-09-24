@@ -153,6 +153,13 @@ export function AccountSettingsPage() {
       <p style={{ color: 'var(--muted)', marginBottom: '1rem' }}>
         Update your login email, public username, and profile details on the auth server.
       </p>
+      <p className="card-meta" style={{ marginBottom: '1.25rem' }}>
+        <Link to="/servers">Servers</Link>
+        {' · '}
+        <Link to="/admin">Admins</Link>
+        {' · '}
+        <Link to={`/users/${user.username}`}>Profile</Link>
+      </p>
       {error && <div className="error-banner">{error}</div>}
       {message && <div style={{ marginBottom: '1rem', color: 'var(--accent)' }}>{message}</div>}
       {!account.emailVerified && (

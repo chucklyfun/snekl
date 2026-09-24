@@ -36,6 +36,7 @@ public sealed class AccountApiFixture : IAsyncLifetime
             builder.UseSetting("Auth:BaseUrl", AuthBaseUrl);
             builder.UseSetting("Auth:Name", "Snekl Auth Test");
             builder.UseSetting("Auth:SigningKey", "snekl-auth-test-signing-key-min-32-chars!!");
+            builder.UseSetting("Auth:AdminSigningKey", "snekl-auth-admin-test-signing-key-min-32!!");
             builder.UseSetting("Auth:AllowDevPasswordReset", "true");
             builder.UseSetting("Email:AutoVerify", "true");
             builder.UseSetting("RateLimiting:Enabled", "false");

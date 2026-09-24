@@ -117,6 +117,46 @@ public class ForumsController : ControllerBase
     }
 
     [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("{slug}/join")]
+    public async Task<ActionResult<ForumDto>> Join(string slug, [FromQuery] string? parentSlug, CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            return Ok(await _forums.JoinAsync(userId, slug, parentSlug, ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("{slug}/leave")]
+    public async Task<ActionResult<ForumDto>> Leave(string slug, [FromQuery] string? parentSlug, CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            return Ok(await _forums.LeaveAsync(userId, slug, parentSlug, ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPut("{slug}/favorite")]
+    public async Task<ActionResult<ForumDto>> SetFavorite(
+        string slug,
+        [FromQuery] string? parentSlug,
+        [FromBody] SetForumFavoriteRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            return Ok(await _forums.SetFavoriteAsync(userId, slug, request.IsFavorite, parentSlug, ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpGet("{slug}/content-blocks")]
     public async Task<ActionResult<IReadOnlyList<ForumContentBlockDto>>> ListBlocks(
         string slug,
@@ -159,51 +199,11 @@ public class ForumsController : ControllerBase
         return Accepted();
     }
 
-    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
-    [HttpPost("{slug}/join")]
-    public async Task<ActionResult<ForumDto>> Join(string slug, [FromQuery] string? parentSlug, CancellationToken ct)
-    {
-        try
-        {
-            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-            return Ok(await _forums.JoinAsync(userId, slug, parentSlug, ct));
-        }
-        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
-    }
-
-    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
-    [HttpPost("{slug}/leave")]
-    public async Task<ActionResult<ForumDto>> Leave(string slug, [FromQuery] string? parentSlug, CancellationToken ct)
-    {
-        try
-        {
-            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-            return Ok(await _forums.LeaveAsync(userId, slug, parentSlug, ct));
-        }
-        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
-    }
-
-    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
-    [HttpPut("{slug}/favorite")]
-    public async Task<ActionResult<ForumDto>> SetFavorite(
-        string slug,
-        [FromQuery] string? parentSlug,
-        [FromBody] SetForumFavoriteRequest request,
-        CancellationToken ct)
-    {
-        try
-        {
-            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-            return Ok(await _forums.SetFavoriteAsync(userId, slug, request.IsFavorite, parentSlug, ct));
-        }
-        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
-    }
-
     private async Task BroadcastForumIfPossible(string slug, Guid userId, CancellationToken ct)
     {
         var user = await _auth.GetUserByIdAsync(userId, ct);
         var forum = await _forums.GetEntityBySlugAsync(slug, null, ct);
-        if (user is not null && forum is not null)
+        if (user is not null && !user.IsBot && forum is not null)
             await _federation.BroadcastForumAsync(forum, user, ct);
     }
 }

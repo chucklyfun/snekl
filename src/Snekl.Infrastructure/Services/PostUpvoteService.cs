@@ -32,6 +32,9 @@ public class PostUpvoteService : IPostUpvoteService
             return new UpvoteResultDto(post.UpvoteCount, false);
         }
 
+        if (post.AuthorUserId == userId)
+            throw new InvalidOperationException("You cannot upvote your own post.");
+
         _db.PostUpvotes.Add(new Domain.Entities.PostUpvote
         {
             PostId = postId,

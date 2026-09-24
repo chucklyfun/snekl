@@ -16,13 +16,6 @@ public interface IPostService
     Task<PostDto> UpdateAsync(Guid userId, Guid postId, UpdatePostRequest request, Guid? viewerUserId = null, CancellationToken ct = default);
     Task<PostDto> SoftDeleteAsync(Guid userId, Guid postId, Guid? viewerUserId = null, CancellationToken ct = default);
     Task HardDeleteAsync(Guid userId, Guid postId, CancellationToken ct = default);
-    Task<PostDto> SetMediaNsfwAsync(
-        Guid userId,
-        Guid postId,
-        Guid mediaAssetId,
-        UpdatePostMediaNsfwRequest request,
-        Guid? viewerUserId = null,
-        CancellationToken ct = default);
     Task<IReadOnlyList<PostRevisionDto>> GetRevisionsAsync(Guid userId, Guid postId, CancellationToken ct = default);
     Task<Post?> GetEntityAsync(Guid postId, CancellationToken ct = default);
     Task<Guid> GetThreadRootIdAsync(Guid postId, CancellationToken ct = default);
@@ -56,6 +49,13 @@ public interface IPostService
     Task<PostDto> SetThreadLockedAsync(Guid userId, Guid postId, bool locked, Guid? viewerUserId = null, CancellationToken ct = default);
     Task<PostDto> SetThreadPinnedAsync(Guid userId, Guid postId, bool pinned, Guid? viewerUserId = null, CancellationToken ct = default);
     Task<PostDto> SetReplyPolicyAsync(Guid userId, Guid postId, string replyPolicy, Guid? viewerUserId = null, CancellationToken ct = default);
+    Task<PostDto> SetMediaNsfwAsync(
+        Guid userId,
+        Guid postId,
+        Guid mediaAssetId,
+        UpdatePostMediaNsfwRequest request,
+        Guid? viewerUserId = null,
+        CancellationToken ct = default);
     Task UpsertFederatedAsync(FederatedPostPayload payload, Guid sourceNodeId, string sourceNodeUrl, CancellationToken ct = default);
     Task ApplyFederatedUpdateAsync(FederatedPostUpdatePayload payload, CancellationToken ct = default);
     Task ApplyFederatedDeleteAsync(FederatedPostDeletePayload payload, CancellationToken ct = default);
@@ -72,11 +72,11 @@ public class PostService : IPostService
     private readonly IPostUpvoteService _upvotes;
     private readonly INodeService _node;
     private readonly IForumModerationService _moderation;
-    private readonly IEmoteService _emotes;
     private readonly IMediaService _media;
-    private readonly INsfwAgeCheckService _nsfwAge;
+    private readonly IEmoteService _emotes;
     private readonly IPostSearchIndex _searchIndex;
     private readonly IFollowGraphClient _followGraph;
+    private readonly INsfwAgeCheckService _nsfwAge;
     private readonly ILogger<PostService> _logger;
 
     public PostService(
@@ -87,11 +87,11 @@ public class PostService : IPostService
         IPostUpvoteService upvotes,
         INodeService node,
         IForumModerationService moderation,
-        IEmoteService emotes,
         IMediaService media,
-        INsfwAgeCheckService nsfwAge,
+        IEmoteService emotes,
         IPostSearchIndex searchIndex,
         IFollowGraphClient followGraph,
+        INsfwAgeCheckService nsfwAge,
         ILogger<PostService> logger)
     {
         _db = db;
@@ -101,11 +101,11 @@ public class PostService : IPostService
         _upvotes = upvotes;
         _node = node;
         _moderation = moderation;
-        _emotes = emotes;
         _media = media;
-        _nsfwAge = nsfwAge;
+        _emotes = emotes;
         _searchIndex = searchIndex;
         _followGraph = followGraph;
+        _nsfwAge = nsfwAge;
         _logger = logger;
     }
 
@@ -120,6 +120,9 @@ public class PostService : IPostService
         var forum = await _db.Forums.FindAsync([request.ForumId.Value], ct)
             ?? throw new InvalidOperationException("Forum not found.");
 
+        if (!ForumApprovalStatuses.IsApproved(forum.ApprovalStatus))
+            throw new InvalidOperationException("This forum is waiting for approval and cannot be used yet.");
+
         await _nsfwAge.EnsureViewerMayEnterForumAsync(userId, forum.Id, ct);
 
         if (request.ParentPostId.HasValue)
@@ -129,6 +132,18 @@ public class PostService : IPostService
 
         if (await _moderation.IsBannedAsync(forum.Id, userId, ct))
             throw new InvalidOperationException("You are banned from this forum.");
+
+        var message = request.Message?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(message))
+            throw new InvalidOperationException("Message is required.");
+
+        string? title = null;
+        if (!request.ParentPostId.HasValue)
+        {
+            title = request.Title?.Trim();
+            if (string.IsNullOrWhiteSpace(title))
+                throw new InvalidOperationException("Title is required for new threads.");
+        }
 
         if (request.ParentPostId.HasValue)
         {
@@ -150,18 +165,6 @@ public class PostService : IPostService
             await EnsureCanReplyUnderPolicyAsync(root, userId, ct);
 
             await IncrementReplyCountsAsync(parent.Id, ct);
-        }
-
-        var message = request.Message.Trim();
-        if (string.IsNullOrWhiteSpace(message))
-            throw new InvalidOperationException("Message is required.");
-
-        string? title = null;
-        if (!request.ParentPostId.HasValue)
-        {
-            title = request.Title?.Trim();
-            if (string.IsNullOrWhiteSpace(title))
-                throw new InvalidOperationException("Title is required for new threads.");
         }
 
         var author = await _db.Users.FindAsync([userId], ct);
@@ -294,7 +297,9 @@ public class PostService : IPostService
         if (string.IsNullOrWhiteSpace(message))
             throw new InvalidOperationException("Message is required.");
 
-        await EnsureCanModifyAsync(userId, post, deleting: false, ct);
+        var canEdit = await CanModerateOrEditOwnAsync(userId, post, edit: true, ct);
+        if (!canEdit)
+            throw new PermissionDeniedException("EditOwnPost", post.WatercoolerId.HasValue ? "watercooler" : "forum");
 
         if (!string.Equals(post.Message, message, StringComparison.Ordinal))
         {
@@ -334,7 +339,9 @@ public class PostService : IPostService
         if (post.IsDeleted)
             throw new InvalidOperationException("Post is already deleted.");
 
-        await EnsureCanModifyAsync(userId, post, deleting: true, ct);
+        var canDelete = await CanModerateOrEditOwnAsync(userId, post, edit: false, ct);
+        if (!canDelete)
+            throw new PermissionDeniedException("DeleteOwnPost", post.WatercoolerId.HasValue ? "watercooler" : "forum");
 
         post.IsDeleted = true;
         post.DeletedAt = DateTime.UtcNow;
@@ -369,9 +376,6 @@ public class PostService : IPostService
         var reactions = await _db.PostReactions.Where(r => r.PostId == postId).ToListAsync(ct);
         _db.PostReactions.RemoveRange(reactions);
 
-        var mediaLinks = await _db.PostMedia.Where(m => m.PostId == postId).ToListAsync(ct);
-        _db.PostMedia.RemoveRange(mediaLinks);
-
         _db.Posts.Remove(post);
         await _db.SaveChangesAsync(ct);
         await TryDeleteFromIndexAsync(postId, ct);
@@ -382,9 +386,12 @@ public class PostService : IPostService
         var post = await _db.Posts.FindAsync([postId], ct)
             ?? throw new InvalidOperationException("Post not found.");
 
-        if (!await CanViewHistoryAsync(userId, post, ct) && post.AuthorUserId != userId)
+        var canView = post.AuthorUserId == userId || await CanViewHistoryAsync(userId, post, ct);
+        if (!canView)
             throw new PermissionDeniedException(
-                post.WatercoolerId.HasValue ? nameof(WatercoolerPermissions.ViewHistory) : ForumPermissions.ManagePosts.ToString(),
+                post.WatercoolerId.HasValue
+                    ? nameof(WatercoolerPermissions.ViewHistory)
+                    : nameof(ForumPermissions.ViewHistory),
                 post.WatercoolerId.HasValue ? "watercooler" : "forum");
 
         var rows = await _db.PostRevisions
@@ -404,31 +411,10 @@ public class PostService : IPostService
     }
 
     public Task<Post?> GetEntityAsync(Guid postId, CancellationToken ct = default) =>
-        _db.Posts.Include(p => p.Author).Include(p => p.Forum).FirstOrDefaultAsync(p => p.Id == postId, ct);
+        _db.Posts.Include(p => p.Author).Include(p => p.Forum).Include(p => p.Watercooler).FirstOrDefaultAsync(p => p.Id == postId, ct);
 
     public Task<Guid> GetThreadRootIdAsync(Guid postId, CancellationToken ct = default) =>
         ResolveThreadRootIdAsync(postId, ct);
-
-    public async Task<PostDto> SetMediaNsfwAsync(
-        Guid userId,
-        Guid postId,
-        Guid mediaAssetId,
-        UpdatePostMediaNsfwRequest request,
-        Guid? viewerUserId = null,
-        CancellationToken ct = default)
-    {
-        var post = await _db.Posts.Include(p => p.Author).FirstOrDefaultAsync(p => p.Id == postId, ct)
-            ?? throw new InvalidOperationException("Post not found.");
-
-        if (!post.IsLocallyOwned)
-            throw new InvalidOperationException("Federated posts must be moderated on the origin node.");
-
-        await _media.SetNsfwAsync(userId, postId, mediaAssetId, request.IsNsfw, request.CoverText, ct);
-
-        var authorPresentation = await _presentation.GetPresentationAsync(
-            post.AuthorUserId, viewerUserId ?? userId, post.ForumId, ct);
-        return await ToDtoAsync(post, authorPresentation, [], new HashSet<Guid>(), viewerUserId, ct);
-    }
 
     public async Task<IReadOnlyList<PostDto>> GetForumThreadsAsync(
         Guid forumId,
@@ -473,9 +459,10 @@ public class PostService : IPostService
         if (cooler.AllowUpvotes)
         {
             query = query.Where(p => p.ParentPostId == null);
-            query = sort == PostSort.New
-                ? query.OrderByDescending(p => p.IsPinned).ThenByDescending(p => p.CreatedAt)
-                : query.OrderByDescending(p => p.IsPinned).ThenByDescending(p => p.UpvoteCount).ThenByDescending(p => p.CreatedAt);
+            if (sort == PostSort.New)
+                query = query.OrderByDescending(p => p.IsPinned).ThenByDescending(p => p.CreatedAt);
+            else
+                query = query.OrderByDescending(p => p.IsPinned).ThenByDescending(p => p.UpvoteCount).ThenByDescending(p => p.CreatedAt);
         }
         else
         {
@@ -518,6 +505,7 @@ public class PostService : IPostService
         foreach (var forum in forumRows)
         {
             if (!await _permissions.CanViewForumAsync(viewerUserId, forum.Id, ct)) continue;
+            if (!await _nsfwAge.ViewerMayEnterForumAsync(viewerUserId, forum.Id, ct)) continue;
             visibleForumIds.Add(forum.Id);
             forumMeta[forum.Id] = (forum.Slug, forum.Name, forum.ParentSlug);
         }
@@ -738,18 +726,25 @@ public class PostService : IPostService
         {
             if (!await _permissions.CanViewWatercoolerAsync(viewerUserId, focused.WatercoolerId.Value, ct))
                 throw new PermissionDeniedException(nameof(WatercoolerPermissions.ViewWatercooler), "watercooler");
+            var parentForumId = await _db.Watercoolers.AsNoTracking()
+                .Where(w => w.Id == focused.WatercoolerId.Value)
+                .Select(w => w.ParentForumId)
+                .FirstOrDefaultAsync(ct);
+            if (parentForumId.HasValue)
+                await _nsfwAge.EnsureViewerMayEnterForumAsync(viewerUserId, parentForumId.Value, ct);
         }
         else if (focused.ForumId.HasValue)
         {
             if (!await _permissions.CanViewForumAsync(viewerUserId, focused.ForumId.Value, ct))
                 throw new PermissionDeniedException(ForumPermissions.ViewForum.ToString(), "forum");
+            await _nsfwAge.EnsureViewerMayEnterForumAsync(viewerUserId, focused.ForumId.Value, ct);
         }
         else
         {
             return null;
         }
 
-        var presentationForumId = focused.ForumId;
+        var presentationForumId = focused.ForumId ?? focused.Watercooler?.ParentForumId;
         if (presentationForumId is null && focused.WatercoolerId.HasValue)
         {
             presentationForumId = await _db.Watercoolers.AsNoTracking()
@@ -757,9 +752,6 @@ public class PostService : IPostService
                 .Select(w => w.ParentForumId)
                 .FirstOrDefaultAsync(ct);
         }
-
-        if (presentationForumId is Guid ageForumId)
-            await _nsfwAge.EnsureViewerMayEnterForumAsync(viewerUserId, ageForumId, ct);
 
         var authorIds = threadPosts.Select(p => p.AuthorUserId).Distinct();
         var presentations = await _presentation.GetPresentationsAsync(authorIds, viewerUserId, presentationForumId, ct);
@@ -862,6 +854,30 @@ public class PostService : IPostService
             viewerUserId ?? userId,
             post.ForumId,
             ct);
+        return await ToDtoAsync(post, authorPresentation, [], new HashSet<Guid>(), viewerUserId, ct, threadRoot: post);
+    }
+
+    public async Task<PostDto> SetMediaNsfwAsync(
+        Guid userId,
+        Guid postId,
+        Guid mediaAssetId,
+        UpdatePostMediaNsfwRequest request,
+        Guid? viewerUserId = null,
+        CancellationToken ct = default)
+    {
+        var post = await _db.Posts.Include(p => p.Author).FirstOrDefaultAsync(p => p.Id == postId, ct)
+            ?? throw new InvalidOperationException("Post not found.");
+
+        if (!post.IsLocallyOwned)
+            throw new InvalidOperationException("Federated posts must be moderated on the origin node.");
+
+        await _media.SetNsfwAsync(userId, postId, mediaAssetId, request.IsNsfw, request.CoverText, ct);
+
+        var authorPresentation = await _presentation.GetPresentationAsync(
+            post.AuthorUserId,
+            viewerUserId ?? userId,
+            post.ForumId,
+            ct);
         return await ToDtoAsync(post, authorPresentation, [], new HashSet<Guid>(), viewerUserId, ct);
     }
 
@@ -945,6 +961,7 @@ public class PostService : IPostService
             ForumId = payload.ForumId,
             ParentPostId = payload.ParentPostId,
             AuthorUserId = author.Id,
+            Title = payload.ParentPostId.HasValue ? null : payload.Title,
             Message = payload.Message,
             CreatedAt = payload.CreatedAt,
             UpdatedAt = payload.CreatedAt,
@@ -954,6 +971,33 @@ public class PostService : IPostService
 
         _db.Posts.Add(post);
         await _db.SaveChangesAsync(ct);
+
+        if (payload.AttachmentUrls is { Count: > 0 })
+        {
+            for (var i = 0; i < payload.AttachmentUrls.Count; i++)
+            {
+                var url = payload.AttachmentUrls[i];
+                if (string.IsNullOrWhiteSpace(url)) continue;
+                var asset = new MediaAsset
+                {
+                    UploaderUserId = author.Id,
+                    StorageKey = $"external:{post.Id:N}:{i}",
+                    ExternalUrl = url.Trim(),
+                    ContentType = "image/*",
+                    ByteSize = 0
+                };
+                _db.MediaAssets.Add(asset);
+                _db.PostMedia.Add(new PostMedia
+                {
+                    PostId = post.Id,
+                    MediaAssetId = asset.Id,
+                    SortOrder = i
+                });
+            }
+
+            await _db.SaveChangesAsync(ct);
+        }
+
         await TryIndexPostAsync(post, ct);
     }
 
@@ -965,14 +1009,56 @@ public class PostService : IPostService
     {
         if (posts.Count == 0) return [];
 
-        var authorIds = posts.Select(p => p.AuthorUserId).Distinct();
-        var presentations = await _presentation.GetPresentationsAsync(authorIds, viewerUserId, forumId, ct);
-        var viewerUpvotes = await _upvotes.GetViewerUpvotedPostIdsAsync(posts.Select(p => p.Id), viewerUserId, ct);
+        var rootIds = posts.Select(p => p.Id).ToList();
+        var authorIds = posts.Select(p => p.AuthorUserId).Distinct().ToList();
+
+        var directReplies = await _db.Posts
+            .AsNoTracking()
+            .Include(p => p.Author)
+            .Where(p => p.ParentPostId != null && rootIds.Contains(p.ParentPostId.Value) && !p.IsDeleted)
+            .ToListAsync(ct);
+
+        var topReplies = directReplies
+            .GroupBy(p => p.ParentPostId!.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(p => PostRanking.HotScore(p.UpvoteCount, p.CreatedAt)).First());
+
+        foreach (var reply in topReplies.Values)
+            authorIds.Add(reply.AuthorUserId);
+
+        var presentations = await _presentation.GetPresentationsAsync(authorIds.Distinct(), viewerUserId, forumId, ct);
+        var viewerUpvotes = await _upvotes.GetViewerUpvotedPostIdsAsync(rootIds, viewerUserId, ct);
+        var attachmentsByPost = await _media.GetAttachmentsByPostIdsAsync(rootIds, viewerUserId, ct);
+        var reactionsByPost = await _emotes.GetReactionsByPostIdsAsync(rootIds, viewerUserId, ct);
 
         var results = new List<PostDto>();
         foreach (var post in posts)
         {
-            results.Add(await ToDtoAsync(post, presentations[post.AuthorUserId], [], viewerUpvotes, viewerUserId, ct));
+            TopReplyPreviewDto? topPreview = null;
+            if (topReplies.TryGetValue(post.Id, out var topReply))
+            {
+                var previewMessage = topReply.IsDeleted ? DeletedMessage : topReply.Message;
+                topPreview = new TopReplyPreviewDto(
+                    topReply.Id,
+                    presentations[topReply.AuthorUserId],
+                    previewMessage,
+                    topReply.UpvoteCount,
+                    topReply.CreatedAt);
+            }
+
+            attachmentsByPost.TryGetValue(post.Id, out var attachments);
+            reactionsByPost.TryGetValue(post.Id, out var reactions);
+            results.Add(await ToDtoAsync(
+                post,
+                presentations[post.AuthorUserId],
+                [],
+                viewerUpvotes,
+                viewerUserId,
+                ct,
+                attachments,
+                topPreview,
+                reactions));
         }
 
         return results;
@@ -988,13 +1074,17 @@ public class PostService : IPostService
     {
         if (forumIds.Count == 0) return [];
 
-        if (sort == PostSort.New)
+        if (sort is PostSort.New or PostSort.Updated)
         {
-            return await _db.Posts
+            var query = _db.Posts
                 .Include(p => p.Author)
-                .Where(p => p.ForumId != null && forumIds.Contains(p.ForumId.Value) && p.ParentPostId == null && !p.IsDeleted && (!ownedOnly || p.OriginNodeId == null))
-                .OrderByDescending(p => p.IsPinned)
-                .ThenByDescending(p => p.CreatedAt)
+                .Where(p => p.ForumId != null && forumIds.Contains(p.ForumId.Value) && p.ParentPostId == null && !p.IsDeleted && (!ownedOnly || p.OriginNodeId == null));
+
+            query = sort == PostSort.Updated
+                ? query.OrderByDescending(p => p.IsPinned).ThenByDescending(p => p.UpdatedAt).ThenByDescending(p => p.CreatedAt)
+                : query.OrderByDescending(p => p.IsPinned).ThenByDescending(p => p.CreatedAt);
+
+            return await query
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync(ct);
@@ -1005,7 +1095,7 @@ public class PostService : IPostService
         var forumIdList = string.Join(", ", forumIds.Select(id => $"'{id:D}'"));
         var ageOffset = PostRanking.AgeOffsetHours.ToString(CultureInfo.InvariantCulture);
         var gravity = PostRanking.Gravity.ToString(CultureInfo.InvariantCulture);
-#pragma warning disable EF1002 // forumIds, offset, and pageSize are internal values ΓÇö not user input
+#pragma warning disable EF1002 // forumIds, offset, and pageSize are internal values — not user input
         var ids = await _db.Database
             .SqlQueryRaw<Guid>($"""
                 SELECT p."Id"
@@ -1040,6 +1130,7 @@ public class PostService : IPostService
             if (ancestor is null) break;
 
             ancestor.ReplyCount++;
+            ancestor.UpdatedAt = DateTime.UtcNow;
             if (!ancestor.ParentPostId.HasValue) break;
             currentId = ancestor.ParentPostId.Value;
         }
@@ -1073,12 +1164,16 @@ public class PostService : IPostService
         IReadOnlyDictionary<Guid, UserPresentationDto> presentations,
         IReadOnlySet<Guid> viewerUpvotes,
         Guid? viewerUserId,
-        CancellationToken ct)
+        CancellationToken ct,
+        Post? policyRoot = null)
     {
         var lookup = threadPosts
             .GroupBy(p => p.ParentPostId ?? Guid.Empty)
             .ToDictionary(g => g.Key, g => g.ToList());
-        return await BuildNodeAsync(root, lookup, presentations, viewerUpvotes, viewerUserId, ct);
+        var attachmentsByPost = await _media.GetAttachmentsByPostIdsAsync(threadPosts.Select(p => p.Id), viewerUserId, ct);
+        var reactionsByPost = await _emotes.GetReactionsByPostIdsAsync(threadPosts.Select(p => p.Id), viewerUserId, ct);
+        return await BuildNodeAsync(
+            root, lookup, presentations, viewerUpvotes, viewerUserId, attachmentsByPost, reactionsByPost, policyRoot ?? root, ct);
     }
 
     private async Task<PostDto> BuildNodeAsync(
@@ -1087,6 +1182,9 @@ public class PostService : IPostService
         IReadOnlyDictionary<Guid, UserPresentationDto> presentations,
         IReadOnlySet<Guid> viewerUpvotes,
         Guid? viewerUserId,
+        IReadOnlyDictionary<Guid, IReadOnlyList<MediaAttachmentDto>> attachmentsByPost,
+        IReadOnlyDictionary<Guid, IReadOnlyList<PostReactionDto>> reactionsByPost,
+        Post threadRoot,
         CancellationToken ct)
     {
         var children = lookup.GetValueOrDefault(post.Id, [])
@@ -1096,298 +1194,14 @@ public class PostService : IPostService
         var childDtos = new List<PostDto>();
         foreach (var child in children)
         {
-            childDtos.Add(await BuildNodeAsync(child, lookup, presentations, viewerUpvotes, viewerUserId, ct));
+            childDtos.Add(await BuildNodeAsync(
+                child, lookup, presentations, viewerUpvotes, viewerUserId, attachmentsByPost, reactionsByPost, threadRoot, ct));
         }
 
-        return await ToDtoAsync(post, presentations[post.AuthorUserId], childDtos, viewerUpvotes, viewerUserId, ct);
-    }
-
-    private async Task<Guid> ResolveThreadRootIdAsync(Guid postId, CancellationToken ct)
-    {
-        var currentId = postId;
-        while (true)
-        {
-            var post = await _db.Posts.AsNoTracking().FirstOrDefaultAsync(p => p.Id == currentId, ct)
-                ?? throw new InvalidOperationException("Post not found.");
-            if (!post.ParentPostId.HasValue) return post.Id;
-            currentId = post.ParentPostId.Value;
-        }
-    }
-
-    private async Task<PostViewerActionsDto?> BuildViewerActionsAsync(
-        Post post,
-        Guid? viewerUserId,
-        CancellationToken ct)
-    {
-        if (!viewerUserId.HasValue || !post.IsLocallyOwned) return null;
-
-        var isAuthor = post.AuthorUserId == viewerUserId.Value;
-        var isRoot = !post.ParentPostId.HasValue;
-        bool canManage;
-        bool canEdit;
-        bool canSoftDelete;
-        bool canViewHistoryFlag;
-        bool canReport;
-        bool canMarkNsfwMedia = false;
-        if (post.WatercoolerId.HasValue)
-        {
-            var coolerPerms = await _permissions.GetWatercoolerPermissionsAsync(viewerUserId, post.WatercoolerId.Value, ct);
-            canManage = coolerPerms.HasFlag(WatercoolerPermissions.ManageWatercooler);
-            canEdit = !post.IsDeleted && (isAuthor || canManage);
-            canSoftDelete = !post.IsDeleted && (isAuthor || canManage);
-            canViewHistoryFlag = isAuthor || coolerPerms.HasFlag(WatercoolerPermissions.ViewHistory);
-            canReport = !isAuthor && !post.IsDeleted && coolerPerms.HasFlag(WatercoolerPermissions.ViewWatercooler);
-        }
-        else
-        {
-            var perms = await _permissions.GetForumPermissionsAsync(viewerUserId, post.ForumId!.Value, ct);
-            canManage = perms.HasFlag(ForumPermissions.ManagePosts);
-            canEdit = !post.IsDeleted && ((isAuthor && perms.HasFlag(ForumPermissions.EditOwnPost)) || canManage);
-            canSoftDelete = !post.IsDeleted && ((isAuthor && perms.HasFlag(ForumPermissions.DeleteOwnPost)) || canManage);
-            canViewHistoryFlag = isAuthor || canManage;
-            canReport = !isAuthor && !post.IsDeleted && perms.HasFlag(ForumPermissions.ViewForum);
-            canMarkNsfwMedia = !post.IsDeleted && (isAuthor || perms.HasFlag(ForumPermissions.MarkNsfwMedia));
-        }
-
-        var canHardDelete = post.IsDeleted && canManage;
-        var hasHistory = await _db.PostRevisions.AnyAsync(r => r.PostId == post.Id, ct);
-        var canViewHistory = hasHistory && canViewHistoryFlag;
-        var canLock = isRoot && canManage && !post.IsLocked;
-        var canUnlock = isRoot && canManage && post.IsLocked;
-        var canPin = isRoot && canManage && !post.IsPinned;
-        var canUnpin = isRoot && canManage && post.IsPinned;
-
-        Post root = post;
-        if (!isRoot)
-        {
-            var rootId = await GetThreadRootIdAsync(post.Id, ct);
-            root = await _db.Posts.AsNoTracking().FirstAsync(p => p.Id == rootId, ct);
-        }
-
-        var canSetReplyPolicy = isRoot && (isAuthor || canManage);
-        var canReply = await ViewerCanReplyAsync(root, viewerUserId.Value, canManage, ct);
-
-        return new PostViewerActionsDto(
-            canEdit, canSoftDelete, canHardDelete, canViewHistory,
-            canLock, canUnlock, canPin, canUnpin, canReport, canMarkNsfwMedia, canReply, canSetReplyPolicy);
-    }
-
-    private async Task<PostDto> ToDtoAsync(
-        Post post,
-        UserPresentationDto author,
-        List<PostDto> replies,
-        IReadOnlySet<Guid> viewerUpvotes,
-        Guid? viewerUserId,
-        CancellationToken ct)
-    {
-        var actions = await BuildViewerActionsAsync(post, viewerUserId, ct);
-        var quoted = await MapQuotedAsync(post, viewerUserId, ct);
-        var reactionMap = await _emotes.GetReactionsByPostIdsAsync([post.Id], viewerUserId, ct);
-        reactionMap.TryGetValue(post.Id, out var reactionList);
-        var attachmentMap = await _media.GetAttachmentsByPostIdsAsync([post.Id], viewerUserId, ct);
-        attachmentMap.TryGetValue(post.Id, out var attachmentList);
-        return ToDto(post, author, replies, viewerUpvotes, actions, quoted, reactions: reactionList, attachments: attachmentList);
-    }
-
-    public static PostDto ToDto(
-        Post post,
-        UserPresentationDto author,
-        List<PostDto> replies,
-        IReadOnlySet<Guid> viewerUpvotes,
-        PostViewerActionsDto? viewerActions = null,
-        QuotedPostDto? quotedPost = null,
-        IReadOnlyList<PostDto>? ancestors = null,
-        IReadOnlyList<PostReactionDto>? reactions = null,
-        IReadOnlyList<MediaAttachmentDto>? attachments = null) => new(
-        post.Id,
-        post.ForumId,
-        post.ParentPostId,
-        author,
-        post.IsDeleted ? DeletedMessage : post.Message,
-        post.ReplyCount,
-        post.UpvoteCount,
-        viewerUpvotes.Contains(post.Id),
-        post.OriginNodeUrl,
-        post.IsFederated,
-        post.IsDeleted,
-        post.IsLocked,
-        post.IsPinned,
-        post.EditedAt,
-        post.CreatedAt,
-        replies,
-        viewerActions,
-        Title: post.Title,
-        Attachments: attachments,
-        Reactions: reactions,
-        WatercoolerId: post.WatercoolerId,
-        QuotedPostId: post.QuotedPostId,
-        QuoteCount: post.QuoteCount,
-        QuotedPost: quotedPost,
-        Ancestors: ancestors,
-        ReplyPolicy: string.IsNullOrWhiteSpace(post.ReplyPolicy) ? ReplyPolicies.Everyone : post.ReplyPolicy);
-
-    private async Task<QuotedPostDto?> MapQuotedAsync(Post post, Guid? viewerUserId, CancellationToken ct)
-    {
-        if (!post.QuotedPostId.HasValue) return null;
-        var quoted = await _db.Posts.AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == post.QuotedPostId.Value, ct);
-        if (quoted is null || !quoted.WatercoolerId.HasValue) return null;
-        var canView = await _permissions.CanViewWatercoolerAsync(viewerUserId, quoted.WatercoolerId.Value, ct);
-        var author = await _presentation.GetPresentationAsync(quoted.AuthorUserId, viewerUserId, null, ct);
-        var body = canView ? (quoted.IsDeleted ? DeletedMessage : quoted.Message) : "";
-        return new QuotedPostDto(quoted.Id, author, body, quoted.WatercoolerId.Value, quoted.CreatedAt, canView);
-    }
-
-    private async Task<PostDto> BuildConversationAsync(
-        Post focused,
-        List<Post> threadPosts,
-        IReadOnlyDictionary<Guid, UserPresentationDto> presentations,
-        IReadOnlySet<Guid> viewerUpvotes,
-        Guid? viewerUserId,
-        CancellationToken ct)
-    {
-        var byId = threadPosts.ToDictionary(p => p.Id);
-        var ancestors = new List<Post>();
-        var current = focused;
-        var guard = 0;
-        while (current.ParentPostId.HasValue && guard++ < 32)
-        {
-            if (!byId.TryGetValue(current.ParentPostId.Value, out var parent)) break;
-            ancestors.Insert(0, parent);
-            current = parent;
-        }
-
-        var tree = await BuildTreeAsync(focused, threadPosts, presentations, viewerUpvotes, viewerUserId, ct);
-        var ancestorDtos = new List<PostDto>();
-        foreach (var ancestor in ancestors)
-        {
-            ancestorDtos.Add(await ToDtoAsync(
-                ancestor,
-                presentations[ancestor.AuthorUserId],
-                [],
-                viewerUpvotes,
-                viewerUserId,
-                ct));
-        }
-
-        return tree with { Ancestors = ancestorDtos };
-    }
-
-    private async Task EnsureCanModifyAsync(Guid userId, Post post, bool deleting, CancellationToken ct)
-    {
-        if (post.WatercoolerId.HasValue)
-        {
-            var perms = await _permissions.GetWatercoolerPermissionsAsync(userId, post.WatercoolerId.Value, ct);
-            if (post.AuthorUserId == userId || perms.HasFlag(WatercoolerPermissions.ManageWatercooler))
-                return;
-            throw new PermissionDeniedException(deleting ? "DeleteOwnPost" : "EditOwnPost", "watercooler");
-        }
-
-        var forumPerms = await _permissions.GetForumPermissionsAsync(userId, post.ForumId!.Value, ct);
-        var isAuthor = post.AuthorUserId == userId;
-        var own = deleting ? ForumPermissions.DeleteOwnPost : ForumPermissions.EditOwnPost;
-        if ((isAuthor && forumPerms.HasFlag(own)) || forumPerms.HasFlag(ForumPermissions.ManagePosts))
-            return;
-        throw new PermissionDeniedException(own.ToString(), "forum");
-    }
-
-    private async Task EnsureCanReplyUnderPolicyAsync(Post? root, Guid userId, CancellationToken ct)
-    {
-        if (root is null) return;
-        var canManage = await CanModerateAsync(userId, root, ct);
-        if (await ViewerCanReplyAsync(root, userId, canManage, ct))
-            return;
-
-        throw new InvalidOperationException(
-            "The original poster limited replies to people they follow.");
-    }
-
-    private async Task<bool> ViewerCanReplyAsync(Post root, Guid viewerUserId, bool canManage, CancellationToken ct)
-    {
-        if (root.IsLocked && !canManage)
-            return false;
-
-        if (root.AuthorUserId == viewerUserId || canManage)
-            return true;
-
-        if (!ReplyPolicies.IsFollowingOnly(root.ReplyPolicy))
-            return true;
-
-        var opDid = root.AuthorDid;
-        string? issuerUrl = null;
-        if (string.IsNullOrWhiteSpace(opDid))
-        {
-            var op = await _db.Users.AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Id == root.AuthorUserId, ct);
-            opDid = op?.Did;
-            issuerUrl = op?.AuthIssuerUrl;
-        }
-        else
-        {
-            issuerUrl = await _db.Users.AsNoTracking()
-                .Where(u => u.Id == root.AuthorUserId)
-                .Select(u => u.AuthIssuerUrl)
-                .FirstOrDefaultAsync(ct);
-        }
-
-        var viewerDid = await _db.Users.AsNoTracking()
-            .Where(u => u.Id == viewerUserId)
-            .Select(u => u.Did)
-            .FirstOrDefaultAsync(ct);
-
-        if (string.IsNullOrWhiteSpace(opDid) || string.IsNullOrWhiteSpace(viewerDid))
-            return false;
-
-        if (string.Equals(opDid, viewerDid, StringComparison.Ordinal))
-            return true;
-
-        if (string.IsNullOrWhiteSpace(issuerUrl))
-        {
-            issuerUrl = await _db.TrustedAuthIssuers.AsNoTracking()
-                .Where(i => i.IsActive)
-                .OrderBy(i => i.Name)
-                .Select(i => i.IssuerUrl)
-                .FirstOrDefaultAsync(ct);
-        }
-
-        return await _followGraph.FollowsAsync(issuerUrl, opDid, viewerDid, ct);
-    }
-
-    private async Task<bool> CanModerateAsync(Guid userId, Post post, CancellationToken ct)
-    {
-        if (post.WatercoolerId.HasValue)
-        {
-            var perms = await _permissions.GetWatercoolerPermissionsAsync(userId, post.WatercoolerId.Value, ct);
-            return perms.HasFlag(WatercoolerPermissions.ManageWatercooler);
-        }
-
-        if (!post.ForumId.HasValue) return false;
-        var forumPerms = await _permissions.GetForumPermissionsAsync(userId, post.ForumId.Value, ct);
-        return forumPerms.HasFlag(ForumPermissions.ManagePosts);
-    }
-
-    private async Task RequireModerateAsync(Guid userId, Post post, CancellationToken ct)
-    {
-        if (post.WatercoolerId.HasValue)
-        {
-            await _permissions.RequireWatercoolerPermissionAsync(userId, post.WatercoolerId.Value, WatercoolerPermissions.ManageWatercooler, ct);
-            return;
-        }
-
-        await _permissions.RequireForumPermissionAsync(userId, post.ForumId!.Value, ForumPermissions.ManagePosts, ct);
-    }
-
-    private async Task<bool> CanViewHistoryAsync(Guid userId, Post post, CancellationToken ct)
-    {
-        if (post.WatercoolerId.HasValue)
-        {
-            var perms = await _permissions.GetWatercoolerPermissionsAsync(userId, post.WatercoolerId.Value, ct);
-            return perms.HasFlag(WatercoolerPermissions.ViewHistory);
-        }
-
-        if (!post.ForumId.HasValue) return false;
-        var forumPerms = await _permissions.GetForumPermissionsAsync(userId, post.ForumId.Value, ct);
-        return forumPerms.HasFlag(ForumPermissions.ManagePosts);
+        attachmentsByPost.TryGetValue(post.Id, out var attachments);
+        reactionsByPost.TryGetValue(post.Id, out var reactions);
+        return await ToDtoAsync(
+            post, presentations[post.AuthorUserId], childDtos, viewerUpvotes, viewerUserId, ct, attachments, reactions: reactions, threadRoot: threadRoot);
     }
 
     private async Task TryIndexPostAsync(Post post, CancellationToken ct)
@@ -1453,13 +1267,13 @@ public class PostService : IPostService
         }
 
         if (index < 0)
-            return normalized.Length <= max ? normalized : normalized[..max] + "\u2026";
+            return normalized.Length <= max ? normalized : normalized[..max] + "…";
 
         var start = Math.Max(0, index - 40);
         var length = Math.Min(max, normalized.Length - start);
         var slice = normalized.Substring(start, length);
-        if (start > 0) slice = "\u2026" + slice;
-        if (start + length < normalized.Length) slice += "\u2026";
+        if (start > 0) slice = "…" + slice;
+        if (start + length < normalized.Length) slice += "…";
         return slice;
     }
 
@@ -1475,5 +1289,290 @@ public class PostService : IPostService
         }
 
         return current.ParentPostId.HasValue ? current.ParentPostId : current.Id;
+    }
+
+    private async Task<Guid> ResolveThreadRootIdAsync(Guid postId, CancellationToken ct)
+    {
+        var currentId = postId;
+        while (true)
+        {
+            var post = await _db.Posts.AsNoTracking().FirstOrDefaultAsync(p => p.Id == currentId, ct)
+                ?? throw new InvalidOperationException("Post not found.");
+            if (!post.ParentPostId.HasValue) return post.Id;
+            currentId = post.ParentPostId.Value;
+        }
+    }
+
+    private async Task<PostViewerActionsDto?> BuildViewerActionsAsync(
+        Post post,
+        Post threadRoot,
+        Guid? viewerUserId,
+        CancellationToken ct)
+    {
+        if (!viewerUserId.HasValue || !post.IsLocallyOwned) return null;
+
+        var perms = post.WatercoolerId.HasValue
+            ? default(ForumPermissions)
+            : await _permissions.GetForumPermissionsAsync(viewerUserId, post.ForumId!.Value, ct);
+        var coolerPerms = post.WatercoolerId.HasValue
+            ? await _permissions.GetWatercoolerPermissionsAsync(viewerUserId, post.WatercoolerId.Value, ct)
+            : WatercoolerPermissions.None;
+        var isAuthor = post.AuthorUserId == viewerUserId.Value;
+        var isRoot = !post.ParentPostId.HasValue;
+        var canManage = post.WatercoolerId.HasValue
+            ? coolerPerms.HasFlag(WatercoolerPermissions.ManageWatercooler)
+            : perms.HasFlag(ForumPermissions.ManagePosts);
+        var canEdit = !post.IsDeleted &&
+                      (isAuthor && (post.WatercoolerId.HasValue || perms.HasFlag(ForumPermissions.EditOwnPost)) || canManage);
+        var canSoftDelete = !post.IsDeleted &&
+                            (isAuthor && (post.WatercoolerId.HasValue || perms.HasFlag(ForumPermissions.DeleteOwnPost)) || canManage);
+        var canHardDelete = post.IsDeleted && canManage;
+        var hasHistory = await _db.PostRevisions.AnyAsync(r => r.PostId == post.Id, ct);
+        var canViewHistory = hasHistory && (isAuthor ||
+            (post.WatercoolerId.HasValue
+                ? coolerPerms.HasFlag(WatercoolerPermissions.ViewHistory)
+                : perms.HasFlag(ForumPermissions.ViewHistory)));
+        var canLock = isRoot && canManage && !post.IsLocked;
+        var canUnlock = isRoot && canManage && post.IsLocked;
+        var canPin = isRoot && canManage && !post.IsPinned;
+        var canUnpin = isRoot && canManage && post.IsPinned;
+        var canReport = !isAuthor && !post.IsDeleted &&
+                        (post.WatercoolerId.HasValue
+                            ? coolerPerms.HasFlag(WatercoolerPermissions.ViewWatercooler)
+                            : perms.HasFlag(ForumPermissions.ViewForum));
+
+        var canMarkNsfwMedia = !post.IsDeleted && post.ForumId.HasValue && !post.WatercoolerId.HasValue &&
+                              (isAuthor || perms.HasFlag(ForumPermissions.MarkNsfwMedia));
+        var canSetReplyPolicy = isRoot && (isAuthor || canManage);
+        var canReply = await ViewerCanReplyAsync(threadRoot, viewerUserId.Value, canManage, ct);
+
+        return new PostViewerActionsDto(
+            canEdit, canSoftDelete, canHardDelete, canViewHistory,
+            canLock, canUnlock, canPin, canUnpin, canReport, canMarkNsfwMedia, canReply, canSetReplyPolicy,
+            CanUpvote: !isAuthor);
+    }
+
+    private async Task<PostDto> ToDtoAsync(
+        Post post,
+        UserPresentationDto author,
+        List<PostDto> replies,
+        IReadOnlySet<Guid> viewerUpvotes,
+        Guid? viewerUserId,
+        CancellationToken ct,
+        IReadOnlyList<MediaAttachmentDto>? attachments = null,
+        TopReplyPreviewDto? topReplyPreview = null,
+        IReadOnlyList<PostReactionDto>? reactions = null,
+        Post? threadRoot = null)
+    {
+        var actions = await BuildViewerActionsAsync(post, threadRoot ?? post, viewerUserId, ct);
+        if (attachments is null)
+        {
+            var map = await _media.GetAttachmentsByPostIdsAsync([post.Id], viewerUserId, ct);
+            attachments = map.TryGetValue(post.Id, out var list) ? list : [];
+        }
+
+        if (reactions is null)
+        {
+            var map = await _emotes.GetReactionsByPostIdsAsync([post.Id], viewerUserId, ct);
+            reactions = map.TryGetValue(post.Id, out var list) ? list : [];
+        }
+
+        var quoted = await MapQuotedAsync(post, viewerUserId, ct);
+        return ToDto(post, author, replies, viewerUpvotes, actions, attachments, topReplyPreview, reactions, quoted);
+    }
+
+    private async Task<QuotedPostDto?> MapQuotedAsync(Post post, Guid? viewerUserId, CancellationToken ct)
+    {
+        if (!post.QuotedPostId.HasValue) return null;
+        var quoted = await _db.Posts.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == post.QuotedPostId.Value, ct);
+        if (quoted is null || !quoted.WatercoolerId.HasValue) return null;
+        var canView = await _permissions.CanViewWatercoolerAsync(viewerUserId, quoted.WatercoolerId.Value, ct);
+        var author = await _presentation.GetPresentationAsync(quoted.AuthorUserId, viewerUserId, null, ct);
+        var body = canView ? (quoted.IsDeleted ? DeletedMessage : quoted.Message) : "";
+        return new QuotedPostDto(quoted.Id, author, body, quoted.WatercoolerId.Value, quoted.CreatedAt, canView);
+    }
+
+    private async Task<PostDto> BuildConversationAsync(
+        Post focused,
+        List<Post> threadPosts,
+        IReadOnlyDictionary<Guid, UserPresentationDto> presentations,
+        IReadOnlySet<Guid> viewerUpvotes,
+        Guid? viewerUserId,
+        CancellationToken ct)
+    {
+        var byId = threadPosts.ToDictionary(p => p.Id);
+        var ancestors = new List<Post>();
+        var current = focused;
+        var guard = 0;
+        while (current.ParentPostId.HasValue && guard++ < 32)
+        {
+            if (!byId.TryGetValue(current.ParentPostId.Value, out var parent)) break;
+            ancestors.Insert(0, parent);
+            current = parent;
+        }
+
+        var tree = await BuildTreeAsync(focused, threadPosts, presentations, viewerUpvotes, viewerUserId, ct, policyRoot: current);
+        var ancestorDtos = new List<PostDto>();
+        foreach (var ancestor in ancestors)
+        {
+            ancestorDtos.Add(await ToDtoAsync(
+                ancestor,
+                presentations[ancestor.AuthorUserId],
+                [],
+                viewerUpvotes,
+                viewerUserId,
+                ct,
+                threadRoot: current));
+        }
+
+        return tree with { Ancestors = ancestorDtos };
+    }
+
+    private async Task<bool> CanViewHistoryAsync(Guid userId, Post post, CancellationToken ct)
+    {
+        if (post.WatercoolerId.HasValue)
+        {
+            var perms = await _permissions.GetWatercoolerPermissionsAsync(userId, post.WatercoolerId.Value, ct);
+            return perms.HasFlag(WatercoolerPermissions.ViewHistory);
+        }
+
+        if (!post.ForumId.HasValue) return false;
+        var forumPerms = await _permissions.GetForumPermissionsAsync(userId, post.ForumId.Value, ct);
+        return forumPerms.HasFlag(ForumPermissions.ViewHistory);
+    }
+
+    private async Task<bool> CanModerateAsync(Guid userId, Post post, CancellationToken ct)
+    {
+        if (post.WatercoolerId.HasValue)
+        {
+            var perms = await _permissions.GetWatercoolerPermissionsAsync(userId, post.WatercoolerId.Value, ct);
+            return perms.HasFlag(WatercoolerPermissions.ManageWatercooler);
+        }
+
+        if (!post.ForumId.HasValue) return false;
+        var forumPerms = await _permissions.GetForumPermissionsAsync(userId, post.ForumId.Value, ct);
+        return forumPerms.HasFlag(ForumPermissions.ManagePosts);
+    }
+
+    private async Task RequireModerateAsync(Guid userId, Post post, CancellationToken ct)
+    {
+        if (await CanModerateAsync(userId, post, ct)) return;
+        throw new PermissionDeniedException(
+            post.WatercoolerId.HasValue
+                ? nameof(WatercoolerPermissions.ManageWatercooler)
+                : nameof(ForumPermissions.ManagePosts),
+            post.WatercoolerId.HasValue ? "watercooler" : "forum");
+    }
+
+    private async Task<bool> CanModerateOrEditOwnAsync(Guid userId, Post post, bool edit, CancellationToken ct)
+    {
+        if (await CanModerateAsync(userId, post, ct)) return true;
+        if (post.AuthorUserId != userId) return false;
+        if (post.WatercoolerId.HasValue) return true;
+        if (!post.ForumId.HasValue) return false;
+        var perms = await _permissions.GetForumPermissionsAsync(userId, post.ForumId.Value, ct);
+        return edit ? perms.HasFlag(ForumPermissions.EditOwnPost) : perms.HasFlag(ForumPermissions.DeleteOwnPost);
+    }
+
+    public static PostDto ToDto(
+        Post post,
+        UserPresentationDto author,
+        List<PostDto> replies,
+        IReadOnlySet<Guid> viewerUpvotes,
+        PostViewerActionsDto? viewerActions = null,
+        IReadOnlyList<MediaAttachmentDto>? attachments = null,
+        TopReplyPreviewDto? topReplyPreview = null,
+        IReadOnlyList<PostReactionDto>? reactions = null,
+        QuotedPostDto? quotedPost = null,
+        IReadOnlyList<PostDto>? ancestors = null) => new(
+        post.Id,
+        post.ForumId,
+        post.ParentPostId,
+        author,
+        post.IsDeleted ? DeletedMessage : post.Message,
+        post.ReplyCount,
+        post.UpvoteCount,
+        viewerUpvotes.Contains(post.Id),
+        post.OriginNodeUrl,
+        post.IsFederated,
+        post.IsDeleted,
+        post.IsLocked,
+        post.IsPinned,
+        post.EditedAt,
+        post.CreatedAt,
+        replies,
+        viewerActions,
+        post.Title,
+        attachments ?? [],
+        topReplyPreview,
+        reactions ?? [],
+        post.WatercoolerId,
+        post.QuotedPostId,
+        post.QuoteCount,
+        quotedPost,
+        ancestors,
+        string.IsNullOrWhiteSpace(post.ReplyPolicy) ? ReplyPolicies.Everyone : post.ReplyPolicy);
+
+    private async Task EnsureCanReplyUnderPolicyAsync(Post? root, Guid userId, CancellationToken ct)
+    {
+        if (root is null) return;
+        var canManage = await CanModerateAsync(userId, root, ct);
+        if (await ViewerCanReplyAsync(root, userId, canManage, ct))
+            return;
+
+        throw new InvalidOperationException(
+            "The original poster limited replies to people they follow.");
+    }
+
+    private async Task<bool> ViewerCanReplyAsync(Post root, Guid viewerUserId, bool canManage, CancellationToken ct)
+    {
+        if (root.IsLocked && !canManage)
+            return false;
+
+        if (root.AuthorUserId == viewerUserId || canManage)
+            return true;
+
+        if (!ReplyPolicies.IsFollowingOnly(root.ReplyPolicy))
+            return true;
+
+        var opDid = root.AuthorDid;
+        string? issuerUrl = null;
+        if (string.IsNullOrWhiteSpace(opDid))
+        {
+            var op = await _db.Users.AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == root.AuthorUserId, ct);
+            opDid = op?.Did;
+            issuerUrl = op?.AuthIssuerUrl;
+        }
+        else
+        {
+            issuerUrl = await _db.Users.AsNoTracking()
+                .Where(u => u.Id == root.AuthorUserId)
+                .Select(u => u.AuthIssuerUrl)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        var viewerDid = await _db.Users.AsNoTracking()
+            .Where(u => u.Id == viewerUserId)
+            .Select(u => u.Did)
+            .FirstOrDefaultAsync(ct);
+
+        if (string.IsNullOrWhiteSpace(opDid) || string.IsNullOrWhiteSpace(viewerDid))
+            return false;
+
+        if (string.Equals(opDid, viewerDid, StringComparison.Ordinal))
+            return true;
+
+        if (string.IsNullOrWhiteSpace(issuerUrl))
+        {
+            issuerUrl = await _db.TrustedAuthIssuers.AsNoTracking()
+                .Where(i => i.IsActive)
+                .OrderBy(i => i.Name)
+                .Select(i => i.IssuerUrl)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        return await _followGraph.FollowsAsync(issuerUrl, opDid, viewerDid, ct);
     }
 }

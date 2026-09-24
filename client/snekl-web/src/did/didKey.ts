@@ -1,5 +1,5 @@
 import bs58 from 'bs58';
-import * as ed from '@noble/ed25519';
+import { ed } from './ed25519';
 
 const ED25519_MULTICODEC_PREFIX = 0xed;
 

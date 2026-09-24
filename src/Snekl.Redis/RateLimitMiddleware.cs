@@ -48,13 +48,27 @@ public class RateLimitMiddleware
         var bucket = $"{rule.PathPrefix}:{clientKey}";
         var result = await _rateLimit.CheckAsync(bucket, rule.Limit, TimeSpan.FromSeconds(rule.WindowSeconds));
 
+        context.Response.Headers["X-RateLimit-Limit"] = rule.Limit.ToString();
         context.Response.Headers["X-RateLimit-Remaining"] = result.Remaining.ToString();
+        context.Response.Headers["X-RateLimit-Window"] = rule.WindowSeconds.ToString();
         if (!result.Allowed)
         {
             _logger.LogWarning("Rate limit exceeded for {Bucket} on {Path}", bucket, path);
             context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
             context.Response.Headers["Retry-After"] = result.RetryAfterSeconds.ToString();
-            await context.Response.WriteAsJsonAsync(new { error = "Rate limit exceeded. Try again later." });
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = "Rate limit exceeded. Try again later.",
+                retryAfterSeconds = result.RetryAfterSeconds,
+                rateLimit = new
+                {
+                    pathPrefix = rule.PathPrefix,
+                    method = rule.Method.ToUpperInvariant(),
+                    limit = rule.Limit,
+                    windowSeconds = rule.WindowSeconds,
+                    partition = "ip"
+                }
+            });
             return;
         }
 

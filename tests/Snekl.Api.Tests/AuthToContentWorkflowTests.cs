@@ -50,6 +50,7 @@ public sealed class DualApiFixture : IAsyncLifetime
         var authCs = _postgres.ConnectionStringForDatabase("snekl_dual_auth");
         var contentCs = _postgres.ConnectionStringForDatabase("snekl_dual_content");
 
+        var contentRelay = new TestServerRoutingHandler(ContentBaseUrl);
         AuthFactory = new WebApplicationFactory<Snekl.Account.Api.Controllers.AuthController>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Development");
@@ -62,6 +63,13 @@ public sealed class DualApiFixture : IAsyncLifetime
             builder.UseSetting("RateLimiting:Enabled", "false");
             builder.UseSetting("Snekl:ResetDb", "true");
             builder.UseSetting("Frontend:BaseUrl", "http://localhost:5173");
+            builder.ConfigureTestServices(services =>
+            {
+                services.Configure<HttpClientFactoryOptions>("extension-install", options =>
+                {
+                    options.HttpMessageHandlerBuilderActions.Add(b => b.PrimaryHandler = contentRelay);
+                });
+            });
         });
 
         // Start auth host so CreateHandler works.
@@ -78,14 +86,14 @@ public sealed class DualApiFixture : IAsyncLifetime
             builder.UseSetting("Node:Name", "Snekl Dual Content");
             builder.UseSetting("Node:BaseUrl", ContentBaseUrl);
             builder.UseSetting("Node:Description", "Dual test node");
-            builder.UseSetting("Admin:Username", "admin");
-            builder.UseSetting("Admin:Password", "admin");
             builder.UseSetting("Jwt:Key", "snekl-dual-content-secret-key-min-32-chars");
             builder.UseSetting("Jwt:Issuer", "snekl");
             builder.UseSetting("Jwt:Audience", "snekl");
             builder.UseSetting("AuthIssuers:0:Name", "Snekl Auth Dual");
             builder.UseSetting("AuthIssuers:0:IssuerUrl", AuthBaseUrl);
             builder.UseSetting("AuthIssuers:0:JwksUrl", $"{AuthBaseUrl}/.well-known/jwks.json");
+            builder.UseSetting("ObjectStorage:Provider", "InMemory");
+            builder.UseSetting("ObjectStorage:MaxUploadBytes", "10485760");
             builder.ConfigureTestServices(services =>
             {
                 services.ConfigureAll<HttpClientFactoryOptions>(options =>
@@ -99,6 +107,18 @@ public sealed class DualApiFixture : IAsyncLifetime
         });
 
         _ = ContentClient;
+        contentRelay.Target = ContentFactory.Server.CreateHandler();
+    }
+
+    public async Task GrantSuperUserAsync(Guid userId)
+    {
+        await using var scope = ContentFactory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SneklDbContext>();
+        if (!await db.SuperUserGrants.AnyAsync(g => g.UserId == userId))
+        {
+            db.SuperUserGrants.Add(new SuperUserGrant { UserId = userId, Note = "test" });
+            await db.SaveChangesAsync();
+        }
     }
 
     public async Task GrantMemberRoleAsync(Guid userId)
@@ -179,7 +199,92 @@ public class AuthToContentWorkflowTests
         var postResponse = await content.PostAsJsonAsync("/api/posts", new ContentDtos.CreatePostRequest(
             forum!.Id,
             null,
-            "Federated-identity post"));
+            "Federated-identity post",
+            "Federated title"));
         Assert.Equal(HttpStatusCode.Created, postResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task FollowingOnly_AllowsFollowedUser_AndRejectsOthers()
+    {
+        async Task<(AccountDtos.RingSessionDto Session, ContentDtos.AuthMeResponse Me)> RegisterContentUserAsync()
+        {
+            var username = $"f_{Guid.NewGuid():N}"[..12];
+            var email = $"{username}@example.com";
+            var (keys, proof) = DidProofHelper.CreateRegistrationProof(username);
+            var register = await _fixture.AuthClient.PostAsJsonAsync("/api/auth/register", new AccountDtos.RegisterRequest(
+                username,
+                email,
+                "Password1!",
+                "Follow User",
+                keys.Did,
+                proof));
+            Assert.Equal(HttpStatusCode.OK, register.StatusCode);
+            var session = await register.Content.ReadFromJsonAsync<AccountDtos.RingSessionDto>(JsonOptions);
+            Assert.NotNull(session);
+
+            using var content = _fixture.ContentFactory.CreateClient();
+            content.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", session!.AccessToken);
+            var me = await content.GetFromJsonAsync<ContentDtos.AuthMeResponse>("/api/auth/me", JsonOptions);
+            Assert.NotNull(me);
+            await _fixture.GrantMemberRoleAsync(me!.User.Id);
+            return (session, me);
+        }
+
+        var (opSession, _) = await RegisterContentUserAsync();
+        var (friendSession, _) = await RegisterContentUserAsync();
+        var (strangerSession, _) = await RegisterContentUserAsync();
+
+        using var authOp = _fixture.AuthFactory.CreateClient();
+        authOp.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", opSession.AccessToken);
+        var follow = await authOp.PostAsJsonAsync("/api/me/follows", new AccountDtos.UpsertFollowRequest(friendSession.Person.Did));
+        Assert.Equal(HttpStatusCode.OK, follow.StatusCode);
+
+        using var op = _fixture.ContentFactory.CreateClient();
+        op.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", opSession.AccessToken);
+        using var friend = _fixture.ContentFactory.CreateClient();
+        friend.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", friendSession.AccessToken);
+        using var stranger = _fixture.ContentFactory.CreateClient();
+        stranger.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", strangerSession.AccessToken);
+
+        var forumResponse = await op.PostAsJsonAsync("/api/forums", new ContentDtos.CreateForumRequest(
+            "Follow Forum",
+            $"ff-{Guid.NewGuid():N}"[..16],
+            "Reply policy"));
+        Assert.Equal(HttpStatusCode.Created, forumResponse.StatusCode);
+        var forum = await forumResponse.Content.ReadFromJsonAsync<ContentDtos.ForumDto>(JsonOptions);
+        Assert.NotNull(forum);
+
+        var postResponse = await op.PostAsJsonAsync("/api/posts", new ContentDtos.CreatePostRequest(
+            forum!.Id,
+            null,
+            "Only people I follow",
+            "Closed",
+            ReplyPolicy: "following"));
+        Assert.Equal(HttpStatusCode.Created, postResponse.StatusCode);
+        var post = await postResponse.Content.ReadFromJsonAsync<ContentDtos.PostDto>(JsonOptions);
+        Assert.NotNull(post);
+
+        var friendReply = await friend.PostAsJsonAsync("/api/posts", new ContentDtos.CreatePostRequest(
+            forum.Id,
+            post!.Id,
+            "I am followed"));
+        Assert.Equal(HttpStatusCode.Created, friendReply.StatusCode);
+
+        var strangerReply = await stranger.PostAsJsonAsync("/api/posts", new ContentDtos.CreatePostRequest(
+            forum.Id,
+            post.Id,
+            "I am not followed"));
+        Assert.Equal(HttpStatusCode.BadRequest, strangerReply.StatusCode);
+
+        var strangerThread = await stranger.GetFromJsonAsync<ContentDtos.PostDto>($"/api/posts/{post.Id}", JsonOptions);
+        Assert.NotNull(strangerThread);
+        Assert.False(strangerThread.ViewerActions?.CanReply);
+
+        var friendThread = await friend.GetFromJsonAsync<ContentDtos.PostDto>($"/api/posts/{post.Id}", JsonOptions);
+        Assert.NotNull(friendThread);
+        Assert.True(friendThread.ViewerActions?.CanReply);
     }
 }

@@ -1,22 +1,41 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { createContentClient } from '../api';
-import { PostBody } from '../components/PostBody';
+import { loadContextEmotes } from '../emoteCatalog';
+import { EmoteAutocomplete } from '../components/EmoteAutocomplete';
+import { EmotePicker } from '../components/EmotePicker';
 import { NsfwAgeCheckPanel } from '../components/NsfwAgeCheckPanel';
 import { PostAttachments } from '../components/PostAttachments';
+import { PostBody } from '../components/PostBody';
 import { ReactionBar } from '../components/ReactionBar';
 import { UpvoteButton } from '../components/UpvoteButton';
 import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';
-import { loadContextEmotes } from '../emoteCatalog';
-import type { CatalogEmote } from '../emotes';
+import { insertEmoteToken, catalogEmoteShortcode, type CatalogEmote, type EmoteHome } from '../emotes';
+import { useForumNav } from '../ForumNavContext';
 import { useServerRegistry } from '../ServerRegistryContext';
 import { postOwnerBaseUrl } from '../postOwner';
-import { decodeServerDid, resolveServerBaseUrl } from '../serverDid';
+import { decodeServerDid, forumSettingsPath, resolveServerBaseUrl, serverSettingsPath } from '../serverDid';
 import type { NsfwAgeCheckStatus, Post, PostRevision } from '../types';
 import { usePostRealtime } from '../usePostRealtime';
 
 const isDev = import.meta.env.DEV;
+
+function insertIntoField(
+  value: string,
+  setter: (next: string) => void,
+  el: HTMLTextAreaElement | null,
+  token: string,
+) {
+  const start = el?.selectionStart ?? value.length;
+  const end = el?.selectionEnd ?? value.length;
+  const { next, caret } = insertEmoteToken(value, start, end, token);
+  setter(next);
+  queueMicrotask(() => {
+    el?.focus();
+    el?.setSelectionRange(caret, caret);
+  });
+}
 
 function PostNode({
   post,
@@ -32,7 +51,9 @@ function PostNode({
   setThreadPinned,
   setReplyPolicy,
   reportPost,
-  emotes = [],
+  emotes,
+  home,
+  manageHref,
 }: {
   post: Post;
   forumId?: string | null;
@@ -54,11 +75,15 @@ function PostNode({
   setThreadPinned: (postId: string, pinned: boolean) => Promise<void>;
   setReplyPolicy: (postId: string, replyPolicy: string) => Promise<void>;
   reportPost: (postId: string, reason: string) => Promise<void>;
-  emotes?: CatalogEmote[];
+  emotes: CatalogEmote[];
+  home?: EmoteHome;
+  manageHref?: string;
 }) {
   const { user } = useAuth();
   const [reply, setReply] = useState('');
   const [editMessage, setEditMessage] = useState(post.message);
+  const replyRef = useRef<HTMLTextAreaElement>(null);
+  const editRef = useRef<HTMLTextAreaElement>(null);
   const [showReply, setShowReply] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -74,9 +99,10 @@ function PostNode({
 
   const actions = post.viewerActions;
   const isRoot = !post.parentPostId;
-  const followingOnly = post.replyPolicy === 'following';
   const canModerateLocked = Boolean(actions?.canLock || actions?.canUnlock);
-  const repliesBlocked = (threadLocked && !canModerateLocked) || actions?.canReply === false;
+  const canReply = actions?.canReply !== false;
+  const repliesBlocked = (threadLocked && !canModerateLocked) || (Boolean(user) && !canReply);
+  const followingOnly = post.replyPolicy === 'following';
 
   const submitReply = async (e: FormEvent) => {
     e.preventDefault();
@@ -150,7 +176,7 @@ function PostNode({
       setHistory(rows);
       setShowHistory(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load edit history');
+      setError(err instanceof Error ? err.message : 'Could not load history');
     }
   };
 
@@ -187,7 +213,7 @@ function PostNode({
       await setReplyPolicy(post.id, policy);
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not update who can reply');
+      setError(err instanceof Error ? err.message : 'Could not update reply settings');
     } finally {
       setBusy(false);
     }
@@ -209,36 +235,86 @@ function PostNode({
     }
   };
 
+  const classes = [
+    'post-item',
+    isRoot ? 'post-item-op' : '',
+    post.isDeleted ? 'post-item-deleted' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <div className={`post-item${post.isDeleted ? ' post-item-deleted' : ''}`}>
+    <div className={classes}>
       <div className="post-item-header">
         <UpvoteButton
           postId={post.id}
           baseUrl={postOwnerBaseUrl(post, baseUrl)}
           upvoteCount={post.upvoteCount}
           viewerHasUpvoted={post.viewerHasUpvoted}
-          compact
+          author={post.author}
+          canUpvote={post.viewerActions?.canUpvote}
+          compact={!isRoot}
         />
         <div className="post-item-content">
-          <UserByline presentation={post.author} timestamp={post.createdAt} editedAt={post.editedAt} />
-          {isRoot && (post.isPinned || post.isLocked || followingOnly) && (
+          {isRoot && (
             <div className="thread-badges">
+              <span className="thread-badge thread-badge-op">Original post</span>
               {post.isPinned && <span className="thread-badge thread-badge-pinned">Pinned</span>}
               {post.isLocked && <span className="thread-badge thread-badge-locked">Locked</span>}
               {followingOnly && <span className="thread-badge thread-badge-following">Following only</span>}
             </div>
           )}
-          {isRoot && !threadLocked && followingOnly && (
-            <p className="card-meta">Replies are limited to people the original poster follows.</p>
+          {isRoot && !post.watercoolerId && (
+            <h1 className="thread-root-title">{post.title?.trim() || 'Thread'}</h1>
           )}
+          <UserByline presentation={post.author} timestamp={post.createdAt} editedAt={post.editedAt} />
           {isRoot && threadLocked && (
             <p className="card-meta">This thread is locked. New replies are disabled.</p>
+          )}
+          {isRoot && !threadLocked && followingOnly && (
+            <p className="card-meta">
+              {canReply
+                ? 'Replies are limited to people the original poster follows.'
+                : 'The original poster limited replies to people they follow.'}
+            </p>
           )}
           {showEdit ? (
             <form onSubmit={submitEdit}>
               {error && <div className="error-banner">{error}</div>}
               <div className="form-group">
-                <textarea value={editMessage} onChange={(e) => setEditMessage(e.target.value)} required />
+                <EmoteAutocomplete emotes={emotes} home={home} value={editMessage} onChange={setEditMessage} disabled={busy}>
+                  {(bind) => (
+                    <textarea
+                      ref={(el) => {
+                        bind.ref(el);
+                        editRef.current = el;
+                      }}
+                      value={editMessage}
+                      onChange={bind.onChange}
+                      onKeyDown={bind.onKeyDown}
+                      onSelect={bind.onSelect}
+                      onClick={bind.onClick}
+                      onBlur={bind.onBlur}
+                      required
+                    />
+                  )}
+                </EmoteAutocomplete>
+                <EmotePicker
+                  emotes={emotes}
+                  home={home}
+                  disabled={busy}
+                  manageHref={manageHref}
+                  onPickEmote={(emote) =>
+                    insertIntoField(
+                      editMessage,
+                      setEditMessage,
+                      editRef.current,
+                      emote.imageUrl
+                        ? catalogEmoteShortcode(emote, emotes, home)
+                        : emote.skinsUnicode ?? catalogEmoteShortcode(emote, emotes, home),
+                    )
+                  }
+                />
               </div>
               <div className="post-actions">
                 <button type="submit" className="btn-primary" disabled={busy}>
@@ -251,29 +327,32 @@ function PostNode({
             </form>
           ) : (
             <>
-            {post.quotedPost && (
-              <div className="card" style={{ margin: '0.5rem 0' }}>
-                {post.quotedPost.viewerCanView ? (
-                  <>
-                    <UserByline presentation={post.quotedPost.author} timestamp={post.quotedPost.createdAt} showStatus={false} />
-                    <PostBody message={post.quotedPost.message} emotes={emotes} />
-                  </>
-                ) : (
-                  <p className="card-meta">Quoted post is locked.</p>
-                )}
-              </div>
-            )}
-            <PostBody message={post.message} emotes={emotes} />
+              <PostBody message={post.message} emotes={emotes} home={home} />
+              {post.quotedPost && (
+                <blockquote className="cooler-quote">
+                  {post.quotedPost.viewerCanView ? (
+                    <PostBody message={post.quotedPost.message} emotes={emotes} home={home} />
+                  ) : (
+                    <p className="card-meta">Quoted post is locked.</p>
+                  )}
+                </blockquote>
+              )}
+            </>
+          )}
+          {post.attachments && post.attachments.length > 0 && (
+            <PostAttachments post={post} baseUrl={baseUrl} onChanged={onChanged} />
+          )}
+          {!post.isDeleted && (
             <ReactionBar
               postId={post.id}
               baseUrl={baseUrl}
               reactions={post.reactions ?? []}
               emotes={emotes}
-              forumId={forumId ?? undefined}
+              forumId={home?.forumId}
               disabled={post.isFederated}
+              manageHref={manageHref}
+              onChange={() => onChanged()}
             />
-            <PostAttachments post={post} baseUrl={baseUrl} onChanged={onChanged} />
-            </>
           )}
           {error && !showEdit && !showReport && <div className="error-banner">{error}</div>}
           <div className="post-actions">
@@ -299,7 +378,7 @@ function PostNode({
             )}
             {actions?.canViewHistory && (
               <button type="button" className="btn-ghost" onClick={loadHistory} disabled={busy}>
-                {showHistory ? 'Hide history' : 'Edit history'}
+                {showHistory ? 'Hide history' : 'Show history'}
               </button>
             )}
             {actions?.canLock && (
@@ -373,11 +452,39 @@ function PostNode({
           {showReply && !post.isDeleted && !repliesBlocked && (
             <form onSubmit={submitReply}>
               <div className="form-group">
-                <textarea
-                  value={reply}
-                  onChange={(e) => setReply(e.target.value)}
-                  placeholder="Write a reply..."
-                  required
+                <EmoteAutocomplete emotes={emotes} home={home} value={reply} onChange={setReply} disabled={busy}>
+                  {(bind) => (
+                    <textarea
+                      ref={(el) => {
+                        bind.ref(el);
+                        replyRef.current = el;
+                      }}
+                      value={reply}
+                      onChange={bind.onChange}
+                      onKeyDown={bind.onKeyDown}
+                      onSelect={bind.onSelect}
+                      onClick={bind.onClick}
+                      onBlur={bind.onBlur}
+                      placeholder="Write a reply… Type : for emotes or use the picker"
+                      required
+                    />
+                  )}
+                </EmoteAutocomplete>
+                <EmotePicker
+                  emotes={emotes}
+                  home={home}
+                  disabled={busy}
+                  manageHref={manageHref}
+                  onPickEmote={(emote) =>
+                    insertIntoField(
+                      reply,
+                      setReply,
+                      replyRef.current,
+                      emote.imageUrl
+                        ? catalogEmoteShortcode(emote, emotes, home)
+                        : emote.skinsUnicode ?? catalogEmoteShortcode(emote, emotes, home),
+                    )
+                  }
                 />
               </div>
               <button type="submit" className="btn-primary" disabled={busy}>
@@ -387,6 +494,11 @@ function PostNode({
           )}
         </div>
       </div>
+      {isRoot && post.replies.length > 0 && (
+        <h2 className="thread-replies-heading">
+          {post.replyCount} {post.replyCount === 1 ? 'reply' : 'replies'}
+        </h2>
+      )}
       <div className="post-tree">
         {post.replies.map((child) => (
           <PostNode
@@ -405,6 +517,8 @@ function PostNode({
             setReplyPolicy={setReplyPolicy}
             reportPost={reportPost}
             emotes={emotes}
+            home={home}
+            manageHref={manageHref}
           />
         ))}
       </div>
@@ -414,17 +528,35 @@ function PostNode({
 
 export function ThreadPage() {
   const { serverDid: encodedDid, postId } = useParams<{ serverDid: string; postId: string }>();
-  const { resolveBaseUrl } = useServerRegistry();
+  const { user } = useAuth();
+  const { resolveBaseUrl, activeServers } = useServerRegistry();
+  const { forums, recordVisit } = useForumNav();
   const [thread, setThread] = useState<Post | null>(null);
+  const [emotes, setEmotes] = useState<CatalogEmote[]>([]);
+  const [emoteHomeForum, setEmoteHomeForum] = useState<{
+    id: string;
+    slug: string;
+    parentSlug?: string | null;
+  } | null>(null);
   const [error, setError] = useState('');
   const [removed, setRemoved] = useState(false);
-  const [emotes, setEmotes] = useState<CatalogEmote[]>([]);
   const [ageStatus, setAgeStatus] = useState<NsfwAgeCheckStatus | null>(null);
-  const { user } = useAuth();
 
   const serverDid = encodedDid ? decodeServerDid(encodedDid) : '';
   const baseUrl = resolveServerBaseUrl(serverDid, resolveBaseUrl);
   const client = useMemo(() => (baseUrl ? createContentClient(baseUrl) : null), [baseUrl]);
+  const navForum = thread
+    ? forums.find((item) => item.forumId === thread.forumId && item.serverDid === serverDid)
+    : undefined;
+  const emoteSettingsHref = serverDid
+    ? emoteHomeForum ?? navForum
+      ? `${forumSettingsPath(
+          serverDid,
+          emoteHomeForum?.slug ?? navForum?.slug ?? '',
+          emoteHomeForum?.parentSlug ?? navForum?.parentSlug ?? undefined,
+        )}#emotes`
+      : `${serverSettingsPath(serverDid)}#emotes`
+    : undefined;
 
   const load = () => {
     if (!postId || !client) return;
@@ -437,24 +569,61 @@ export function ThreadPage() {
 
   useEffect(load, [postId, client]);
 
+  useEffect(() => {
+    if (!client || !thread) return;
+    void (async () => {
+      let forumId = thread.forumId ?? undefined;
+      let destPermissions: string[] | undefined;
+      let homeForum: { id: string; slug: string; parentSlug?: string | null } | null = navForum
+        ? { id: navForum.forumId, slug: navForum.slug, parentSlug: navForum.parentSlug }
+        : null;
+      if (!forumId && thread.watercoolerId) {
+        const forums = await client.getForums().catch(() => []);
+        const parent = forums.find((forum) => forum.watercoolers?.some((cooler) => cooler.id === thread.watercoolerId));
+        forumId = parent?.id;
+        destPermissions = parent?.viewerPermissions;
+        if (parent) {
+          homeForum = { id: parent.id, slug: parent.slug, parentSlug: parent.parentSlug };
+        }
+      } else if (navForum?.slug) {
+        const forum = await client.getForum(navForum.slug, navForum.parentSlug ?? undefined).catch(() => null);
+        destPermissions = forum?.viewerPermissions;
+      }
+      setEmoteHomeForum(homeForum && forumId ? { ...homeForum, id: forumId } : homeForum);
+      const list = await loadContextEmotes({
+        homeClient: client,
+        forumId,
+        destPermissions,
+        homeServerDid: serverDid,
+        activeServers,
+      }).catch(() => [] as CatalogEmote[]);
+      setEmotes(list);
+    })();
+    if (thread.forumId) {
+      client.getNsfwAgeCheck(thread.forumId).then(setAgeStatus).catch(() => setAgeStatus(null));
+    }
+  }, [
+    activeServers,
+    client,
+    navForum,
+    serverDid,
+    thread?.forumId,
+    thread?.id,
+    thread?.watercoolerId,
+  ]);
+
+  useEffect(() => {
+    if (!user || !thread || !serverDid) return;
+    const found = forums.find((forum) => forum.forumId === thread.forumId && forum.serverDid === serverDid);
+    if (!found) return;
+    recordVisit(found);
+  }, [user, thread, serverDid, forums, recordVisit]);
+
   usePostRealtime({
     baseUrl,
     threadId: postId,
-    watercoolerId: thread?.watercoolerId,
     onEvent: () => load(),
   });
-
-  useEffect(() => {
-    if (!client) return;
-    loadContextEmotes({ homeClient: client, forumId: thread?.forumId ?? undefined })
-      .then(setEmotes)
-      .catch(() => setEmotes([]));
-  }, [client, thread?.forumId]);
-
-  useEffect(() => {
-    if (!client || !thread?.forumId) return;
-    client.getNsfwAgeCheck(thread.forumId).then(setAgeStatus).catch(() => setAgeStatus(null));
-  }, [client, thread?.forumId]);
 
   const handleDelete = async (targetPostId: string, hard?: boolean) => {
     if (!client) return;
@@ -481,70 +650,73 @@ export function ThreadPage() {
   if (!thread && !error) return <p>Loading thread...</p>;
 
   return (
-    <div>
-      <Link to="/" style={{ color: 'var(--muted)' }}>
+    <div className="thread-page">
+      <Link to="/" className="thread-back">
         ← Back to forums
       </Link>
-      <h1 className="page-title">{thread?.title?.trim() || 'Thread'}</h1>
       {error && <div className="error-banner">{error}</div>}
-      {ageStatus?.blocksEntry && client && (
+      {client && (ageStatus || (error && error.includes('Confirm your age'))) && (
         <NsfwAgeCheckPanel
           client={client}
           forumId={thread?.forumId ?? undefined}
-          status={ageStatus}
+          status={
+            ageStatus ?? {
+              enforced: true,
+              requiredByServer: false,
+              requiredByForum: true,
+              minimumAge: 18,
+              viewerAttested: false,
+              blocksEntry: true,
+            }
+          }
           loggedIn={Boolean(user)}
+          pendingNsfw={(thread?.attachments ?? []).some((att) => att.isNsfw && !att.url)}
           onCompleted={(next) => {
             setAgeStatus(next);
+            setError('');
             load();
           }}
         />
       )}
-      {thread && client && (
-        <div className="card">
-          {(thread.ancestors ?? []).map((ancestor) => (
-            <PostNode
-              key={ancestor.id}
-              post={ancestor}
-              forumId={thread.forumId}
-              baseUrl={baseUrl}
-              threadLocked={thread.isLocked}
-              onChanged={load}
-              createPost={client.createPost.bind(client)}
-              updatePost={client.updatePost.bind(client)}
-              deletePost={handleDelete}
-              getPostRevisions={client.getPostRevisions.bind(client)}
-              setThreadLocked={async (id, locked) => { await client.setThreadLocked(id, locked); }}
-              setThreadPinned={async (id, pinned) => { await client.setThreadPinned(id, pinned); }}
-              setReplyPolicy={async (id, policy) => { await client.setReplyPolicy(id, policy); }}
-              reportPost={async (id, reason) => { await client.reportPost(id, reason); }}
-              emotes={emotes}
-            />
+      {thread && client && !ageStatus?.blocksEntry && (
+        <>
+          {thread.ancestors?.map((ancestor) => (
+            <div key={ancestor.id} className="card cooler-quote" style={{ marginBottom: '0.5rem' }}>
+              <UserByline presentation={ancestor.author} timestamp={ancestor.createdAt} showStatus={false} />
+              <PostBody
+                message={ancestor.message}
+                emotes={emotes}
+                home={{ forumId: emoteHomeForum?.id ?? thread.forumId, serverDid }}
+              />
+            </div>
           ))}
           <PostNode
-            post={thread}
-            forumId={thread.forumId}
-            baseUrl={baseUrl}
-            threadLocked={thread.isLocked}
-            onChanged={load}
-            createPost={client.createPost.bind(client)}
-            updatePost={client.updatePost.bind(client)}
-            deletePost={handleDelete}
-            getPostRevisions={client.getPostRevisions.bind(client)}
-            setThreadLocked={async (id, locked) => {
-              await client.setThreadLocked(id, locked);
-            }}
-            setThreadPinned={async (id, pinned) => {
-              await client.setThreadPinned(id, pinned);
-            }}
-            setReplyPolicy={async (id, policy) => {
-              await client.setReplyPolicy(id, policy);
-            }}
-            reportPost={async (id, reason) => {
-              await client.reportPost(id, reason);
-            }}
-            emotes={emotes}
-          />
-        </div>
+          post={thread}
+          forumId={thread.forumId}
+          baseUrl={baseUrl}
+          threadLocked={thread.isLocked}
+          onChanged={load}
+          createPost={client.createPost.bind(client)}
+          updatePost={client.updatePost.bind(client)}
+          deletePost={handleDelete}
+          getPostRevisions={client.getPostRevisions.bind(client)}
+          setThreadLocked={async (id, locked) => {
+            await client.setThreadLocked(id, locked);
+          }}
+          setThreadPinned={async (id, pinned) => {
+            await client.setThreadPinned(id, pinned);
+          }}
+          setReplyPolicy={async (id, policy) => {
+            await client.setReplyPolicy(id, policy);
+          }}
+          reportPost={async (id, reason) => {
+            await client.reportPost(id, reason);
+          }}
+          emotes={emotes}
+          home={{ forumId: emoteHomeForum?.id ?? thread.forumId, serverDid }}
+          manageHref={emoteSettingsHref}
+        />
+        </>
       )}
     </div>
   );

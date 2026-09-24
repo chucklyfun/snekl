@@ -83,12 +83,15 @@ public class ForumService : IForumService
         if (await _db.Forums.AnyAsync(f => f.ParentForumId == parentId && f.Slug == slug, ct))
             throw new InvalidOperationException("Forum slug already exists.");
 
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
         var forum = new Forum
         {
             Name = request.Name.Trim(),
             Slug = slug,
             Description = request.Description.Trim(),
             CreatedByUserId = userId,
+            OwnerUserId = userId,
             ParentForumId = parentId,
             AllowAliases = parent?.AllowAliases ?? true,
             ApprovalStatus = approvalStatus
@@ -98,9 +101,18 @@ public class ForumService : IForumService
         await _db.SaveChangesAsync(ct);
 
         if (parent is not null)
+        {
             await _roleSeed.InheritForumRolesFromParentAsync(forum.Id, parent.Id, ct);
+            await _roleSeed.EnsureForumOwnerAsync(forum.Id, userId, ct);
+        }
         else
             await _roleSeed.SeedForumRolesAsync(forum.Id, userId, ct);
+
+        await EnsureMembershipAsync(userId, forum.Id, ct);
+        await _db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+
+        await PublishMembershipAsync(userId, forum.Id, deleted: false, ct);
 
         var createdBy = await _presentation.GetPresentationAsync(userId, viewerUserId ?? userId, forum.Id, ct);
         return await ToDtoAsync(forum, createdBy, 0, viewerUserId, ct);
@@ -219,13 +231,12 @@ public class ForumService : IForumService
             .Include(f => f.CreatedBy)
             .Include(f => f.ParentForum)
             .Include(f => f.Subforums)
-            .Where(f => f.ParentForumId == null)
             .OrderByDescending(f => f.CreatedAt)
             .ToListAsync(ct);
 
         var postCounts = await _db.Posts
-            .Where(p => p.ParentPostId == null)
-            .GroupBy(p => p.ForumId)
+            .Where(p => p.ParentPostId == null && p.ForumId != null)
+            .GroupBy(p => p.ForumId!.Value)
             .Select(g => new { ForumId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.ForumId, x => x.Count, ct);
 
@@ -235,6 +246,8 @@ public class ForumService : IForumService
         var result = new List<ForumDto>();
         foreach (var forum in forums)
         {
+            await EnsureForumRolesAsync(forum, ct);
+
             if (!await _permissions.CanViewForumAsync(viewerUserId, forum.Id, ct))
                 continue;
 
@@ -254,6 +267,8 @@ public class ForumService : IForumService
     {
         var forum = await GetEntityBySlugAsync(slug, parentSlug, ct);
         if (forum is null) return null;
+
+        await EnsureForumRolesAsync(forum, ct);
 
         if (!await _permissions.CanViewForumAsync(viewerUserId, forum.Id, ct))
             throw new PermissionDeniedException(ForumPermissions.ViewForum.ToString(), "forum");
@@ -397,15 +412,38 @@ public class ForumService : IForumService
             Slug = payload.Slug,
             Description = payload.Description,
             CreatedByUserId = author.Id,
+            OwnerUserId = author.Id,
             CreatedAt = payload.CreatedAt,
             UpdatedAt = payload.CreatedAt,
             OriginNodeId = sourceNodeId,
-            OriginNodeUrl = sourceNodeUrl
+            OriginNodeUrl = sourceNodeUrl,
+            ApprovalStatus = ForumApprovalStatuses.Approved
         };
 
         _db.Forums.Add(forum);
         await _db.SaveChangesAsync(ct);
         await _roleSeed.SeedForumRolesAsync(forum.Id, author.Id, ct);
+    }
+
+    private async Task EnsureForumRolesAsync(Forum forum, CancellationToken ct)
+    {
+        if (await _db.ForumRoles.AnyAsync(r => r.ForumId == forum.Id, ct))
+            return;
+
+        var creatorId = forum.CreatedByUserId;
+        if (creatorId == Guid.Empty)
+        {
+            var anyUser = await _db.Users.AsNoTracking().Select(u => u.Id).FirstOrDefaultAsync(ct);
+            if (anyUser == Guid.Empty) return;
+            creatorId = anyUser;
+        }
+
+        await _roleSeed.SeedForumRolesAsync(forum.Id, creatorId, ct);
+        if (forum.OwnerUserId is null)
+        {
+            forum.OwnerUserId = creatorId;
+            await _db.SaveChangesAsync(ct);
+        }
     }
 
     private async Task<ForumDto> ToDtoAsync(
@@ -421,9 +459,7 @@ public class ForumService : IForumService
             if (!await _permissions.CanViewForumAsync(viewerUserId, sub.Id, ct))
                 continue;
             var subCount = await _db.Posts.CountAsync(p => p.ForumId == sub.Id && p.ParentPostId == null, ct);
-            subforumSummaries.Add(new ForumSummaryDto(
-                sub.Id, sub.Name, sub.Slug, subCount,
-                sub.AvatarMediaAssetId is Guid avatarId ? _media.BuildPublicUrl(avatarId) : null));
+            subforumSummaries.Add(new ForumSummaryDto(sub.Id, sub.Name, sub.Slug, subCount, MediaUrl(sub.AvatarMediaAssetId)));
         }
 
         IReadOnlyList<string>? viewerPerms = null;
@@ -432,8 +468,8 @@ public class ForumService : IForumService
         var viewerIsFavorite = false;
         if (viewerUserId.HasValue)
         {
-            var perms = await _permissions.GetForumPermissionsAsync(viewerUserId, forum.Id, ct);
-            viewerPerms = PermissionNames.ToNames(perms);
+            var modes = await _permissions.GetForumPermissionModesAsync(viewerUserId, forum.Id, ct);
+            viewerPerms = PermissionNames.ToNames(modes, server: false);
             var membership = await _db.ForumMemberships.AsNoTracking()
                 .FirstOrDefaultAsync(m => m.ForumId == forum.Id && m.UserId == viewerUserId.Value, ct);
             viewerIsMember = membership is not null
@@ -480,7 +516,14 @@ public class ForumService : IForumService
             contentBlocks.Clear();
         }
 
-        string? Avatar(Guid? id) => id is Guid mediaId ? _media.BuildPublicUrl(mediaId) : null;
+        string? ownerUsername = null;
+        if (forum.OwnerUserId is Guid ownerId)
+        {
+            ownerUsername = await _db.Users.AsNoTracking()
+                .Where(u => u.Id == ownerId)
+                .Select(u => u.Username)
+                .FirstOrDefaultAsync(ct);
+        }
 
         return new ForumDto(
             forum.Id,
@@ -497,7 +540,9 @@ public class ForumService : IForumService
             subforumSummaries,
             viewerPerms,
             forum.AllowAliases,
-            string.IsNullOrWhiteSpace(forum.ApprovalStatus) ? ForumApprovalStatuses.Approved : forum.ApprovalStatus,
+            string.IsNullOrWhiteSpace(forum.ApprovalStatus)
+                ? ForumApprovalStatuses.Approved
+                : forum.ApprovalStatus,
             await ViewerCanApproveAsync(viewerUserId, forum, ct),
             viewerIsMember,
             viewerCanManage,
@@ -509,12 +554,17 @@ public class ForumService : IForumService
             age.Enforced,
             age.MinimumAge,
             age.ViewerAttested,
-            Avatar(forum.AvatarMediaAssetId),
-            Avatar(forum.BannerMediaAssetId),
+            MediaUrl(forum.AvatarMediaAssetId),
+            MediaUrl(forum.BannerMediaAssetId),
             forum.NsfwAgeCheckExplanation,
             age.BlocksEntry,
-            age.ForumExplanation);
+            age.ForumExplanation,
+            ownerUsername,
+            viewerUserId.HasValue && forum.OwnerUserId == viewerUserId);
     }
+
+    private string? MediaUrl(Guid? mediaAssetId) =>
+        mediaAssetId is Guid id ? _media.BuildPublicUrl(id) : null;
 
     private async Task RequireForumApprovalPermissionAsync(Guid userId, CancellationToken ct)
     {
@@ -529,27 +579,6 @@ public class ForumService : IForumService
         if (await _permissions.IsSuperUserAsync(viewerUserId, ct)) return true;
         var perms = await _permissions.GetServerPermissionsAsync(viewerUserId, ct);
         return perms.HasFlag(ServerPermissions.CreateForum);
-    }
-
-    private async Task EnsureForumRolesAsync(Forum forum, CancellationToken ct)
-    {
-        if (await _db.ForumRoles.AnyAsync(r => r.ForumId == forum.Id, ct))
-            return;
-
-        var creatorId = forum.CreatedByUserId;
-        if (creatorId == Guid.Empty)
-        {
-            var anyUser = await _db.Users.AsNoTracking().Select(u => u.Id).FirstOrDefaultAsync(ct);
-            if (anyUser == Guid.Empty) return;
-            creatorId = anyUser;
-        }
-
-        await _roleSeed.SeedForumRolesAsync(forum.Id, creatorId, ct);
-        if (forum.OwnerUserId is null)
-        {
-            forum.OwnerUserId = creatorId;
-            await _db.SaveChangesAsync(ct);
-        }
     }
 
     private async Task<ForumDto> ToViewerDtoAsync(Forum forum, Guid viewerUserId, CancellationToken ct)

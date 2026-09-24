@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using Snekl.Domain.Entities;
 using Snekl.Domain.Identity;
+using Snekl.Domain;
 using Snekl.Infrastructure.Caching;
 using Snekl.Infrastructure.Data;
 
@@ -137,7 +138,12 @@ public class ExternalAuthService : IExternalAuthService
                 Did = did,
                 AuthIssuerUrl = issuer,
                 AuthSubjectId = subjectId,
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString("N"))
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString("N")),
+                IsBot = principal.FindFirstValue(OAuthClaims.Bot) == "true",
+                OAuthClientId = principal.FindFirstValue(OAuthClaims.Azp),
+                ExtensionInstallId = Guid.TryParse(principal.FindFirstValue(OAuthClaims.InstallId), out var installId)
+                    ? installId
+                    : null
             };
             _db.Users.Add(user);
             try
@@ -158,6 +164,11 @@ public class ExternalAuthService : IExternalAuthService
             user.AuthIssuerUrl = issuer;
             user.AuthSubjectId = subjectId;
             user.Email = normalizedEmail;
+            user.IsBot = principal.FindFirstValue(OAuthClaims.Bot) == "true" || user.IsBot;
+            if (Guid.TryParse(principal.FindFirstValue(OAuthClaims.InstallId), out var existingInstallId))
+                user.ExtensionInstallId = existingInstallId;
+            if (!string.IsNullOrWhiteSpace(principal.FindFirstValue(OAuthClaims.Azp)))
+                user.OAuthClientId = principal.FindFirstValue(OAuthClaims.Azp);
 
             if (!string.Equals(user.Username, username, StringComparison.Ordinal))
             {

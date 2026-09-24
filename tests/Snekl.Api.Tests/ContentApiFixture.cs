@@ -35,19 +35,20 @@ public sealed class ContentApiFixture : IAsyncLifetime
             builder.UseEnvironment("Development");
             builder.UseSetting("ConnectionStrings:Default", connectionString);
             builder.UseSetting("ConnectionStrings:Redis", "");
+            builder.UseSetting("ConnectionStrings:OpenSearch", "");
             builder.UseSetting("RateLimiting:Enabled", "false");
             builder.UseSetting("Snekl:ResetDb", "true");
             builder.UseSetting("Node:Name", "Snekl Test Node");
             builder.UseSetting("Node:BaseUrl", "http://content.test");
             builder.UseSetting("Node:Description", "Test node");
-            builder.UseSetting("Admin:Username", "admin");
-            builder.UseSetting("Admin:Password", "admin");
             builder.UseSetting("Jwt:Key", "snekl-content-test-secret-key-min-32-chars");
             builder.UseSetting("Jwt:Issuer", "snekl");
             builder.UseSetting("Jwt:Audience", "snekl");
             builder.UseSetting("AuthIssuers:0:Name", "Unused");
             builder.UseSetting("AuthIssuers:0:IssuerUrl", "http://unused.invalid");
             builder.UseSetting("AuthIssuers:0:JwksUrl", "http://unused.invalid/jwks");
+            builder.UseSetting("ObjectStorage:Provider", "InMemory");
+            builder.UseSetting("ObjectStorage:MaxUploadBytes", "10485760");
         });
 
         _ = Client;

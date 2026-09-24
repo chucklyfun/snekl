@@ -33,4 +33,16 @@ describe('didKey', () => {
     expect(proof.startsWith('z')).toBe(true);
     expect(proof.length).toBeGreaterThan(10);
   });
+
+  it('generates a did:key when crypto.subtle is unavailable', async () => {
+    const cryptoObj = globalThis.crypto;
+    const originalSubtle = Object.getOwnPropertyDescriptor(cryptoObj, 'subtle');
+    Object.defineProperty(cryptoObj, 'subtle', { configurable: true, value: undefined });
+    try {
+      const material = await generateDidKey();
+      expect(material.did.startsWith('did:key:z')).toBe(true);
+    } finally {
+      if (originalSubtle) Object.defineProperty(cryptoObj, 'subtle', originalSubtle);
+    }
+  });
 });

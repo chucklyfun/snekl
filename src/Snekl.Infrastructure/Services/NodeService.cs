@@ -1,8 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Snekl.Domain.Dtos;
 using Snekl.Domain.Entities;
 using Snekl.Domain.Identity.Did;
 using Snekl.Infrastructure.Data;
+using Snekl.Redis;
 
 namespace Snekl.Infrastructure.Services;
 
@@ -18,8 +21,15 @@ public interface INodeService
 public class NodeService : INodeService
 {
     private readonly SneklDbContext _db;
+    private readonly RateLimitOptions _rateLimits;
+    private readonly IConfiguration _config;
 
-    public NodeService(SneklDbContext db) => _db = db;
+    public NodeService(SneklDbContext db, IOptions<RateLimitOptions> rateLimits, IConfiguration config)
+    {
+        _db = db;
+        _rateLimits = rateLimits.Value;
+        _config = config;
+    }
 
     public async Task<NodeConfig> GetOrCreateAsync(CancellationToken ct = default)
     {
@@ -48,6 +58,14 @@ public class NodeService : INodeService
             .OrderByDescending(i => i.CreatedAt)
             .Select(i => i.HubBaseUrl)
             .FirstOrDefaultAsync(ct);
+        string? ownerUsername = null;
+        if (node.OwnerUserId is Guid ownerId)
+        {
+            ownerUsername = await _db.Users.AsNoTracking()
+                .Where(u => u.Id == ownerId)
+                .Select(u => u.Username)
+                .FirstOrDefaultAsync(ct);
+        }
         return new NodeInfoDto(
             node.Id,
             node.Did,
@@ -55,7 +73,10 @@ public class NodeService : INodeService
             node.BaseUrl,
             node.Description,
             node.CreatedAt,
-            string.IsNullOrWhiteSpace(hubBaseUrl) ? null : hubBaseUrl.TrimEnd('/'));
+            string.IsNullOrWhiteSpace(hubBaseUrl) ? null : hubBaseUrl.TrimEnd('/'),
+            RateLimitPolicyMapper.ToDto(_rateLimits, RedisExtensions.IsRedisConfigured(_config)),
+            ownerUsername,
+            node.OwnerUserId);
     }
 
     public async Task<NodeConfig> UpdateAsync(string name, string baseUrl, string description, CancellationToken ct = default)

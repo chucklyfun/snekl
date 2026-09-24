@@ -48,7 +48,9 @@
 }
 
 .avatar-corner-list {
-  background: var(--federated);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--federated) 35%, var(--surface));
+  border-color: color-mix(in srgb, var(--federated) 70%, var(--bg));
 }
 
 .user-byline {
@@ -70,6 +72,15 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.35rem;
+}
+
+.byline-mark-split {
+  width: 0;
+  height: 1.05rem;
+  margin: 0 0.1rem;
+  border-left: 2px dotted var(--text);
+  opacity: 0.45;
+  align-self: center;
 }
 
 .display-name {
@@ -106,12 +117,13 @@
 .annotation-badge {
   position: relative;
   display: inline-flex;
+  align-items: center;
   cursor: help;
 }
 
-.annotation-badge.severity-3 .flair-badge,
-.annotation-badge.severity-4 .flair-badge {
-  filter: drop-shadow(0 0 2px rgba(245, 158, 11, 0.6));
+.annotation-badge.severity-3,
+.annotation-badge.severity-4 {
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.7);
 }
 
 .annotation-popover {

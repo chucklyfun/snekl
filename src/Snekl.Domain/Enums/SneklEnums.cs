@@ -30,7 +30,8 @@ public enum StatusPreset
 public enum PostSort
 {
     Hot = 0,
-    New = 1
+    New = 1,
+    Updated = 2
 }
 
 public enum ListBehavior

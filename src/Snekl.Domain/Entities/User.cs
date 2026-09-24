@@ -21,6 +21,7 @@ public class User : ExternalEntity
     public string? OAuthClientId { get; set; }
     public Guid? ExtensionInstallId { get; set; }
 
+    /// <summary>When set, the user attested they meet <see cref="NsfwAgeAttestedMinimum"/> on this node. Date of birth is not stored.</summary>
     public DateTime? NsfwAgeAttestedAt { get; set; }
     public int? NsfwAgeAttestedMinimum { get; set; }
 

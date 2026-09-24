@@ -20,6 +20,7 @@ public class Post : ExternalEntity
 
     /// <summary>Thread title for root posts only; null for replies.</summary>
     public string? Title { get; set; }
+
     public string Message { get; set; } = string.Empty;
 
     public ICollection<PostMedia> Media { get; set; } = new List<PostMedia>();

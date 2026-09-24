@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Snekl.Domain;
 using Snekl.Domain.Dtos;
 using Snekl.Domain.Entities;
 using Snekl.Domain.Enums;
@@ -11,7 +12,7 @@ public interface IForumModerationService
     Task<bool> IsBannedAsync(Guid forumId, Guid userId, CancellationToken ct = default);
     Task<IReadOnlyList<ForumBanDto>> ListBansAsync(Guid forumId, CancellationToken ct = default);
     Task BanUserAsync(Guid forumId, Guid moderatorUserId, string username, string? reason, DateTime? expiresAt, CancellationToken ct = default);
-    Task UnbanUserAsync(Guid forumId, Guid userId, CancellationToken ct = default);
+    Task UnbanUserAsync(Guid forumId, Guid userId, Guid? actorUserId = null, CancellationToken ct = default);
     Task<PostReportDto> ReportPostAsync(Guid reporterUserId, Guid postId, string reason, CancellationToken ct = default);
     Task<IReadOnlyList<PostReportDto>> ListOpenReportsAsync(Guid forumId, CancellationToken ct = default);
     Task DismissReportAsync(Guid moderatorUserId, Guid reportId, CancellationToken ct = default);
@@ -21,8 +22,13 @@ public interface IForumModerationService
 public class ForumModerationService : IForumModerationService
 {
     private readonly SneklDbContext _db;
+    private readonly IChangeLogService? _changeLog;
 
-    public ForumModerationService(SneklDbContext db) => _db = db;
+    public ForumModerationService(SneklDbContext db, IChangeLogService? changeLog = null)
+    {
+        _db = db;
+        _changeLog = changeLog;
+    }
 
     public async Task<bool> IsBannedAsync(Guid forumId, Guid userId, CancellationToken ct = default)
     {
@@ -88,16 +94,48 @@ public class ForumModerationService : IForumModerationService
         }
 
         await _db.SaveChangesAsync(ct);
+        if (_changeLog is not null)
+        {
+            await _changeLog.RecordAsync(
+                ChangeLogScopes.Forum,
+                forumId,
+                null,
+                ChangeLogEntityTypes.ForumBan,
+                user.Id,
+                ChangeLogActions.Updated,
+                moderatorUserId,
+                $"Banned @{user.Username}",
+                null,
+                new { username = user.Username, reason = reason?.Trim(), expiresAt },
+                ct);
+        }
     }
 
-    public async Task UnbanUserAsync(Guid forumId, Guid userId, CancellationToken ct = default)
+    public async Task UnbanUserAsync(Guid forumId, Guid userId, Guid? actorUserId = null, CancellationToken ct = default)
     {
         var ban = await _db.ForumMemberBans
+            .Include(b => b.User)
             .FirstOrDefaultAsync(b => b.ForumId == forumId && b.UserId == userId, ct);
         if (ban is null) return;
 
+        var username = ban.User?.Username ?? userId.ToString();
         _db.ForumMemberBans.Remove(ban);
         await _db.SaveChangesAsync(ct);
+        if (_changeLog is not null)
+        {
+            await _changeLog.RecordAsync(
+                ChangeLogScopes.Forum,
+                forumId,
+                null,
+                ChangeLogEntityTypes.ForumBan,
+                userId,
+                ChangeLogActions.Deleted,
+                actorUserId,
+                $"Unbanned @{username}",
+                new { username, reason = ban.Reason, expiresAt = ban.ExpiresAt },
+                null,
+                ct);
+        }
     }
 
     public async Task<PostReportDto> ReportPostAsync(Guid reporterUserId, Guid postId, string reason, CancellationToken ct = default)
@@ -166,6 +204,7 @@ public class ForumModerationService : IForumModerationService
         report.ResolvedByUserId = moderatorUserId;
         report.ResolvedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await RecordReportAsync(report, moderatorUserId, "Dismissed post report", ct);
     }
 
     public async Task ResolveReportAsync(Guid moderatorUserId, Guid reportId, CancellationToken ct = default)
@@ -177,12 +216,30 @@ public class ForumModerationService : IForumModerationService
         report.ResolvedByUserId = moderatorUserId;
         report.ResolvedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await RecordReportAsync(report, moderatorUserId, "Resolved post report", ct);
+    }
+
+    private async Task RecordReportAsync(PostReport report, Guid actorUserId, string summary, CancellationToken ct)
+    {
+        if (_changeLog is null) return;
+        await _changeLog.RecordAsync(
+            ChangeLogScopes.Forum,
+            report.ForumId,
+            null,
+            ChangeLogEntityTypes.PostReport,
+            report.Id,
+            ChangeLogActions.Updated,
+            actorUserId,
+            summary,
+            null,
+            new { report.Status, report.PostId },
+            ct);
     }
 
     private static PostReportDto ToReportDto(PostReport report, Post post, User reporter)
     {
         var preview = post.IsDeleted ? "[deleted]" : post.Message;
-        if (preview.Length > 120) preview = preview[..120] + "ΓÇª";
+        if (preview.Length > 120) preview = preview[..120] + "…";
 
         return new PostReportDto(
             report.Id,

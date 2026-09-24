@@ -53,7 +53,9 @@ public class UserPresentationService : IUserPresentationService
 
     public async Task<UserPresentationDto?> GetPresentationByUsernameAsync(string username, Guid? viewerUserId = null, Guid? forumId = null, CancellationToken ct = default)
     {
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Username == username.ToLowerInvariant(), ct);
+        var handle = username.Trim().TrimStart('@').ToLowerInvariant();
+        if (handle.Length == 0) return null;
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Username == handle, ct);
         return user is null ? null : await GetPresentationAsync(user.Id, viewerUserId, forumId, ct);
     }
 
@@ -105,11 +107,24 @@ public class UserPresentationService : IUserPresentationService
             .Where(u => ids.Contains(u.Id))
             .ToListAsync(ct);
 
-        var subscribedListIds = viewerUserId.HasValue
+        var subscribed = viewerUserId.HasValue
             ? await _db.ListSubscriptions
                 .Where(s => s.UserId == viewerUserId.Value)
-                .Select(s => s.ListId)
+                .OrderBy(s => s.Priority)
+                .ThenBy(s => s.SubscribedAt)
                 .ToListAsync(ct)
+            : [];
+
+        var subscribedListIds = subscribed.Select(s => s.ListId).ToList();
+        var priorityByList = subscribed.ToDictionary(s => s.ListId, s => s.Priority);
+
+        var ignored = subscribedListIds.Count > 0
+            ? (await _db.ListEntryIgnores
+                .Where(i => i.UserId == viewerUserId!.Value && subscribedListIds.Contains(i.ListId))
+                .Select(i => new { i.ListId, i.TargetUserId })
+                .ToListAsync(ct))
+                .Select(i => (i.ListId, i.TargetUserId))
+                .ToHashSet()
             : [];
 
         var entries = subscribedListIds.Count > 0
@@ -118,6 +133,7 @@ public class UserPresentationService : IUserPresentationService
                 .Where(e => ids.Contains(e.TargetUserId) && subscribedListIds.Contains(e.ListId))
                 .ToListAsync(ct)
             : [];
+        entries = entries.Where(e => !ignored.Contains((e.ListId, e.TargetUserId))).ToList();
 
         var forumContext = forumId.HasValue
             ? await LoadForumContextAsync(forumId.Value, ids, ct)
@@ -126,7 +142,11 @@ public class UserPresentationService : IUserPresentationService
         var result = new Dictionary<Guid, UserPresentationDto>();
         foreach (var user in users)
         {
-            var userEntries = entries.Where(e => e.TargetUserId == user.Id).OrderByDescending(e => e.Severity).ToList();
+            var userEntries = entries
+                .Where(e => e.TargetUserId == user.Id)
+                .OrderBy(e => priorityByList.GetValueOrDefault(e.ListId, int.MaxValue))
+                .ThenByDescending(e => e.Severity)
+                .ToList();
             ForumMemberContext? memberCtx = null;
             forumContext?.TryGetValue(user.Id, out memberCtx);
             result[user.Id] = BuildPresentation(user, userEntries, memberCtx);
@@ -250,7 +270,9 @@ public class UserPresentationService : IUserPresentationService
             flair,
             status,
             annotations,
-            avatarOverlay);
+            avatarOverlay,
+            user.IsBot,
+            user.Did);
     }
 
     private static OverlayDto? ResolveAvatarOverlay(UserStatusDto? status, IReadOnlyList<ListAnnotationDto> annotations)

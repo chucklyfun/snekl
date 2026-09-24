@@ -2,6 +2,7 @@ import { type FormEvent, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../AuthContext';
 import { authApi } from '../api';
+import { getAuthBaseUrl, setAuthBaseUrl } from '../hosts';
 
 const devPasswordResetEnabled =
   import.meta.env.VITE_ALLOW_DEV_PASSWORD_RESET === 'true' || import.meta.env.DEV;
@@ -11,20 +12,24 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const successMessage = (location.state as { message?: string } | null)?.message;
+  const returnTo = new URLSearchParams(location.search).get('return');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showDevReset, setShowDevReset] = useState(false);
   const [newPassword, setNewPassword] = useState('');
+  const [authUrl, setAuthUrl] = useState(getAuthBaseUrl());
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
     try {
+      setAuthBaseUrl(authUrl);
       await login(email, password);
-      navigate('/');
+      const next = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/';
+      navigate(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     }
@@ -49,7 +54,7 @@ export function LoginPage() {
     <div className="card" style={{ maxWidth: 420, margin: '0 auto' }}>
       <h1 className="page-title">Log in</h1>
       <p style={{ color: 'var(--muted)', marginBottom: '1rem' }}>
-        Sign in with the email and password from signup (auth server at {import.meta.env.VITE_AUTH_URL ?? 'http://localhost:5100'}).
+        Sign in with your Account. Federations and content servers load from that account after login.
       </p>
       {successMessage && (
         <div style={{ marginBottom: '1rem', color: 'var(--accent)' }}>{successMessage}</div>
@@ -57,6 +62,16 @@ export function LoginPage() {
       {error && <div className="error-banner">{error}</div>}
       {success && <div className="card" style={{ borderColor: 'var(--accent)', marginBottom: '1rem' }}>{success}</div>}
       <form onSubmit={handleSubmit}>
+        <div className="form-group">
+          <label htmlFor="auth-url">Auth server URL</label>
+          <input
+            id="auth-url"
+            type="url"
+            value={authUrl}
+            onChange={(e) => setAuthUrl(e.target.value)}
+            required
+          />
+        </div>
         <div className="form-group">
           <label htmlFor="email">Email</label>
           <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
@@ -116,7 +131,7 @@ export function LoginPage() {
       <p style={{ marginTop: '1rem', color: 'var(--muted)' }}>
         No account? <Link to="/register">Sign up</Link>
         {' · '}
-        <Link to="/admin/login">Site admin login</Link>
+        <Link to="/admin">Admins</Link>
       </p>
     </div>
   );

@@ -2,12 +2,14 @@ import { type FormEvent, useState } from 'react';
 import { Link } from 'react-router';
 import { useAuth } from '../AuthContext';
 import { useServerRegistry } from '../ServerRegistryContext';
-import { shortServerDid } from '../serverDid';
+import { shortServerDid, serverSettingsPath } from '../serverDid';
+import { adminUrl } from '../hosts';
 
 export function ServersPage() {
   const { user } = useAuth();
-  const { servers, presets, loading, subscribe, unsubscribe, setStatus } = useServerRegistry();
+  const { servers, federations, presets, loading, subscribe, unsubscribe, setStatus, subscribeFederation, unsubscribeFederation, setFederationStatus } = useServerRegistry();
   const [baseUrl, setBaseUrl] = useState('');
+  const [federationUrl, setFederationUrl] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -21,6 +23,19 @@ export function ServersPage() {
       setSuccess(`Subscribed to ${membership.name}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Subscription failed');
+    }
+  };
+
+  const handleSubscribeFederation = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    try {
+      const membership = await subscribeFederation(federationUrl.trim());
+      setFederationUrl('');
+      setSuccess(`Added federation ${membership.name}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not add federation');
     }
   };
 
@@ -57,7 +72,8 @@ export function ServersPage() {
     <div>
       <h1 className="page-title">Servers</h1>
       <p className="page-subtitle">
-        Subscribe to content servers to mix their forums in your home feed — like subreddits on Reddit.
+        Federations are config hosts (paste a hub or cloud URL). Content servers are origins for threads.
+        Both lists live on your Account and follow you to any client.
       </p>
 
       {error && <div className="error-banner">{error}</div>}
@@ -66,6 +82,66 @@ export function ServersPage() {
           {success}
         </div>
       )}
+
+      <form onSubmit={handleSubscribeFederation} className="card">
+        <h2 className="card-title">Add a federation</h2>
+        <p className="card-meta">
+          Paste the hub or config URL. The client fetches a <code>snekl-federation</code> document (generic HTTPS, Account JWT only if that host requires it).
+        </p>
+        <div className="inline-form">
+          <input
+            value={federationUrl}
+            onChange={(e) => setFederationUrl(e.target.value)}
+            placeholder="http://localhost:5200"
+            required
+          />
+          <button type="submit" className="btn-primary">
+            Add
+          </button>
+        </div>
+      </form>
+
+      <div className="card">
+        <h2 className="card-title">Your federations</h2>
+        {loading && <p className="card-meta">Loading...</p>}
+        {!loading && federations.length === 0 && (
+          <p className="card-meta">None yet. The app works without a hub until you add one.</p>
+        )}
+        {federations.map((fed) => (
+          <div key={fed.baseUrl} className="server-row">
+            <div>
+              <strong>{fed.name}</strong>
+              <div className="card-meta">
+                {fed.baseUrl}
+                {fed.authIssuer ? ` · auth ${fed.authIssuer}` : ''}
+              </div>
+            </div>
+            <div className="server-row-actions">
+              <a className="btn-ghost" href={adminUrl(fed.baseUrl)}>
+                Admin
+              </a>
+              <select
+                value={fed.status}
+                onChange={(e) => setFederationStatus(fed.baseUrl, e.target.value)}
+                aria-label={`Status for ${fed.name}`}
+              >
+                {presets.map((preset) => (
+                  <option key={preset.preset} value={preset.preset}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => unsubscribeFederation(fed.baseUrl).catch((err) => setError(err.message))}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
 
       <form onSubmit={handleSubscribe} className="card">
         <h2 className="card-title">Add a server</h2>
@@ -102,6 +178,12 @@ export function ServersPage() {
               </div>
             </div>
             <div className="server-row-actions">
+              <Link to={serverSettingsPath(server.serverDid)} className="btn-ghost">
+                Settings
+              </Link>
+              <a className="btn-ghost" href={adminUrl(server.baseUrl)}>
+                Admin
+              </a>
               <select
                 value={server.status}
                 onChange={(e) => handleStatusChange(server.serverDid, e.target.value)}

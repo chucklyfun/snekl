@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Snekl.Domain.Dtos;
+using Snekl.Domain.Entities;
 using Snekl.Domain.Enums;
 using Snekl.Infrastructure.Security;
 using Snekl.Infrastructure.Services;
@@ -142,10 +143,6 @@ public class PostsController : ControllerBase
             if (post is not null)
             {
                 var threadId = await _posts.GetThreadRootIdAsync(postId, ct);
-                var root = post.ParentPostId is null ? post : await _posts.GetEntityAsync(threadId, ct);
-                if (root is not null)
-                    await _hubFeed.PublishThreadScoreAsync(root, ct);
-
                 await _realtime.PublishPostEventAsync(
                     new RealtimePostEvent(
                         "post.upvoted",
@@ -156,6 +153,9 @@ public class PostsController : ControllerBase
                         UpvoteCount: result.UpvoteCount,
                         WatercoolerId: post.WatercoolerId),
                     ct);
+                var root = post.ParentPostId is null ? post : await _posts.GetEntityAsync(threadId, ct);
+                if (root is not null)
+                    await _hubFeed.PublishThreadScoreAsync(root, ct);
             }
 
             return Ok(result);
@@ -198,38 +198,6 @@ public class PostsController : ControllerBase
     }
 
     [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
-    [HttpPatch("{postId:guid}/media/{mediaId:guid}/nsfw")]
-    public async Task<ActionResult<PostDto>> SetMediaNsfw(
-        Guid postId,
-        Guid mediaId,
-        UpdatePostMediaNsfwRequest request,
-        CancellationToken ct)
-    {
-        try
-        {
-            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-            var postDto = await _posts.SetMediaNsfwAsync(userId, postId, mediaId, request, userId, ct);
-            var post = await _posts.GetEntityAsync(postId, ct);
-            if (post is not null)
-            {
-                var threadId = await _posts.GetThreadRootIdAsync(postId, ct);
-                await _realtime.PublishPostEventAsync(
-                    new RealtimePostEvent(
-                        "post.updated",
-                        threadId,
-                        post.ForumId,
-                        post.Id,
-                        post.ParentPostId,
-                        WatercoolerId: post.WatercoolerId),
-                    ct);
-            }
-
-            return Ok(postDto);
-        }
-        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
-    }
-
-    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpPost]
     public async Task<ActionResult<PostDto>> Create(CreatePostRequest request, CancellationToken ct)
     {
@@ -239,13 +207,12 @@ public class PostsController : ControllerBase
             var postDto = await _posts.CreateAsync(userId, request, userId, ct);
             var post = await _posts.GetEntityAsync(postDto.Id, ct);
 
-            if (post?.Forum is not null && post.Author is not null)
+            if (post?.Forum is not null && post.Author is not null && !post.Author.IsBot)
                 await _federation.BroadcastPostAsync(post, post.Forum, post.Author, ct);
 
             if (post is not null)
             {
                 await PushHubAsync(post, deleted: false, ct);
-
                 var threadId = await _posts.GetThreadRootIdAsync(post.Id, ct);
                 await _realtime.PublishPostEventAsync(
                     new RealtimePostEvent(
@@ -272,10 +239,10 @@ public class PostsController : ControllerBase
             var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
             var postDto = await _posts.UpdateAsync(userId, postId, request, userId, ct);
             var post = await _posts.GetEntityAsync(postId, ct);
-            if (post is not null)
+            if (post is not null && post.Forum is not null)
             {
-                await PushHubAsync(post, deleted: false, ct);
                 await _federation.BroadcastPostUpdateAsync(post, ct);
+                await PushHubAsync(post, deleted: false, ct);
                 var threadId = await _posts.GetThreadRootIdAsync(postId, ct);
                 await _realtime.PublishPostEventAsync(
                     new RealtimePostEvent(
@@ -284,8 +251,40 @@ public class PostsController : ControllerBase
                         post.ForumId,
                         post.Id,
                         post.ParentPostId,
-                        IsDeleted: post.IsDeleted,
-                        WatercoolerId: post.WatercoolerId),
+                        IsDeleted: post.IsDeleted),
+                    ct);
+            }
+
+            return Ok(postDto);
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPatch("{postId:guid}/media/{mediaId:guid}/nsfw")]
+    public async Task<ActionResult<PostDto>> SetMediaNsfw(
+        Guid postId,
+        Guid mediaId,
+        UpdatePostMediaNsfwRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var postDto = await _posts.SetMediaNsfwAsync(userId, postId, mediaId, request, userId, ct);
+            var post = await _posts.GetEntityAsync(postId, ct);
+            if (post is not null)
+            {
+                await PushHubAsync(post, deleted: false, ct);
+                var threadId = await _posts.GetThreadRootIdAsync(postId, ct);
+                await _realtime.PublishPostEventAsync(
+                    new RealtimePostEvent(
+                        "post.updated",
+                        threadId,
+                        post.ForumId,
+                        post.Id,
+                        post.ParentPostId,
+                        IsDeleted: post.IsDeleted),
                     ct);
             }
 
@@ -307,7 +306,6 @@ public class PostsController : ControllerBase
             var threadId = await _posts.GetThreadRootIdAsync(postId, ct);
             var forumId = existing.ForumId;
             var parentPostId = existing.ParentPostId;
-            var watercoolerId = existing.WatercoolerId;
 
             if (hard)
             {
@@ -323,18 +321,17 @@ public class PostsController : ControllerBase
                         forumId,
                         postId,
                         parentPostId,
-                        IsDeleted: true,
-                        WatercoolerId: watercoolerId),
+                        IsDeleted: true),
                     ct);
                 return NoContent();
             }
 
             var postDto = await _posts.SoftDeleteAsync(userId, postId, userId, ct);
             var post = await _posts.GetEntityAsync(postId, ct);
-            if (post is not null)
+            if (post is not null && post.Forum is not null)
                 await _federation.BroadcastPostDeleteAsync(post, ct);
-
             await PushHubAsync(post ?? existing, deleted: true, ct);
+
             await _realtime.PublishPostEventAsync(
                 new RealtimePostEvent(
                     "post.deleted",
@@ -342,8 +339,7 @@ public class PostsController : ControllerBase
                     forumId,
                     postId,
                     parentPostId,
-                    IsDeleted: true,
-                    WatercoolerId: watercoolerId),
+                    IsDeleted: true),
                 ct);
 
             return Ok(postDto);
@@ -366,8 +362,7 @@ public class PostsController : ControllerBase
                     postDto.ForumId,
                     postDto.Id,
                     null,
-                    IsLocked: postDto.IsLocked,
-                    WatercoolerId: postDto.WatercoolerId),
+                    IsLocked: postDto.IsLocked),
                 ct);
             return Ok(postDto);
         }
@@ -389,8 +384,7 @@ public class PostsController : ControllerBase
                     postDto.ForumId,
                     postDto.Id,
                     null,
-                    IsPinned: postDto.IsPinned,
-                    WatercoolerId: postDto.WatercoolerId),
+                    IsPinned: postDto.IsPinned),
                 ct);
             return Ok(postDto);
         }
@@ -459,6 +453,10 @@ public class PostsController : ControllerBase
             await _hubFeed.PublishThreadScoreAsync(root, ct);
     }
 
-    private static PostSort ParseSort(string sort) =>
-        sort.Equals("new", StringComparison.OrdinalIgnoreCase) ? PostSort.New : PostSort.Hot;
+    private static PostSort ParseSort(string sort)
+    {
+        if (sort.Equals("new", StringComparison.OrdinalIgnoreCase)) return PostSort.New;
+        if (sort.Equals("updated", StringComparison.OrdinalIgnoreCase)) return PostSort.Updated;
+        return PostSort.Hot;
+    }
 }

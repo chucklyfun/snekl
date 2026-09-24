@@ -1,5 +1,5 @@
-import * as ed from '@noble/ed25519';
 import { createDidFromPublicKey, decodePrivateKey, encodePrivateKey, type DidKeyMaterial } from './didKey';
+import { ed } from './ed25519';
 
 const DID_STORAGE_KEY = 'snekl_did';
 const PRIVATE_KEY_STORAGE_KEY = 'snekl_did_private_key';

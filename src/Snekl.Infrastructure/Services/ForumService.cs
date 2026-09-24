@@ -9,6 +9,9 @@ namespace Snekl.Infrastructure.Services;
 public interface IForumService
 {
     Task<ForumDto> CreateAsync(Guid userId, CreateForumRequest request, Guid? viewerUserId = null, CancellationToken ct = default);
+    Task<ForumDto> ApproveAsync(Guid userId, Guid forumId, CancellationToken ct = default);
+    Task RejectAsync(Guid userId, Guid forumId, CancellationToken ct = default);
+    Task DeleteAsync(Guid userId, Guid forumId, CancellationToken ct = default);
     Task<IReadOnlyList<ForumDto>> ListAsync(Guid? viewerUserId = null, CancellationToken ct = default);
     Task<ForumDto?> GetBySlugAsync(string slug, Guid? viewerUserId = null, string? parentSlug = null, CancellationToken ct = default);
     Task<Forum?> GetEntityBySlugAsync(string slug, string? parentSlug = null, CancellationToken ct = default);
@@ -52,6 +55,7 @@ public class ForumService : IForumService
     public async Task<ForumDto> CreateAsync(Guid userId, CreateForumRequest request, Guid? viewerUserId = null, CancellationToken ct = default)
     {
         Forum? parent = null;
+        var approvalStatus = ForumApprovalStatuses.Approved;
         if (request.ParentForumId.HasValue)
         {
             parent = await _db.Forums.FindAsync([request.ParentForumId.Value], ct)
@@ -60,7 +64,18 @@ public class ForumService : IForumService
         }
         else
         {
-            await _permissions.RequireServerPermissionAsync(userId, ServerPermissions.CreateForum, ct);
+            if (await _permissions.IsSuperUserAsync(userId, ct))
+                approvalStatus = ForumApprovalStatuses.Approved;
+            else
+            {
+                var serverPerms = await _permissions.GetServerPermissionsAsync(userId, ct);
+                if (serverPerms.HasFlag(ServerPermissions.CreateForum))
+                    approvalStatus = ForumApprovalStatuses.Approved;
+                else if (serverPerms.HasFlag(ServerPermissions.RequestCreateForum))
+                    approvalStatus = ForumApprovalStatuses.Pending;
+                else
+                    throw new PermissionDeniedException(nameof(ServerPermissions.CreateForum), "server");
+            }
         }
 
         var slug = request.Slug.Trim().ToLowerInvariant();
@@ -75,7 +90,8 @@ public class ForumService : IForumService
             Description = request.Description.Trim(),
             CreatedByUserId = userId,
             ParentForumId = parentId,
-            AllowAliases = parent?.AllowAliases ?? true
+            AllowAliases = parent?.AllowAliases ?? true,
+            ApprovalStatus = approvalStatus
         };
 
         _db.Forums.Add(forum);
@@ -88,6 +104,106 @@ public class ForumService : IForumService
 
         var createdBy = await _presentation.GetPresentationAsync(userId, viewerUserId ?? userId, forum.Id, ct);
         return await ToDtoAsync(forum, createdBy, 0, viewerUserId, ct);
+    }
+
+    public async Task<ForumDto> ApproveAsync(Guid userId, Guid forumId, CancellationToken ct = default)
+    {
+        await RequireForumApprovalPermissionAsync(userId, ct);
+        var forum = await _db.Forums
+            .Include(f => f.CreatedBy)
+            .Include(f => f.ParentForum)
+            .Include(f => f.Subforums)
+            .FirstOrDefaultAsync(f => f.Id == forumId, ct)
+            ?? throw new InvalidOperationException("Forum not found.");
+
+        if (ForumApprovalStatuses.IsApproved(forum.ApprovalStatus))
+            throw new InvalidOperationException("Forum is already approved.");
+
+        forum.ApprovalStatus = ForumApprovalStatuses.Approved;
+        forum.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        var createdBy = forum.CreatedByUserId != Guid.Empty
+            ? await _presentation.GetPresentationAsync(forum.CreatedByUserId, userId, forum.Id, ct)
+            : null;
+        return await ToDtoAsync(forum, createdBy, 0, userId, ct);
+    }
+
+    public async Task RejectAsync(Guid userId, Guid forumId, CancellationToken ct = default)
+    {
+        await RequireForumApprovalPermissionAsync(userId, ct);
+        var forum = await _db.Forums.FirstOrDefaultAsync(f => f.Id == forumId, ct)
+            ?? throw new InvalidOperationException("Forum not found.");
+
+        if (ForumApprovalStatuses.IsApproved(forum.ApprovalStatus))
+            throw new InvalidOperationException("Approved forums cannot be rejected. Delete the forum instead.");
+
+        var roleIds = await _db.ForumRoles.Where(r => r.ForumId == forum.Id).Select(r => r.Id).ToListAsync(ct);
+        _db.ForumMemberships.RemoveRange(
+            await _db.ForumMemberships.Where(m => m.ForumId == forum.Id).ToListAsync(ct));
+        _db.ForumRoleAssignments.RemoveRange(
+            await _db.ForumRoleAssignments.Where(a => a.ForumId == forum.Id).ToListAsync(ct));
+        _db.ForumFlairTemplates.RemoveRange(
+            await _db.ForumFlairTemplates.Where(t => t.ForumId == forum.Id).ToListAsync(ct));
+        _db.ForumRoles.RemoveRange(await _db.ForumRoles.Where(r => roleIds.Contains(r.Id)).ToListAsync(ct));
+        _db.Forums.Remove(forum);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteAsync(Guid userId, Guid forumId, CancellationToken ct = default)
+    {
+        var forum = await _db.Forums.FirstOrDefaultAsync(f => f.Id == forumId, ct)
+            ?? throw new InvalidOperationException("Forum not found.");
+
+        if (forum.ParentForumId.HasValue)
+            await _permissions.RequireForumPermissionAsync(userId, forum.ParentForumId.Value, ForumPermissions.ManageForum, ct);
+        else
+            await RequireForumDeletePermissionAsync(userId, ct);
+
+        var childIds = await _db.Forums.Where(f => f.ParentForumId == forum.Id).Select(f => f.Id).ToListAsync(ct);
+        foreach (var childId in childIds)
+            await DeleteAsync(userId, childId, ct);
+
+        forum = await _db.Forums.FirstOrDefaultAsync(f => f.Id == forumId, ct)
+            ?? throw new InvalidOperationException("Forum not found.");
+        await RemoveForumGraphAsync(forum, ct);
+    }
+
+    private async Task RequireForumDeletePermissionAsync(Guid userId, CancellationToken ct)
+    {
+        if (await _permissions.IsSuperUserAsync(userId, ct)) return;
+        await _permissions.RequireServerPermissionAsync(userId, ServerPermissions.CreateForum, ct);
+    }
+
+    private async Task RemoveForumGraphAsync(Forum forum, CancellationToken ct)
+    {
+        var postIds = await _db.Posts.Where(p => p.ForumId == forum.Id).Select(p => p.Id).ToListAsync(ct);
+        if (postIds.Count > 0)
+        {
+            _db.PostMedia.RemoveRange(await _db.PostMedia.Where(m => postIds.Contains(m.PostId)).ToListAsync(ct));
+            _db.PostUpvotes.RemoveRange(await _db.PostUpvotes.Where(u => postIds.Contains(u.PostId)).ToListAsync(ct));
+            _db.PostRevisions.RemoveRange(await _db.PostRevisions.Where(r => postIds.Contains(r.PostId)).ToListAsync(ct));
+            _db.PostReports.RemoveRange(await _db.PostReports.Where(r => postIds.Contains(r.PostId)).ToListAsync(ct));
+            _db.Posts.RemoveRange(await _db.Posts.Where(p => p.ForumId == forum.Id).ToListAsync(ct));
+        }
+
+        _db.ForumMemberFlairs.RemoveRange(
+            await _db.ForumMemberFlairs.Where(f => f.ForumId == forum.Id).ToListAsync(ct));
+        _db.ForumMemberAliases.RemoveRange(
+            await _db.ForumMemberAliases.Where(a => a.ForumId == forum.Id).ToListAsync(ct));
+        _db.ForumMemberBans.RemoveRange(
+            await _db.ForumMemberBans.Where(b => b.ForumId == forum.Id).ToListAsync(ct));
+        _db.PostReports.RemoveRange(
+            await _db.PostReports.Where(r => r.ForumId == forum.Id).ToListAsync(ct));
+        _db.ForumMemberships.RemoveRange(
+            await _db.ForumMemberships.Where(m => m.ForumId == forum.Id).ToListAsync(ct));
+        _db.ForumRoleAssignments.RemoveRange(
+            await _db.ForumRoleAssignments.Where(a => a.ForumId == forum.Id).ToListAsync(ct));
+        _db.ForumFlairTemplates.RemoveRange(
+            await _db.ForumFlairTemplates.Where(t => t.ForumId == forum.Id).ToListAsync(ct));
+        _db.ForumRoles.RemoveRange(await _db.ForumRoles.Where(r => r.ForumId == forum.Id).ToListAsync(ct));
+        _db.Forums.Remove(forum);
+        await _db.SaveChangesAsync(ct);
     }
 
     public async Task<IReadOnlyList<ForumDto>> ListAsync(Guid? viewerUserId = null, CancellationToken ct = default)
@@ -382,7 +498,7 @@ public class ForumService : IForumService
             viewerPerms,
             forum.AllowAliases,
             string.IsNullOrWhiteSpace(forum.ApprovalStatus) ? ForumApprovalStatuses.Approved : forum.ApprovalStatus,
-            false,
+            await ViewerCanApproveAsync(viewerUserId, forum, ct),
             viewerIsMember,
             viewerCanManage,
             viewerIsFavorite,
@@ -398,6 +514,21 @@ public class ForumService : IForumService
             forum.NsfwAgeCheckExplanation,
             age.BlocksEntry,
             age.ForumExplanation);
+    }
+
+    private async Task RequireForumApprovalPermissionAsync(Guid userId, CancellationToken ct)
+    {
+        if (await _permissions.IsSuperUserAsync(userId, ct)) return;
+        await _permissions.RequireServerPermissionAsync(userId, ServerPermissions.CreateForum, ct);
+    }
+
+    private async Task<bool> ViewerCanApproveAsync(Guid? viewerUserId, Forum forum, CancellationToken ct)
+    {
+        if (!viewerUserId.HasValue || ForumApprovalStatuses.IsApproved(forum.ApprovalStatus))
+            return false;
+        if (await _permissions.IsSuperUserAsync(viewerUserId, ct)) return true;
+        var perms = await _permissions.GetServerPermissionsAsync(viewerUserId, ct);
+        return perms.HasFlag(ServerPermissions.CreateForum);
     }
 
     private async Task EnsureForumRolesAsync(Forum forum, CancellationToken ct)

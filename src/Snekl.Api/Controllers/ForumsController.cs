@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Snekl.Domain.Dtos;
+using Snekl.Domain.Enums;
 using Snekl.Infrastructure.Security;
 using Snekl.Infrastructure.Services;
 
@@ -60,8 +61,57 @@ public class ForumsController : ControllerBase
         {
             var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
             var forumEntity = await _forums.CreateAsync(userId, request, userId, ct);
-            await BroadcastForumIfPossible(forumEntity.Slug, userId, ct);
+            if (forumEntity.ApprovalStatus == ForumApprovalStatuses.Approved)
+                await BroadcastForumIfPossible(forumEntity.Slug, userId, ct);
             return CreatedAtAction(nameof(Get), new { slug = forumEntity.Slug }, forumEntity);
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("{slug}/approve")]
+    public async Task<ActionResult<ForumDto>> Approve(string slug, [FromQuery] string? parentSlug, CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var existing = await _forums.GetEntityBySlugAsync(slug, parentSlug, ct);
+            if (existing is null) return NotFound();
+            var forum = await _forums.ApproveAsync(userId, existing.Id, ct);
+            var author = await _auth.GetUserByIdAsync(existing.CreatedByUserId, ct);
+            if (author is not null && !author.IsBot)
+                await _federation.BroadcastForumAsync(existing, author, ct);
+            return Ok(forum);
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("{slug}/reject")]
+    public async Task<IActionResult> Reject(string slug, [FromQuery] string? parentSlug, CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var existing = await _forums.GetEntityBySlugAsync(slug, parentSlug, ct);
+            if (existing is null) return NotFound();
+            await _forums.RejectAsync(userId, existing.Id, ct);
+            return NoContent();
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpDelete("{slug}")]
+    public async Task<IActionResult> Delete(string slug, [FromQuery] string? parentSlug, CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var existing = await _forums.GetEntityBySlugAsync(slug, parentSlug, ct);
+            if (existing is null) return NotFound();
+            await _forums.DeleteAsync(userId, existing.Id, ct);
+            return NoContent();
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }

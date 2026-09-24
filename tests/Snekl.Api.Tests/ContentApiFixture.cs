@@ -69,6 +69,22 @@ public sealed class ContentApiFixture : IAsyncLifetime
         }
     }
 
+    public async Task GrantForumRequesterRoleAsync(Guid userId)
+    {
+        await using var scope = Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SneklDbContext>();
+        var role = await db.ServerRoles.FirstAsync(r => r.Name == "Forum requester");
+        if (!await db.ServerRoleAssignments.AnyAsync(a => a.UserId == userId && a.RoleId == role.Id))
+        {
+            db.ServerRoleAssignments.Add(new ServerRoleAssignment
+            {
+                UserId = userId,
+                RoleId = role.Id
+            });
+            await db.SaveChangesAsync();
+        }
+    }
+
     public async Task DisposeAsync()
     {
         await Factory.DisposeAsync();

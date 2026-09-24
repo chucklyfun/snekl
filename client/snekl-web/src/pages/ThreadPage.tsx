@@ -30,6 +30,7 @@ function PostNode({
   getPostRevisions,
   setThreadLocked,
   setThreadPinned,
+  setReplyPolicy,
   reportPost,
   emotes = [],
 }: {
@@ -51,6 +52,7 @@ function PostNode({
   getPostRevisions: (postId: string) => Promise<PostRevision[]>;
   setThreadLocked: (postId: string, locked: boolean) => Promise<void>;
   setThreadPinned: (postId: string, pinned: boolean) => Promise<void>;
+  setReplyPolicy: (postId: string, replyPolicy: string) => Promise<void>;
   reportPost: (postId: string, reason: string) => Promise<void>;
   emotes?: CatalogEmote[];
 }) {
@@ -72,8 +74,9 @@ function PostNode({
 
   const actions = post.viewerActions;
   const isRoot = !post.parentPostId;
+  const followingOnly = post.replyPolicy === 'following';
   const canModerateLocked = Boolean(actions?.canLock || actions?.canUnlock);
-  const repliesBlocked = threadLocked && !canModerateLocked;
+  const repliesBlocked = (threadLocked && !canModerateLocked) || actions?.canReply === false;
 
   const submitReply = async (e: FormEvent) => {
     e.preventDefault();
@@ -177,6 +180,19 @@ function PostNode({
     }
   };
 
+  const toggleReplyPolicy = async (policy: 'everyone' | 'following') => {
+    setError('');
+    setBusy(true);
+    try {
+      await setReplyPolicy(post.id, policy);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update who can reply');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submitReport = async (e: FormEvent) => {
     e.preventDefault();
     if (!reportReason.trim()) return;
@@ -205,11 +221,15 @@ function PostNode({
         />
         <div className="post-item-content">
           <UserByline presentation={post.author} timestamp={post.createdAt} editedAt={post.editedAt} />
-          {isRoot && (post.isPinned || post.isLocked) && (
+          {isRoot && (post.isPinned || post.isLocked || followingOnly) && (
             <div className="thread-badges">
               {post.isPinned && <span className="thread-badge thread-badge-pinned">Pinned</span>}
               {post.isLocked && <span className="thread-badge thread-badge-locked">Locked</span>}
+              {followingOnly && <span className="thread-badge thread-badge-following">Following only</span>}
             </div>
+          )}
+          {isRoot && !threadLocked && followingOnly && (
+            <p className="card-meta">Replies are limited to people the original poster follows.</p>
           )}
           {isRoot && threadLocked && (
             <p className="card-meta">This thread is locked. New replies are disabled.</p>
@@ -302,6 +322,16 @@ function PostNode({
                 Unpin thread
               </button>
             )}
+            {actions?.canSetReplyPolicy && followingOnly && (
+              <button type="button" className="btn-ghost" onClick={() => toggleReplyPolicy('everyone')} disabled={busy}>
+                Allow anyone to reply
+              </button>
+            )}
+            {actions?.canSetReplyPolicy && !followingOnly && (
+              <button type="button" className="btn-ghost" onClick={() => toggleReplyPolicy('following')} disabled={busy}>
+                Limit replies to following
+              </button>
+            )}
             {actions?.canReport && (
               <button type="button" className="btn-ghost" onClick={() => setShowReport(!showReport)} disabled={busy}>
                 Report
@@ -372,6 +402,7 @@ function PostNode({
             getPostRevisions={getPostRevisions}
             setThreadLocked={setThreadLocked}
             setThreadPinned={setThreadPinned}
+            setReplyPolicy={setReplyPolicy}
             reportPost={reportPost}
             emotes={emotes}
           />
@@ -484,6 +515,7 @@ export function ThreadPage() {
               getPostRevisions={client.getPostRevisions.bind(client)}
               setThreadLocked={async (id, locked) => { await client.setThreadLocked(id, locked); }}
               setThreadPinned={async (id, pinned) => { await client.setThreadPinned(id, pinned); }}
+              setReplyPolicy={async (id, policy) => { await client.setReplyPolicy(id, policy); }}
               reportPost={async (id, reason) => { await client.reportPost(id, reason); }}
               emotes={emotes}
             />
@@ -503,6 +535,9 @@ export function ThreadPage() {
             }}
             setThreadPinned={async (id, pinned) => {
               await client.setThreadPinned(id, pinned);
+            }}
+            setReplyPolicy={async (id, policy) => {
+              await client.setReplyPolicy(id, policy);
             }}
             reportPost={async (id, reason) => {
               await client.reportPost(id, reason);

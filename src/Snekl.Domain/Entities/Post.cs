@@ -1,3 +1,5 @@
+using Snekl.Domain.Enums;
+
 namespace Snekl.Domain.Entities;
 
 public class Post : ExternalEntity
@@ -37,7 +39,11 @@ public class Post : ExternalEntity
 
     public bool IsPinned { get; set; }
 
-    public string ReplyPolicy { get; set; } = "everyone";
+    /// <summary>
+    /// Root posts only. <see cref="ReplyPolicies.Everyone"/> (default) or
+    /// <see cref="ReplyPolicies.Following"/> (people the original poster follows).
+    /// </summary>
+    public string ReplyPolicy { get; set; } = ReplyPolicies.Everyone;
 
     public DateTime? LockedAt { get; set; }
 

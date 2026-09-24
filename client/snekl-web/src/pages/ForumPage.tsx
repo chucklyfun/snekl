@@ -50,10 +50,13 @@ function ThreadPreview({
         />
         <Link to={threadPath(serverDid, post.id)} className="thread-card-body card-link">
           <UserByline presentation={post.author} timestamp={post.createdAt} showStatus={false} />
-          {(post.isPinned || post.isLocked) && (
+            {(post.isPinned || post.isLocked || post.replyPolicy === 'following') && (
             <div className="thread-badges">
               {post.isPinned && <span className="thread-badge thread-badge-pinned">Pinned</span>}
               {post.isLocked && <span className="thread-badge thread-badge-locked">Locked</span>}
+                {post.replyPolicy === 'following' && (
+                  <span className="thread-badge thread-badge-following">Following only</span>
+                )}
             </div>
           )}
           {post.title?.trim() && <strong>{post.title}</strong>}
@@ -319,8 +322,8 @@ export function ForumPage() {
             onClose={() => setComposerOpen(false)}
             uploadMedia={(file) => client.uploadMedia(file)}
             emotes={emotes}
-            onSubmit={async ({ title, message: body, mediaAssetIds, nsfwMedia }) => {
-              await client.createPost(forum.id, body, undefined, title, mediaAssetIds, undefined, undefined, nsfwMedia);
+              onSubmit={async ({ title, message: body, mediaAssetIds, nsfwMedia, replyPolicy }) => {
+                await client.createPost(forum.id, body, undefined, title, mediaAssetIds, undefined, undefined, nsfwMedia, replyPolicy);
               setComposerOpen(false);
               load();
             }}

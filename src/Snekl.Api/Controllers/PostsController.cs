@@ -398,6 +398,31 @@ public class PostsController : ControllerBase
     }
 
     [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPut("{postId:guid}/reply-policy")]
+    public async Task<ActionResult<PostDto>> SetReplyPolicy(
+        Guid postId,
+        UpdateReplyPolicyRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var postDto = await _posts.SetReplyPolicyAsync(userId, postId, request.ReplyPolicy, userId, ct);
+            await _realtime.PublishPostEventAsync(
+                new RealtimePostEvent(
+                    "thread.replyPolicy",
+                    postDto.Id,
+                    postDto.ForumId,
+                    postDto.Id,
+                    null,
+                    WatercoolerId: postDto.WatercoolerId),
+                ct);
+            return Ok(postDto);
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
     [HttpPost("{postId:guid}/report")]
     public async Task<ActionResult<PostReportDto>> Report(Guid postId, ReportPostRequest request, CancellationToken ct = default)
     {

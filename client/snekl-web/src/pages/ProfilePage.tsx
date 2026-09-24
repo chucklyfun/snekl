@@ -1,20 +1,30 @@
-import { type FormEvent, useEffect, useState } from 'react';
-import { useParams } from 'react-router';
-import { api } from '../api';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router';
+import { apiFor } from '../api';
 import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';
-import type { StatusPreset, UserPresentation } from '../types';
+import { useFollows } from '../FollowsContext';
+import { useServerRegistry } from '../ServerRegistryContext';
+import type { DirectMessageEligibility, StatusPreset, UserPresentation } from '../types';
 import '../components/UserPresentation.css';
 
 export function ProfilePage() {
   const { username } = useParams<{ username: string }>();
-  const { user: me, refreshMe } = useAuth();
+  const { user: me, did: myDid, refreshMe } = useAuth();
+  const { isFollowing, follow, unfollow } = useFollows();
+  const { activeServers } = useServerRegistry();
+  const contentBaseUrl = activeServers[0]?.baseUrl;
+  const api = useMemo(() => (contentBaseUrl ? apiFor(contentBaseUrl) : null), [contentBaseUrl]);
   const [profile, setProfile] = useState<UserPresentation | null>(null);
   const [presets, setPresets] = useState<StatusPreset[]>([]);
+  const [eligibility, setEligibility] = useState<DirectMessageEligibility | null>(null);
+  const [requestMessage, setRequestMessage] = useState('');
+  const [requestForumId, setRequestForumId] = useState('');
   const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
 
   const isOwnProfile = me?.username === username;
+  const canFollow = Boolean(me && profile?.did && profile.did !== myDid);
 
   const [flairEmoji, setFlairEmoji] = useState('');
   const [flairLabel, setFlairLabel] = useState('');
@@ -28,10 +38,28 @@ export function ProfilePage() {
   const [durationHours, setDurationHours] = useState(8);
 
   useEffect(() => {
-    if (!username) return;
+    if (!username || !api) return;
     api.getUser(username).then(setProfile).catch((e) => setError(e.message));
     api.getStatusPresets().then(setPresets).catch(() => {});
-  }, [username]);
+  }, [username, api]);
+
+  const loadEligibility = () => {
+    if (!username || !api || !me || isOwnProfile) {
+      setEligibility(null);
+      return;
+    }
+    api
+      .getDirectMessageEligibility(username)
+      .then((next) => {
+        setEligibility(next);
+        setRequestForumId('');
+      })
+      .catch(() => setEligibility(null));
+  };
+
+  useEffect(() => {
+    loadEligibility();
+  }, [username, api, me, isOwnProfile]);
 
   useEffect(() => {
     if (!profile || !isOwnProfile) return;
@@ -43,6 +71,7 @@ export function ProfilePage() {
 
   const saveFlair = async (e: FormEvent) => {
     e.preventDefault();
+    if (!api) return;
     setError('');
     try {
       const updated = await api.updateFlair({
@@ -67,6 +96,7 @@ export function ProfilePage() {
 
   const saveStatus = async (e: FormEvent) => {
     e.preventDefault();
+    if (!api) return;
     setError('');
     const expiresAt = new Date(Date.now() + durationHours * 3600_000).toISOString();
     const preset = presets.find((p) => p.preset === selectedPreset);
@@ -95,11 +125,16 @@ export function ProfilePage() {
   };
 
   const clearStatus = async () => {
+    if (!api) return;
     await api.clearStatus();
     if (username) setProfile(await api.getUser(username));
     await refreshMe();
     setSaved('Status cleared.');
   };
+
+  if (!api) {
+    return <p className="card-meta">Subscribe to a content server on Servers to view profiles.</p>;
+  }
 
   if (!profile) return <p>Loading profile...</p>;
 
@@ -108,6 +143,159 @@ export function ProfilePage() {
       <div className="card">
         <UserByline presentation={profile} />
         {profile.bio && <p style={{ marginTop: '1rem' }}>{profile.bio}</p>}
+        {canFollow && profile.did && (
+          <div style={{ marginTop: '1rem' }}>
+            {isFollowing(profile.did) ? (
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  setError('');
+                  void unfollow(profile.did!).catch((err) =>
+                    setError(err instanceof Error ? err.message : 'Failed to unfollow'),
+                  );
+                }}
+              >
+                Unfollow
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  setError('');
+                  void follow({
+                    did: profile.did!,
+                    displayName: profile.displayName,
+                    username: profile.username,
+                  }).catch((err) =>
+                    setError(err instanceof Error ? err.message : 'Failed to follow'),
+                  );
+                }}
+              >
+                Follow
+              </button>
+            )}
+          </div>
+        )}
+        {me && !isOwnProfile && eligibility && (
+          <div style={{ marginTop: '1rem' }}>
+            {eligibility.existingConversationId ? (
+              <Link className="btn-primary" to={`/messages/${eligibility.existingConversationId}`}>
+                Open conversation
+              </Link>
+            ) : eligibility.pendingRequest && eligibility.pendingRequest.target.username === me.username ? (
+              <div className="server-row-actions">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    if (!api || !eligibility.pendingRequest) return;
+                    const pending = eligibility.pendingRequest;
+                    void api
+                      .acceptDirectMessageRequest(pending.id)
+                      .then(async (accepted) => {
+                        if (pending.requester.did) {
+                          await follow({
+                            did: pending.requester.did,
+                            displayName: pending.requester.displayName,
+                            username: pending.requester.username,
+                          }).catch(() => undefined);
+                        }
+                        loadEligibility();
+                        setSaved('Follow-back accepted. You can talk in Messages.');
+                        return accepted;
+                      })
+                      .catch((err) =>
+                        setError(err instanceof Error ? err.message : 'Failed to accept request'),
+                      );
+                  }}
+                >
+                  Follow back and chat
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => {
+                    if (!api || !eligibility.pendingRequest) return;
+                    void api
+                      .declineDirectMessageRequest(eligibility.pendingRequest.id)
+                      .then(loadEligibility)
+                      .catch((err) =>
+                        setError(err instanceof Error ? err.message : 'Failed to decline'),
+                      );
+                  }}
+                >
+                  Decline
+                </button>
+              </div>
+            ) : eligibility.pendingRequest ? (
+              <p className="card-meta">Follow-back requested. Waiting for them to accept so you can DM.</p>
+            ) : eligibility.canRequest ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!api || !username) return;
+                  if (!requestForumId) {
+                    setError('Choose the forum whose permission you are using for this request.');
+                    return;
+                  }
+                  setError('');
+                  void api
+                    .createDirectMessageRequest({
+                      targetUsername: username,
+                      forumId: requestForumId,
+                      message: requestMessage || undefined,
+                    })
+                    .then(() => {
+                      setSaved('Follow-back requested. They can accept to open a DM.');
+                      loadEligibility();
+                    })
+                    .catch((err) =>
+                      setError(err instanceof Error ? err.message : 'Failed to request follow-back'),
+                    );
+                }}
+              >
+                <p className="card-meta">
+                  Choose the forum whose RequestDirectMessage permission you are using. Forums can keep
+                  this off new members until they have a trusted role.
+                </p>
+                <div className="form-group">
+                  <label htmlFor="dm-forum">Forum</label>
+                  <select
+                    id="dm-forum"
+                    value={requestForumId}
+                    onChange={(event) => setRequestForumId(event.target.value)}
+                    required
+                  >
+                    <option value="" disabled>
+                      Select a forum
+                    </option>
+                    {eligibility.eligibleForums.map((forum) => (
+                      <option key={forum.id} value={forum.id}>
+                        {forum.parentSlug ? `${forum.parentSlug} / ${forum.name}` : forum.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="dm-intro">Note (optional)</label>
+                  <input
+                    id="dm-intro"
+                    value={requestMessage}
+                    onChange={(event) => setRequestMessage(event.target.value)}
+                    placeholder="Why you want to talk"
+                  />
+                </div>
+                <button type="submit" className="btn-primary">
+                  Request follow-back to DM
+                </button>
+              </form>
+            ) : (
+              <p className="card-meta">{eligibility.reason}</p>
+            )}
+          </div>
+        )}
       </div>
 
       {error && <div className="error-banner">{error}</div>}

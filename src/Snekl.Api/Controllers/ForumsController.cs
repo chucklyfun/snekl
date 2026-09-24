@@ -109,6 +109,46 @@ public class ForumsController : ControllerBase
         return Accepted();
     }
 
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("{slug}/join")]
+    public async Task<ActionResult<ForumDto>> Join(string slug, [FromQuery] string? parentSlug, CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            return Ok(await _forums.JoinAsync(userId, slug, parentSlug, ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPost("{slug}/leave")]
+    public async Task<ActionResult<ForumDto>> Leave(string slug, [FromQuery] string? parentSlug, CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            return Ok(await _forums.LeaveAsync(userId, slug, parentSlug, ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPut("{slug}/favorite")]
+    public async Task<ActionResult<ForumDto>> SetFavorite(
+        string slug,
+        [FromQuery] string? parentSlug,
+        [FromBody] SetForumFavoriteRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            return Ok(await _forums.SetFavoriteAsync(userId, slug, request.IsFavorite, parentSlug, ct));
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
     private async Task BroadcastForumIfPossible(string slug, Guid userId, CancellationToken ct)
     {
         var user = await _auth.GetUserByIdAsync(userId, ct);

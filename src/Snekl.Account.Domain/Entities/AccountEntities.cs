@@ -65,6 +65,10 @@ public class UserSettingsReplica
     public PersonCluster? PersonCluster { get; set; }
     public string ProfileJson { get; set; } = "{}";
     public string ContentServerMembershipsJson { get; set; } = "[]";
+    public string FederationsJson { get; set; } = "[]";
+    public string ForumFavoritesJson { get; set; } = "[]";
+    public string ForumNavLayoutJson { get; set; } = "[]";
+    public string FollowsJson { get; set; } = "[]";
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 

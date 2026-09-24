@@ -28,6 +28,10 @@ public static class DependencyInjection
         services.AddScoped<IIdentityCredentialService, IdentityCredentialService>();
         services.AddHttpClient<IPartnerClient, PartnerClient>();
         services.AddHttpClient<IContentServerMembershipService, ContentServerMembershipService>();
+        services.AddHttpClient<IFederationMembershipService, FederationMembershipService>();
+        services.AddScoped<IForumFavoriteService, ForumFavoriteService>();
+        services.AddScoped<IFollowService, FollowService>();
+        services.AddScoped<IForumNavLayoutService, ForumNavLayoutService>();
         services.AddHttpClient("extension-install");
         services.AddScoped<IContentInstallLookup, ContentInstallLookup>();
         services.AddScoped<IOauthService, OauthService>();

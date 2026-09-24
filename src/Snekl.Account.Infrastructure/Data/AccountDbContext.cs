@@ -101,6 +101,22 @@ public class AccountDbContext : DbContext
         });
     }
 
+    public async Task EnsureSettingsListsSchemaAsync(CancellationToken ct = default)
+    {
+        await Database.ExecuteSqlRawAsync(
+            """ALTER TABLE "SettingsReplicas" ADD COLUMN IF NOT EXISTS "FederationsJson" text NOT NULL DEFAULT '[]';""",
+            ct);
+        await Database.ExecuteSqlRawAsync(
+            """ALTER TABLE "SettingsReplicas" ADD COLUMN IF NOT EXISTS "ForumFavoritesJson" text NOT NULL DEFAULT '[]';""",
+            ct);
+        await Database.ExecuteSqlRawAsync(
+            """ALTER TABLE "SettingsReplicas" ADD COLUMN IF NOT EXISTS "ForumNavLayoutJson" text NOT NULL DEFAULT '[]';""",
+            ct);
+        await Database.ExecuteSqlRawAsync(
+            """ALTER TABLE "SettingsReplicas" ADD COLUMN IF NOT EXISTS "FollowsJson" text NOT NULL DEFAULT '[]';""",
+            ct);
+    }
+
     public async Task EnsureOAuthSchemaAsync(CancellationToken ct = default)
     {
         await Database.ExecuteSqlRawAsync(

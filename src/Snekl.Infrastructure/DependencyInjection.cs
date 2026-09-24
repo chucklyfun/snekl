@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<ICuratedListService, CuratedListService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IForumService, ForumService>();
+        services.AddHttpClient<IFollowGraphClient, FollowGraphClient>();
         services.AddScoped<IPostService, PostService>();
         AddPostSearch(services, config);
         services.AddScoped<IPostUpvoteService, PostUpvoteService>();

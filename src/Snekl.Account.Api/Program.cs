@@ -60,6 +60,7 @@ using (var scope = app.Services.CreateScope())
         await db.Database.EnsureDeletedAsync();
     }
     await db.Database.EnsureCreatedAsync();
+    await db.EnsureSettingsListsSchemaAsync();
 
     var server = scope.ServiceProvider.GetRequiredService<IAuthServerService>();
     var config = await server.GetOrCreateAsync();

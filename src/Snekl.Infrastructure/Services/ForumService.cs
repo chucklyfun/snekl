@@ -12,6 +12,9 @@ public interface IForumService
     Task<IReadOnlyList<ForumDto>> ListAsync(Guid? viewerUserId = null, CancellationToken ct = default);
     Task<ForumDto?> GetBySlugAsync(string slug, Guid? viewerUserId = null, string? parentSlug = null, CancellationToken ct = default);
     Task<Forum?> GetEntityBySlugAsync(string slug, string? parentSlug = null, CancellationToken ct = default);
+    Task<ForumDto> JoinAsync(Guid userId, string slug, string? parentSlug = null, CancellationToken ct = default);
+    Task<ForumDto> LeaveAsync(Guid userId, string slug, string? parentSlug = null, CancellationToken ct = default);
+    Task<ForumDto> SetFavoriteAsync(Guid userId, string slug, bool isFavorite, string? parentSlug = null, CancellationToken ct = default);
     Task UpsertFederatedAsync(FederatedForumPayload payload, Guid sourceNodeId, string sourceNodeUrl, CancellationToken ct = default);
 }
 
@@ -21,6 +24,8 @@ public class ForumService : IForumService
     private readonly IUserPresentationService _presentation;
     private readonly IPermissionService _permissions;
     private readonly IRoleSeedService _roleSeed;
+    private readonly IForumModerationService _moderation;
+    private readonly IHubFeedPublisher _hubFeed;
     private readonly INsfwAgeCheckService _nsfwAge;
     private readonly IMediaService _media;
 
@@ -29,6 +34,8 @@ public class ForumService : IForumService
         IUserPresentationService presentation,
         IPermissionService permissions,
         IRoleSeedService roleSeed,
+        IForumModerationService moderation,
+        IHubFeedPublisher hubFeed,
         INsfwAgeCheckService nsfwAge,
         IMediaService media)
     {
@@ -36,6 +43,8 @@ public class ForumService : IForumService
         _presentation = presentation;
         _permissions = permissions;
         _roleSeed = roleSeed;
+        _moderation = moderation;
+        _hubFeed = hubFeed;
         _nsfwAge = nsfwAge;
         _media = media;
     }
@@ -163,6 +172,88 @@ public class ForumService : IForumService
             .FirstOrDefaultAsync(f => f.Slug == normalized && f.ParentForumId == parent.Id, ct);
     }
 
+    public async Task<ForumDto> JoinAsync(Guid userId, string slug, string? parentSlug = null, CancellationToken ct = default)
+    {
+        var forum = await GetEntityBySlugAsync(slug, parentSlug, ct)
+            ?? throw new InvalidOperationException("Forum not found.");
+
+        await EnsureForumRolesAsync(forum, ct);
+
+        if (!ForumApprovalStatuses.IsApproved(forum.ApprovalStatus))
+            throw new InvalidOperationException("This forum is waiting for approval and cannot be joined yet.");
+
+        if (!await _permissions.CanViewForumAsync(userId, forum.Id, ct))
+            throw new PermissionDeniedException(ForumPermissions.ViewForum.ToString(), "forum");
+
+        await _nsfwAge.EnsureViewerMayEnterForumAsync(userId, forum.Id, ct);
+
+        if (await _moderation.IsBannedAsync(forum.Id, userId, ct))
+            throw new InvalidOperationException("You are banned from this forum.");
+
+        if (!await _permissions.HasForumRoleAssignmentAsync(userId, forum.Id, ct))
+        {
+            var member = await _roleSeed.EnsureMemberRoleAsync(forum.Id, ct);
+            _db.ForumRoleAssignments.Add(new ForumRoleAssignment
+            {
+                ForumId = forum.Id,
+                UserId = userId,
+                RoleId = member.Id
+            });
+        }
+
+        await EnsureMembershipAsync(userId, forum.Id, ct);
+        await _db.SaveChangesAsync(ct);
+        await PublishMembershipAsync(userId, forum.Id, deleted: false, ct);
+
+        return await ToViewerDtoAsync(forum, userId, ct);
+    }
+
+    public async Task<ForumDto> LeaveAsync(Guid userId, string slug, string? parentSlug = null, CancellationToken ct = default)
+    {
+        var forum = await GetEntityBySlugAsync(slug, parentSlug, ct)
+            ?? throw new InvalidOperationException("Forum not found.");
+
+        if (!await _permissions.HasForumRoleAssignmentAsync(userId, forum.Id, ct)
+            && !await _db.ForumMemberships.AnyAsync(m => m.ForumId == forum.Id && m.UserId == userId, ct))
+            return await ToViewerDtoAsync(forum, userId, ct);
+
+        if (await _permissions.HasForumRoleAssignmentAsync(userId, forum.Id, ct))
+            await EnsureNotLastAdministratorAsync(forum.Id, userId, ct);
+
+        var existing = await _db.ForumRoleAssignments
+            .Where(a => a.ForumId == forum.Id && a.UserId == userId)
+            .ToListAsync(ct);
+        _db.ForumRoleAssignments.RemoveRange(existing);
+        _db.ForumMemberships.RemoveRange(
+            await _db.ForumMemberships.Where(m => m.ForumId == forum.Id && m.UserId == userId).ToListAsync(ct));
+        await _db.SaveChangesAsync(ct);
+        await PublishMembershipAsync(userId, forum.Id, deleted: true, ct);
+
+        return await ToViewerDtoAsync(forum, userId, ct);
+    }
+
+    public async Task<ForumDto> SetFavoriteAsync(
+        Guid userId,
+        string slug,
+        bool isFavorite,
+        string? parentSlug = null,
+        CancellationToken ct = default)
+    {
+        var forum = await GetEntityBySlugAsync(slug, parentSlug, ct)
+            ?? throw new InvalidOperationException("Forum not found.");
+
+        if (!await _permissions.HasForumRoleAssignmentAsync(userId, forum.Id, ct)
+            && !await _db.ForumMemberships.AnyAsync(m => m.ForumId == forum.Id && m.UserId == userId, ct))
+            throw new InvalidOperationException("Join this forum before adding it to favorites.");
+
+        var membership = await EnsureMembershipAsync(userId, forum.Id, ct);
+        membership.IsFavorite = isFavorite;
+        membership.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        await PublishMembershipAsync(userId, forum.Id, deleted: false, ct);
+        return await ToViewerDtoAsync(forum, userId, ct);
+    }
+
     public async Task UpsertFederatedAsync(FederatedForumPayload payload, Guid sourceNodeId, string sourceNodeUrl, CancellationToken ct = default)
     {
         var existing = await _db.Forums.FirstOrDefaultAsync(f => f.Id == payload.Id, ct);
@@ -220,10 +311,19 @@ public class ForumService : IForumService
         }
 
         IReadOnlyList<string>? viewerPerms = null;
+        var viewerIsMember = false;
+        var viewerCanManage = false;
+        var viewerIsFavorite = false;
         if (viewerUserId.HasValue)
         {
             var perms = await _permissions.GetForumPermissionsAsync(viewerUserId, forum.Id, ct);
             viewerPerms = PermissionNames.ToNames(perms);
+            var membership = await _db.ForumMemberships.AsNoTracking()
+                .FirstOrDefaultAsync(m => m.ForumId == forum.Id && m.UserId == viewerUserId.Value, ct);
+            viewerIsMember = membership is not null
+                || await _permissions.HasForumRoleAssignmentAsync(viewerUserId, forum.Id, ct);
+            viewerIsFavorite = membership?.IsFavorite == true;
+            viewerCanManage = await _permissions.ViewerCanManageFromRolesAsync(viewerUserId, forum.Id, ct);
         }
 
         var watercoolers = new List<WatercoolerSummaryDto>();
@@ -283,9 +383,9 @@ public class ForumService : IForumService
             forum.AllowAliases,
             string.IsNullOrWhiteSpace(forum.ApprovalStatus) ? ForumApprovalStatuses.Approved : forum.ApprovalStatus,
             false,
-            false,
-            false,
-            false,
+            viewerIsMember,
+            viewerCanManage,
+            viewerIsFavorite,
             watercoolers,
             contentBlocks,
             forum.NsfwAgeCheckRequired,
@@ -298,5 +398,90 @@ public class ForumService : IForumService
             forum.NsfwAgeCheckExplanation,
             age.BlocksEntry,
             age.ForumExplanation);
+    }
+
+    private async Task EnsureForumRolesAsync(Forum forum, CancellationToken ct)
+    {
+        if (await _db.ForumRoles.AnyAsync(r => r.ForumId == forum.Id, ct))
+            return;
+
+        var creatorId = forum.CreatedByUserId;
+        if (creatorId == Guid.Empty)
+        {
+            var anyUser = await _db.Users.AsNoTracking().Select(u => u.Id).FirstOrDefaultAsync(ct);
+            if (anyUser == Guid.Empty) return;
+            creatorId = anyUser;
+        }
+
+        await _roleSeed.SeedForumRolesAsync(forum.Id, creatorId, ct);
+        if (forum.OwnerUserId is null)
+        {
+            forum.OwnerUserId = creatorId;
+            await _db.SaveChangesAsync(ct);
+        }
+    }
+
+    private async Task<ForumDto> ToViewerDtoAsync(Forum forum, Guid viewerUserId, CancellationToken ct)
+    {
+        var postCount = await _db.Posts.CountAsync(p => p.ForumId == forum.Id && p.ParentPostId == null, ct);
+        var createdBy = forum.CreatedByUserId != Guid.Empty
+            ? await _presentation.GetPresentationAsync(forum.CreatedByUserId, viewerUserId, forum.Id, ct)
+            : null;
+        return await ToDtoAsync(forum, createdBy, postCount, viewerUserId, ct);
+    }
+
+    private async Task EnsureNotLastAdministratorAsync(Guid forumId, Guid userId, CancellationToken ct)
+    {
+        var roles = await _db.ForumRoles
+            .Where(r => r.ForumId == forumId && !r.IsEveryone)
+            .ToListAsync(ct);
+        var adminRoleIds = roles
+            .Where(r => PermissionModeMap.Get(r.Modes, ForumPermissions.ForumAdministrator) == GrantMode.Direct)
+            .Select(r => r.Id)
+            .ToHashSet();
+        if (adminRoleIds.Count == 0)
+            return;
+
+        var adminUserIds = await _db.ForumRoleAssignments
+            .Where(a => a.ForumId == forumId && adminRoleIds.Contains(a.RoleId))
+            .Select(a => a.UserId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        if (adminUserIds.Count == 1 && adminUserIds[0] == userId)
+            throw new InvalidOperationException("Cannot leave this forum as the last owner.");
+    }
+
+    private async Task<ForumMembership> EnsureMembershipAsync(Guid userId, Guid forumId, CancellationToken ct)
+    {
+        var existing = await _db.ForumMemberships.FirstOrDefaultAsync(
+            m => m.ForumId == forumId && m.UserId == userId,
+            ct);
+        if (existing is not null) return existing;
+
+        var created = new ForumMembership
+        {
+            ForumId = forumId,
+            UserId = userId,
+            IsFavorite = false,
+            UpdatedAt = DateTime.UtcNow
+        };
+        _db.ForumMemberships.Add(created);
+        return created;
+    }
+
+    private async Task PublishMembershipAsync(Guid userId, Guid forumId, bool deleted, CancellationToken ct)
+    {
+        var did = await _db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => u.Did)
+            .FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(did))
+            return;
+        var isFavorite = !deleted && await _db.ForumMemberships.AsNoTracking()
+            .Where(m => m.ForumId == forumId && m.UserId == userId)
+            .Select(m => m.IsFavorite)
+            .FirstOrDefaultAsync(ct);
+        await _hubFeed.PublishForumMembershipAsync(did, forumId, deleted, isFavorite, ct);
     }
 }

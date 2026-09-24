@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 import { hasPermission } from './api';
 import { useAuth } from './AuthContext';
 import { useServerRegistry } from './ServerRegistryContext';
+import { ForumBrowser } from './components/ForumBrowser';
 import { createForumPath, serverSettingsPath } from './serverDid';
 import './Layout.css';
 
@@ -63,6 +64,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {user ? (
             <>
               <Link to="/account">Account</Link>
+              <Link to="/following">Following</Link>
               <Link to={`/users/${user.username}`} className="user-badge">{user.effectiveDisplayName}</Link>
               <button type="button" className="btn-ghost" onClick={logout}>
                 Log out
@@ -76,7 +78,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
           )}
         </nav>
       </header>
-      <main className="app-main">{children}</main>
+      <div className="app-body-with-nav">
+        {user && <ForumBrowser />}
+        <main className="app-main">{children}</main>
+      </div>
       <footer className="app-footer">
         Open source federated forum network — each node runs independently.{' '}
         <Link to="/admin/login">Site admin</Link>

@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { MAX_FORUM_RECENTS } from './forumNav';
-import { readForumRecents, recordForumVisit } from './forumRecents';
+import { patchForumRecentIdentity, readForumRecents, recordForumVisit } from './forumRecents';
 
 const memory = new Map<string, string>();
 
@@ -65,5 +65,35 @@ describe('forum recents', () => {
     }
     expect(readForumRecents(did)).toHaveLength(MAX_FORUM_RECENTS);
     expect(readForumRecents(did)[0].forumId).toBe(String(MAX_FORUM_RECENTS + 3));
+  });
+
+  it('updates a renamed forum and child addresses that used its old slug', () => {
+    recordForumVisit(did, {
+      serverDid: 'did:a',
+      forumId: 'parent',
+      name: 'The',
+      slug: 'the',
+      serverName: 'A',
+    });
+    recordForumVisit(did, {
+      serverDid: 'did:a',
+      forumId: 'child',
+      name: 'Nest',
+      slug: 'nest',
+      parentSlug: 'the',
+      serverName: 'A',
+    });
+
+    const recents = patchForumRecentIdentity(
+      did,
+      { serverDid: 'did:a', forumId: 'parent', previousSlug: 'the', updateChildAddresses: true },
+      { name: 'The Snackleverse', slug: 'snackleverse' },
+    );
+
+    expect(recents.find((item) => item.forumId === 'parent')).toMatchObject({
+      name: 'The Snackleverse',
+      slug: 'snackleverse',
+    });
+    expect(recents.find((item) => item.forumId === 'child')?.parentSlug).toBe('snackleverse');
   });
 });

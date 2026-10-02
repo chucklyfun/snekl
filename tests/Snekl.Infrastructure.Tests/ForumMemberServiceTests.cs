@@ -129,6 +129,93 @@ public class ForumMemberServiceTests
         Assert.Equal("Media asset not found.", ex.Message);
     }
 
+    [Fact]
+    public async Task UpdateForumSettings_RenamesForumAndSlug()
+    {
+        await using var db = CreateDb();
+        var forum = AddForum(db);
+        await db.SaveChangesAsync();
+        var service = new ForumMemberService(db);
+
+        await service.UpdateForumSettingsAsync(
+            forum.Id,
+            new UpdateForumSettingsRequest("The Snackleverse", null, null, Slug: "the-snackleverse"));
+
+        var updated = await db.Forums.SingleAsync();
+        Assert.Equal("The Snackleverse", updated.Name);
+        Assert.Equal("the-snackleverse", updated.Slug);
+    }
+
+    [Fact]
+    public async Task UpdateForumSettings_RejectsDuplicateSlugAmongSiblings()
+    {
+        await using var db = CreateDb();
+        var forum = AddForum(db);
+        db.Forums.Add(new Forum
+        {
+            Name = "Other",
+            Slug = "taken",
+            Description = "d",
+            CreatedByUserId = forum.CreatedByUserId
+        });
+        await db.SaveChangesAsync();
+        var service = new ForumMemberService(db);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateForumSettingsAsync(
+                forum.Id,
+                new UpdateForumSettingsRequest(null, null, null, Slug: "Taken")));
+
+        Assert.Equal("Forum slug already exists.", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateForumSettings_AllowsSameSlugUnderAnotherParent()
+    {
+        await using var db = CreateDb();
+        var parent = AddForum(db);
+        parent.Slug = "parent";
+        var child = new Forum
+        {
+            Name = "Child",
+            Slug = "general",
+            Description = "d",
+            CreatedByUserId = parent.CreatedByUserId,
+            ParentForumId = parent.Id
+        };
+        db.Forums.Add(child);
+        await db.SaveChangesAsync();
+        var service = new ForumMemberService(db);
+
+        await service.UpdateForumSettingsAsync(
+            child.Id,
+            new UpdateForumSettingsRequest(null, null, null, Slug: "parent"));
+
+        var updated = await db.Forums.SingleAsync(f => f.Id == child.Id);
+        Assert.Equal("parent", updated.Slug);
+    }
+
+    [Fact]
+    public async Task UpdateForumSettings_RejectsBlankNameAndReservedSlug()
+    {
+        await using var db = CreateDb();
+        var forum = AddForum(db);
+        await db.SaveChangesAsync();
+        var service = new ForumMemberService(db);
+
+        var blank = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateForumSettingsAsync(
+                forum.Id,
+                new UpdateForumSettingsRequest("  ", null, null)));
+        Assert.Equal("Forum name is required.", blank.Message);
+
+        var reserved = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateForumSettingsAsync(
+                forum.Id,
+                new UpdateForumSettingsRequest(null, null, null, Slug: "new")));
+        Assert.Equal("That slug is reserved.", reserved.Message);
+    }
+
     private static Forum AddForum(SneklDbContext db)
     {
         var forum = new Forum

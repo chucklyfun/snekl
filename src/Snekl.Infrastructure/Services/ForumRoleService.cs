@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Snekl.Domain;
 using Snekl.Domain.Dtos;
@@ -357,6 +358,10 @@ public interface IForumMemberService
 
 public class ForumMemberService : IForumMemberService
 {
+    private static readonly Regex ForumSlugPattern = new(
+        "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private readonly SneklDbContext _db;
     private readonly IChangeLogService? _changeLog;
 
@@ -490,7 +495,15 @@ public class ForumMemberService : IForumMemberService
             ?? throw new InvalidOperationException("Forum not found.");
 
         var before = ForumSettingsSnapshot(forum);
-        if (request.Name is not null) forum.Name = request.Name.Trim();
+        if (request.Name is not null)
+        {
+            var name = request.Name.Trim();
+            if (name.Length == 0)
+                throw new InvalidOperationException("Forum name is required.");
+            forum.Name = name;
+        }
+        if (request.Slug is not null)
+            await ApplySlugAsync(forum, request.Slug, ct);
         if (request.Description is not null) forum.Description = request.Description.Trim();
         if (request.AllowAliases.HasValue) forum.AllowAliases = request.AllowAliases.Value;
         if (request.NsfwAgeCheckRequired.HasValue) forum.NsfwAgeCheckRequired = request.NsfwAgeCheckRequired.Value;
@@ -525,6 +538,7 @@ public class ForumMemberService : IForumMemberService
     private static object ForumSettingsSnapshot(Forum forum) => new
     {
         name = forum.Name,
+        slug = forum.Slug,
         description = forum.Description,
         allowAliases = forum.AllowAliases,
         nsfwAgeCheckRequired = forum.NsfwAgeCheckRequired,
@@ -532,6 +546,24 @@ public class ForumMemberService : IForumMemberService
         avatarMediaAssetId = forum.AvatarMediaAssetId,
         bannerMediaAssetId = forum.BannerMediaAssetId
     };
+
+    private async Task ApplySlugAsync(Forum forum, string requested, CancellationToken ct)
+    {
+        var slug = requested.Trim().ToLowerInvariant();
+        if (slug.Length == 0 || slug.Length > 64 || !ForumSlugPattern.IsMatch(slug))
+            throw new InvalidOperationException("Use a slug of lowercase letters, numbers, and single hyphens (64 characters max).");
+        if (slug == "new")
+            throw new InvalidOperationException("That slug is reserved.");
+        if (slug == forum.Slug) return;
+
+        var taken = await _db.Forums.AnyAsync(
+            f => f.Id != forum.Id && f.ParentForumId == forum.ParentForumId && f.Slug == slug,
+            ct);
+        if (taken)
+            throw new InvalidOperationException("Forum slug already exists.");
+
+        forum.Slug = slug;
+    }
 
     private async Task<Guid> RequireUploadedAssetAsync(Guid? actorUserId, Guid mediaAssetId, CancellationToken ct)
     {

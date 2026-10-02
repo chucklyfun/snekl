@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { ForumAppearanceFields } from '../components/ForumAppearanceFields';
 import { EmoteCatalogEditor } from '../components/EmoteCatalogEditor';
 import { NsfwAgeCheckPanel, forumAgeStatus } from '../components/NsfwAgeCheckPanel';
@@ -19,6 +19,7 @@ import {
   createWatercoolerPath,
   decodeServerDid,
   forumPath,
+  forumSettingsPath,
   resolveServerBaseUrl,
   threadPath,
   watercoolerPath,
@@ -26,6 +27,7 @@ import {
 } from '../serverDid';
 import type { ContentBlockType, Forum, ForumBan, ForumFlairTemplate, ForumMember, ForumRole, PostReport } from '../types';
 import { applyEmoteSkinUpdate, type CatalogEmote } from '../emotes';
+import { patchForumRecentIdentity } from '../forumRecents';
 import {
   FORUM_SETTINGS_SECTIONS,
   resolveForumSettingsSection,
@@ -39,7 +41,8 @@ export function ForumSettingsPage() {
     parentSlug?: string;
   }>();
   const { hash, pathname, search } = useLocation();
-  const { user, isSuperUser, isServerOwner, serverPermissions } = useAuth();
+  const { user, did, isSuperUser, isServerOwner, serverPermissions } = useAuth();
+  const navigate = useNavigate();
   const { refresh: refreshForumNav } = useForumNav();
   const { resolveBaseUrl } = useServerRegistry();
   const [forum, setForum] = useState<Forum | null>(null);
@@ -63,6 +66,8 @@ export function ForumSettingsPage() {
   const [banUsername, setBanUsername] = useState('');
   const [banReason, setBanReason] = useState('');
   const [blockTypes, setBlockTypes] = useState<ContentBlockType[]>([]);
+  const [name, setName] = useState('');
+  const [slugDraft, setSlugDraft] = useState('');
 
   const serverDid = encodedDid ? decodeServerDid(encodedDid) : '';
   const baseUrl = resolveServerBaseUrl(serverDid, resolveBaseUrl);
@@ -120,7 +125,11 @@ export function ForumSettingsPage() {
     if (!slug || !client) return;
     client
       .getForum(slug, effectiveParentSlug)
-      .then(setForum)
+      .then((loaded) => {
+        setForum(loaded);
+        setName(loaded.name);
+        setSlugDraft(loaded.slug);
+      })
       .catch((err) => setError(err.message));
     client
       .getServerPermissions()
@@ -383,6 +392,39 @@ export function ForumSettingsPage() {
     }
   };
 
+  const saveIdentity = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!client || !forum) return;
+    const nextName = name.trim();
+    const nextSlug = slugDraft.trim().toLowerCase();
+    if (!nextName || !nextSlug) return;
+    setError('');
+    setSuccess('');
+    try {
+      await client.updateForumSettings(forum.slug, { name: nextName, slug: nextSlug }, effectiveParentSlug);
+      patchForumRecentIdentity(
+        did,
+        {
+          serverDid,
+          forumId: forum.id,
+          previousSlug: forum.slug,
+          updateChildAddresses: !forum.parentForumId,
+        },
+        { name: nextName, slug: nextSlug },
+      );
+      setName(nextName);
+      setSlugDraft(nextSlug);
+      setForum({ ...forum, name: nextName, slug: nextSlug });
+      void refreshForumNav();
+      if (nextSlug !== forum.slug) {
+        navigate(forumSettingsPath(serverDid, nextSlug, effectiveParentSlug), { replace: true });
+      }
+      setSuccess('Name and address updated.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update the forum.');
+    }
+  };
+
   const saveAlias = async (e: FormEvent) => {
     e.preventDefault();
     if (!client || !slug || !forum?.allowAliases) return;
@@ -486,6 +528,45 @@ export function ForumSettingsPage() {
             setSuccess('Emote removed.');
           }}
         />
+      )}
+
+      {activeSection === 'general' && canManageForum && forum && client && (
+        <form className="card" onSubmit={(e) => void saveIdentity(e)}>
+          <h2 className="card-title">Name and address</h2>
+          <p className="card-meta">
+            The name is the title on the forum page. The slug is the address. Changing the slug makes
+            existing links to this forum stop working.
+            {!forum.parentForumId ? ' Subforum addresses include this slug too.' : ''}
+          </p>
+          <div className="form-group">
+            <label htmlFor="forum-settings-name">Name</label>
+            <input
+              id="forum-settings-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="forum-settings-slug">URL slug</label>
+            <input
+              id="forum-settings-slug"
+              value={slugDraft}
+              onChange={(e) => setSlugDraft(e.target.value.toLowerCase())}
+              required
+              pattern="[a-z0-9]+(-[a-z0-9]+)*"
+              maxLength={64}
+              title="Lowercase letters, numbers, and single hyphens"
+            />
+            <p className="card-meta">
+              /{effectiveParentSlug ? `${effectiveParentSlug}/` : ''}
+              {slugDraft.trim().toLowerCase()}
+            </p>
+          </div>
+          <button type="submit" className="btn-primary">
+            Save name and address
+          </button>
+        </form>
       )}
 
       {activeSection === 'general' && canManageForum && forum && client && (

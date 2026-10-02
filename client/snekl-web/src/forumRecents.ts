@@ -36,3 +36,28 @@ export function recordForumVisit(
   }
   return next;
 }
+
+export function patchForumRecentIdentity(
+  personDid: string | null | undefined,
+  match: { serverDid: string; forumId: string; previousSlug: string; updateChildAddresses?: boolean },
+  next: { name: string; slug: string },
+): ForumRecent[] {
+  if (!personDid) return [];
+  const recents = readForumRecents(personDid).map((item) => {
+    if (item.serverDid !== match.serverDid) return item;
+    if (item.forumId === match.forumId) {
+      return { ...item, name: next.name, slug: next.slug };
+    }
+    if (match.updateChildAddresses && item.parentSlug === match.previousSlug) {
+      return { ...item, parentSlug: next.slug };
+    }
+    return item;
+  });
+
+  try {
+    localStorage.setItem(forumRecentsStorageKey(personDid), JSON.stringify(recents));
+  } catch {
+    // Ignore quota / private mode.
+  }
+  return recents;
+}

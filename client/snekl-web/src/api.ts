@@ -966,6 +966,7 @@ export function createContentClient(baseUrl: string) {
       slug: string,
       data: {
         name?: string;
+        slug?: string;
         description?: string;
         allowAliases?: boolean;
         nsfwAgeCheckRequired?: boolean;

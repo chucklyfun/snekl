@@ -576,7 +576,8 @@ public record UpdateForumSettingsRequest(
     Guid? AvatarMediaId = null,
     Guid? BannerMediaId = null,
     bool ClearAvatar = false,
-    bool ClearBanner = false);
+    bool ClearBanner = false,
+    string? Slug = null);
 
 public record BanForumMemberRequest(string Username, string? Reason, DateTime? ExpiresAt);
 

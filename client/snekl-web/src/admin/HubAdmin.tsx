@@ -93,6 +93,7 @@ export function HubAdmin() {
       const result = await adminFetch<{ status: string }>('hub', '/api/hub/servers', {
         admin: true,
         method: 'POST',
+        memberProof: { method: 'POST', url: `${root}/api/federation/invites` },
         body: JSON.stringify({
           serverDid: node.did,
           baseUrl: node.baseUrl || root,

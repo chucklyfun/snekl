@@ -28,7 +28,7 @@ public class AuthToContentReplyPolicyTests
         var (strangerSession, strangerMe) = await RegisterContentUserAsync();
         var (modSession, modMe) = await RegisterContentUserAsync();
 
-        using var authOp = _fixture.AuthFactory.CreateClient();
+        using var authOp = _fixture.CreateAuthClient();
         authOp.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", opSession.AccessToken);
         (await authOp.PostAsJsonAsync("/api/me/follows", new AccountDtos.UpsertFollowRequest(friendSession.Person.Did)))
             .EnsureSuccessStatusCode();
@@ -163,7 +163,7 @@ public class AuthToContentReplyPolicyTests
 
     private HttpClient AuthedContent(string token)
     {
-        var client = _fixture.ContentFactory.CreateClient();
+        var client = _fixture.CreateContentClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
     }

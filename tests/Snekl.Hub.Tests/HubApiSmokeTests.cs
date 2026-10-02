@@ -140,6 +140,7 @@ public sealed class FakeOriginJoinClient : IOriginJoinClient
         string authorizationHeader,
         string hubBaseUrl,
         string hubName,
+        string? deviceProof,
         CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());
 }

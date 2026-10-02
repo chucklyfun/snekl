@@ -1,3 +1,4 @@
+import { applyMemberProof, createDeviceProof, getDevicePublicJwk, readBoundToken } from '../deviceKey';
 import type { AdminBootstrap } from '../types';
 
 const ADMIN_TOKEN = 'snekl_admin_token';
@@ -12,7 +13,7 @@ export const ADMIN_KIND_UI: Record<AdminKind, { title: string; badge: string; ma
 };
 
 export function memberToken(): string | null {
-  return localStorage.getItem(MEMBER_TOKEN);
+  return readBoundToken(MEMBER_TOKEN);
 }
 
 export function adminToken(): string | null {
@@ -42,7 +43,7 @@ export async function accountLogin(authBase: string, email: string, password: st
   const res = await fetch(`${authBase.replace(/\/$/, '')}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, deviceKey: await getDevicePublicJwk() }),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `Account login failed (${res.status})`);
@@ -78,21 +79,26 @@ export async function operatorLogin(kind: AdminKind, state: string, password: st
 export async function adminFetch<T>(
   kind: AdminKind,
   path: string,
-  options: RequestInit & { member?: boolean; admin?: boolean } = {},
+  options: RequestInit & { member?: boolean; admin?: boolean; memberProof?: { method: string; url: string } } = {},
 ): Promise<T> {
-  const { member: wantMember = false, admin: wantAdminFlag = false, headers: optionHeaders, ...rest } = options;
+  const { member: wantMember = false, admin: wantAdminFlag = false, memberProof, headers: optionHeaders, ...rest } = options;
   const headers: Record<string, string> = { ...(optionHeaders as Record<string, string> | undefined) };
   if (rest.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
   const member = memberToken();
   const admin = adminToken();
   const wantAdmin = wantAdminFlag || (kind === 'content' && !wantMember);
+  const method = rest.method ?? 'GET';
+  const url = new URL(path, window.location.origin).href;
 
   if (wantMember && member) {
-    headers.Authorization = `Bearer ${member}`;
+    await applyMemberProof(headers, method, url, member);
   } else if (wantAdmin && admin) {
     headers.Authorization = `Bearer ${admin}`;
     if ((kind === 'hub' || kind === 'auth') && member) {
-      headers['X-Snekl-Member-Authorization'] = `Bearer ${member}`;
+      const proofMethod = memberProof?.method ?? method;
+      const proofUrl = memberProof?.url ?? url;
+      headers['X-Snekl-Member-Authorization'] = `DPoP ${member}`;
+      headers['X-Snekl-Member-DPoP'] = await createDeviceProof(proofMethod, proofUrl, member);
     }
   }
   const res = await fetch(path, { ...rest, headers, cache: 'no-store' });

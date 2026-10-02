@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Snekl.DevSession\Snekl.DevSession.csproj" />
+    <ProjectReference Include="..\Snekl.DeviceBinding\Snekl.DeviceBinding.csproj" />
     <ProjectReference Include="..\Snekl.Domain\Snekl.Domain.csproj" />
     <ProjectReference Include="..\Snekl.Infrastructure\Snekl.Infrastructure.csproj" />
   </ItemGroup>

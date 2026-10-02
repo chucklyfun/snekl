@@ -24,7 +24,7 @@ public class ExtensionOauthTests
         var (userToken, userId) = await RegisterUserAsync("oa");
         await _fixture.GrantSuperUserAsync(userId);
 
-        using var auth = _fixture.AuthFactory.CreateClient();
+        using var auth = _fixture.CreateAuthClient();
         auth.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", userToken);
         var appRes = await auth.PostAsJsonAsync("/api/oauth/apps", new AccountDtos.RegisterOAuthAppRequest(
             "Test Ext",
@@ -33,7 +33,7 @@ public class ExtensionOauthTests
         var app = await appRes.Content.ReadFromJsonAsync<AccountDtos.RegisterOAuthAppResponse>(JsonOptions);
         Assert.NotNull(app);
 
-        using var content = _fixture.ContentFactory.CreateClient();
+        using var content = _fixture.CreateContentClient();
         content.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", userToken);
         var installRes = await content.PostAsJsonAsync("/api/extensions/installs", new ContentDtos.CreateExtensionInstallRequest(
             app!.ClientId,
@@ -83,13 +83,13 @@ public class ExtensionOauthTests
             tokens.RateLimiting!.Rules,
             r => r.PathPrefix == "/api/posts" && r.Method == "POST" && r.Limit == 30);
 
-        using var asInstall = _fixture.ContentFactory.CreateClient();
+        using var asInstall = _fixture.CreateContentClient();
         asInstall.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
         var blocked = await asInstall.PostAsJsonAsync("/api/posts", new ContentDtos.CreatePostRequest(
             Guid.NewGuid(), null, "nope", "Nope"));
         Assert.Equal(HttpStatusCode.Forbidden, blocked.StatusCode);
 
-        using var asApp = _fixture.AuthFactory.CreateClient();
+        using var asApp = _fixture.CreateAuthClient();
         asApp.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
         var botRes = await asApp.PostAsJsonAsync("/api/oauth/bots", new AccountDtos.CreateOAuthBotRequest(
             $"bot_{Guid.NewGuid():N}"[..12],
@@ -99,7 +99,7 @@ public class ExtensionOauthTests
         var bot = JsonSerializer.Deserialize<AccountDtos.OAuthBotCreatedResponse>(botBody, JsonOptions);
         Assert.NotNull(bot);
 
-        using var asBot = _fixture.ContentFactory.CreateClient();
+        using var asBot = _fixture.CreateContentClient();
         asBot.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bot!.AccessToken);
         var forumRes = await asBot.PostAsJsonAsync("/api/forums", new ContentDtos.CreateForumRequest(
             "Bot Forum",
@@ -144,7 +144,7 @@ public class ExtensionOauthTests
         var (userToken, userId) = await RegisterUserAsync("ex");
         await _fixture.GrantSuperUserAsync(userId);
 
-        using var auth = _fixture.AuthFactory.CreateClient();
+        using var auth = _fixture.CreateAuthClient();
         auth.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", userToken);
         var appRes = await auth.PostAsJsonAsync("/api/oauth/apps", new AccountDtos.RegisterOAuthAppRequest(
             "Reuse Ext",
@@ -152,7 +152,7 @@ public class ExtensionOauthTests
         var app = await appRes.Content.ReadFromJsonAsync<AccountDtos.RegisterOAuthAppResponse>(JsonOptions);
         Assert.NotNull(app);
 
-        using var content = _fixture.ContentFactory.CreateClient();
+        using var content = _fixture.CreateContentClient();
         content.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", userToken);
         var installRes = await content.PostAsJsonAsync("/api/extensions/installs", new ContentDtos.CreateExtensionInstallRequest(
             app!.ClientId,
@@ -207,7 +207,7 @@ public class ExtensionOauthTests
             proof));
         register.EnsureSuccessStatusCode();
         var session = await register.Content.ReadFromJsonAsync<AccountDtos.RingSessionDto>(JsonOptions);
-        using var content = _fixture.ContentFactory.CreateClient();
+        using var content = _fixture.CreateContentClient();
         content.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", session!.AccessToken);
         var me = await content.GetFromJsonAsync<ContentDtos.AuthMeResponse>("/api/auth/me", JsonOptions);
         return (session.AccessToken, me!.User.Id);

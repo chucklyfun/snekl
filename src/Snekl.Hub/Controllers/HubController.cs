@@ -96,7 +96,12 @@ public class HubController : ControllerBase
             var hubName = _config["Hub:Name"] ?? "Snekl Hub";
             var hubBaseUrl = (_config["Hub:BaseUrl"] ?? "http://localhost:5200").TrimEnd('/');
             var inviteId = await _originJoins.RequestInviteAsync(
-                request.BaseUrl, memberAuthorization, hubBaseUrl, hubName, ct);
+                request.BaseUrl,
+                memberAuthorization,
+                hubBaseUrl,
+                hubName,
+                Request.Headers["X-Snekl-Member-DPoP"].ToString(),
+                ct);
             var server = await _registry.RegisterServerAsync(
                 request with { InitiatedBy = "hub", OriginInviteId = inviteId }, ct);
             return Ok(server);

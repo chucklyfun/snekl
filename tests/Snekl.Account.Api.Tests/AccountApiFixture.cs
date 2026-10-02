@@ -17,7 +17,9 @@ public sealed class AccountApiFixture : IAsyncLifetime
 
     public WebApplicationFactory<AuthController> Factory { get; private set; } = null!;
 
-    public HttpClient Client => Factory.CreateClient();
+    public HttpClient Client => CreateClient();
+
+    public HttpClient CreateClient() => Factory.CreateDefaultClient(new MemberDeviceHandler());
 
     public string AuthBaseUrl { get; } = "http://auth.test";
 

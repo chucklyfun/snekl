@@ -22,7 +22,8 @@ public sealed record TokenIssueOptions(
     Guid? InstallId = null,
     string TokenUse = OAuthClaims.TokenUseUser,
     string? ContentBaseUrl = null,
-    DateTimeOffset? AuthTime = null);
+    DateTimeOffset? AuthTime = null,
+    string? DeviceKeyThumbprint = null);
 
 public class TokenService : ITokenService
 {
@@ -66,6 +67,8 @@ public class TokenService : ITokenService
             claims.Add(new Claim(OAuthClaims.ContentBaseUrl, options.ContentBaseUrl.TrimEnd('/')));
         if (options.AuthTime.HasValue)
             claims.Add(new Claim(OAuthClaims.AuthTime, options.AuthTime.Value.ToUnixTimeSeconds().ToString()));
+        if (!string.IsNullOrWhiteSpace(options.DeviceKeyThumbprint))
+            claims.Add(new Claim(OAuthClaims.CnfJkt, options.DeviceKeyThumbprint));
 
         var token = new JwtSecurityToken(
             issuer: issuerUrl.TrimEnd('/'),

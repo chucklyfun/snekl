@@ -23,6 +23,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="browser-proof.mjs" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Snekl.Infrastructure\Snekl.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Snekl.Domain\Snekl.Domain.csproj" />
     <ProjectReference Include="..\Snekl.Tests.Shared\Snekl.Tests.Shared.csproj" />

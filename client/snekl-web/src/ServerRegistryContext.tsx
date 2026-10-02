@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { authApi, createContentClient, hubApi } from './api';
+import { readBoundToken } from './deviceKey';
 import { rewriteLoopbackForPage } from './hosts';
 import {
   federationOriginMembership,
@@ -140,7 +141,7 @@ export function ServerRegistryProvider({ children }: { children: ReactNode }) {
   );
 
   const refresh = useCallback(async () => {
-    const token = localStorage.getItem('snekl_token');
+    const token = readBoundToken('snekl_token');
     if (!token) {
       homeBootstrapAttempted.current = false;
       setServers([]);
@@ -263,7 +264,7 @@ export function ServerRegistryProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (
       !shouldBootstrapHomeSubscriptions({
-        hasToken: Boolean(localStorage.getItem('snekl_token')),
+        hasToken: Boolean(readBoundToken('snekl_token')),
         loading,
         serverCount: servers.length,
         federationCount: federations.length,

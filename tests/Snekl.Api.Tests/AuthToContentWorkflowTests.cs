@@ -38,8 +38,12 @@ public sealed class DualApiFixture : IAsyncLifetime
     public WebApplicationFactory<Snekl.Account.Api.Controllers.AuthController> AuthFactory { get; private set; } = null!;
     public WebApplicationFactory<ForumsController> ContentFactory { get; private set; } = null!;
 
-    public HttpClient AuthClient => AuthFactory.CreateClient();
-    public HttpClient ContentClient => ContentFactory.CreateClient();
+    public HttpClient AuthClient => CreateAuthClient();
+    public HttpClient ContentClient => CreateContentClient();
+
+    public HttpClient CreateAuthClient() => AuthFactory.CreateDefaultClient(new MemberDeviceHandler());
+
+    public HttpClient CreateContentClient() => ContentFactory.CreateDefaultClient(new MemberDeviceHandler());
 
     public async Task InitializeAsync()
     {
@@ -175,7 +179,7 @@ public class AuthToContentWorkflowTests
         var session = await register.Content.ReadFromJsonAsync<AccountDtos.RingSessionDto>(JsonOptions);
         Assert.NotNull(session);
 
-        using var content = _fixture.ContentFactory.CreateClient();
+        using var content = _fixture.CreateContentClient();
         content.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", session!.AccessToken);
 
@@ -223,7 +227,7 @@ public class AuthToContentWorkflowTests
             var session = await register.Content.ReadFromJsonAsync<AccountDtos.RingSessionDto>(JsonOptions);
             Assert.NotNull(session);
 
-            using var content = _fixture.ContentFactory.CreateClient();
+            using var content = _fixture.CreateContentClient();
             content.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", session!.AccessToken);
             var me = await content.GetFromJsonAsync<ContentDtos.AuthMeResponse>("/api/auth/me", JsonOptions);
@@ -236,17 +240,17 @@ public class AuthToContentWorkflowTests
         var (friendSession, _) = await RegisterContentUserAsync();
         var (strangerSession, _) = await RegisterContentUserAsync();
 
-        using var authOp = _fixture.AuthFactory.CreateClient();
+        using var authOp = _fixture.CreateAuthClient();
         authOp.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", opSession.AccessToken);
         var follow = await authOp.PostAsJsonAsync("/api/me/follows", new AccountDtos.UpsertFollowRequest(friendSession.Person.Did));
         Assert.Equal(HttpStatusCode.OK, follow.StatusCode);
 
-        using var op = _fixture.ContentFactory.CreateClient();
+        using var op = _fixture.CreateContentClient();
         op.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", opSession.AccessToken);
-        using var friend = _fixture.ContentFactory.CreateClient();
+        using var friend = _fixture.CreateContentClient();
         friend.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", friendSession.AccessToken);
-        using var stranger = _fixture.ContentFactory.CreateClient();
+        using var stranger = _fixture.CreateContentClient();
         stranger.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", strangerSession.AccessToken);
 
         var forumResponse = await op.PostAsJsonAsync("/api/forums", new ContentDtos.CreateForumRequest(

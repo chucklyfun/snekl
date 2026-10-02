@@ -10,6 +10,7 @@ public interface IContentInstallLookup
         string contentBaseUrl,
         Guid installId,
         string userAccessToken,
+        string? deviceProof,
         CancellationToken ct = default);
 
     Task<RateLimitPolicyDto?> GetRateLimitingAsync(string contentBaseUrl, CancellationToken ct = default);
@@ -25,12 +26,21 @@ public class ContentInstallLookup : IContentInstallLookup
         string contentBaseUrl,
         Guid installId,
         string userAccessToken,
+        string? deviceProof,
         CancellationToken ct = default)
     {
         var client = _http.CreateClient("extension-install");
         var url = $"{contentBaseUrl.TrimEnd('/')}/api/extensions/installs/{installId:D}";
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", userAccessToken);
+        if (!string.IsNullOrWhiteSpace(deviceProof))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("DPoP", userAccessToken);
+            request.Headers.TryAddWithoutValidation("DPoP", deviceProof);
+        }
+        else
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", userAccessToken);
+        }
         var response = await client.SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)
             return null;

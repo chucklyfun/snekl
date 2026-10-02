@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { authApi, createContentClient } from './api';
+import { readBoundToken } from './deviceKey';
 import { buildRegisterChallenge, signMultibaseProof } from './did/didKey';
 import { clearDidKey, getOrCreateDidKey, getStoredDid } from './did/keyStore';
 import { useServerRegistry } from './ServerRegistryContext';
@@ -46,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const refreshMe = async () => {
-    const token = localStorage.getItem('snekl_token');
+    const token = readBoundToken('snekl_token');
     if (!token) {
       setUser(null);
       setPerson(null);

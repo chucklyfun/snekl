@@ -43,11 +43,14 @@ public class OauthController : ControllerBase
     {
         try
         {
-            var bearer = Request.Headers.Authorization.ToString();
-            var token = bearer.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-                ? bearer["Bearer ".Length..].Trim()
-                : "";
-            return Ok(await _oauth.AuthorizeAsync(User, token, request, ct));
+            var authorization = Request.Headers.Authorization.ToString();
+            var token = authorization.StartsWith("DPoP ", StringComparison.OrdinalIgnoreCase)
+                ? authorization["DPoP ".Length..].Trim()
+                : authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                    ? authorization["Bearer ".Length..].Trim()
+                    : "";
+            var contentProof = Request.Headers["X-Snekl-Content-DPoP"].ToString();
+            return Ok(await _oauth.AuthorizeAsync(User, token, request, contentProof, ct));
         }
         catch (UnauthorizedAccessException ex)
         {

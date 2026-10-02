@@ -31,7 +31,7 @@ public class AuthWorkflowTests
         var session = await register.Content.ReadFromJsonAsync<RingSessionDto>(JsonOptions);
         Assert.NotNull(session);
 
-        using var client = _fixture.Factory.CreateClient();
+        using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", session!.AccessToken);
 
         var bad = await client.PostAsJsonAsync("/api/auth/reauthenticate", new ReauthenticateRequest("wrong-password"));
@@ -210,7 +210,7 @@ public class AuthWorkflowTests
         var session = await register.Content.ReadFromJsonAsync<RingSessionDto>(JsonOptions);
         Assert.NotNull(session);
 
-        using var client = _fixture.Factory.CreateClient();
+        using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", session!.AccessToken);
 
         var empty = await client.GetFromJsonAsync<List<ForumFavoriteDto>>("/api/me/forum-favorites", JsonOptions);
@@ -277,7 +277,7 @@ public class AuthWorkflowTests
         Assert.NotNull(target);
         var targetDid = target!.Person.Did;
 
-        using var client = _fixture.Factory.CreateClient();
+        using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", session!.AccessToken);
 
         var empty = await client.GetFromJsonAsync<List<FollowDto>>("/api/me/follows", JsonOptions);
@@ -345,7 +345,7 @@ public class AuthWorkflowTests
         Assert.NotNull(before);
         Assert.False(before.Follows);
 
-        using var client = _fixture.Factory.CreateClient();
+        using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", follower.AccessToken);
         var created = await client.PostAsJsonAsync("/api/me/follows", new UpsertFollowRequest(target.Person.Did));
         Assert.Equal(HttpStatusCode.OK, created.StatusCode);
@@ -380,7 +380,7 @@ public class AuthWorkflowTests
         targetRegister.EnsureSuccessStatusCode();
         var target = await targetRegister.Content.ReadFromJsonAsync<RingSessionDto>(JsonOptions);
 
-        using var client = _fixture.Factory.CreateClient();
+        using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", follower!.AccessToken);
         (await client.PostAsJsonAsync("/api/me/follows", new UpsertFollowRequest(target!.Person.Did))).EnsureSuccessStatusCode();
         var delete = await client.DeleteAsync(
@@ -404,7 +404,7 @@ public class AuthWorkflowTests
         var session = await register.Content.ReadFromJsonAsync<RingSessionDto>(JsonOptions);
         Assert.NotNull(session);
 
-        using var client = _fixture.Factory.CreateClient();
+        using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", session!.AccessToken);
 
         var empty = await client.GetFromJsonAsync<ForumNavLayoutDto>("/api/me/forum-groups", JsonOptions);
@@ -462,7 +462,7 @@ public class AuthWorkflowTests
         var session = await register.Content.ReadFromJsonAsync<RingSessionDto>(JsonOptions);
         Assert.NotNull(session);
 
-        using var member = _fixture.Factory.CreateClient();
+        using var member = _fixture.CreateClient();
         member.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", session!.AccessToken);
 
         var status = await member.GetFromJsonAsync<AuthOperatorStatusDto>("/api/auth/admin/status", JsonOptions);
@@ -478,5 +478,26 @@ public class AuthWorkflowTests
         var auth = await login.Content.ReadFromJsonAsync<AuthAdminAuthResponse>(JsonOptions);
         Assert.NotNull(auth);
         Assert.False(string.IsNullOrWhiteSpace(auth.Token));
+    }
+
+    [Fact]
+    public async Task CopiedBearerToken_IsRejected()
+    {
+        var username = $"lock_{Guid.NewGuid():N}"[..16];
+        var register = await _fixture.Client.PostAsJsonAsync("/api/auth/register", new RegisterRequest(
+            username, $"{username}@example.com", "Password1!", "Locked"));
+        Assert.Equal(HttpStatusCode.OK, register.StatusCode);
+        var session = await register.Content.ReadFromJsonAsync<RingSessionDto>(JsonOptions);
+        Assert.NotNull(session);
+
+        using var copied = _fixture.Factory.CreateClient();
+        copied.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", session!.AccessToken);
+        var me = await copied.GetAsync("/api/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, me.StatusCode);
+
+        using var browser = _fixture.CreateClient();
+        browser.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", session.AccessToken);
+        var ok = await browser.GetAsync("/api/me");
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
     }
 }

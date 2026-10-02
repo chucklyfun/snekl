@@ -45,6 +45,7 @@ import type {
   UserStatus,
 } from './types';
 import { type PostSort } from './ranking';
+import { applyMemberProof, getDevicePublicJwk, readBoundToken } from './deviceKey';
 import { getAuthBaseUrl, normalizeBaseUrl, rewriteLoopbackForPage, rewriteLoopbackUrlFields } from './hosts';
 import type { ForumNavLayout } from './forumNavFolders';
 
@@ -95,8 +96,7 @@ export const hubApi = {
     const suffix = query.size > 0 ? `?${query.toString()}` : '';
     const token = getToken();
     const headers: Record<string, string> = {};
-    if (token) headers.Authorization = `Bearer ${token}`;
-    return hubRequest<HubFeedCard[]>(baseUrl, `/api/hub/feed${suffix}`, { headers });
+    return hubRequest<HubFeedCard[]>(baseUrl, `/api/hub/feed${suffix}`, { headers, memberToken: token });
   },
   search: (baseUrl: string, q: string, opts?: { limit?: number; offset?: number }) => {
     const query = new URLSearchParams({ q });
@@ -104,8 +104,7 @@ export const hubApi = {
     if (opts?.offset) query.set('offset', String(opts.offset));
     const token = getToken();
     const headers: Record<string, string> = {};
-    if (token) headers.Authorization = `Bearer ${token}`;
-    return hubRequest<HubSearchHit[]>(baseUrl, `/api/hub/search?${query}`, { headers });
+    return hubRequest<HubSearchHit[]>(baseUrl, `/api/hub/search?${query}`, { headers, memberToken: token });
   },
   getMap: (baseUrl: string) => hubRequest<HubFederationMap>(baseUrl, '/api/hub/map'),
   getServers: (baseUrl: string) => hubRequest<HubRegisteredServer[]>(baseUrl, '/api/hub/servers'),
@@ -153,17 +152,23 @@ export async function fetchHubFeedWindow(
 }
 
 /** Hub registry endpoints stay anonymous. Feed may attach the member JWT. */
-async function hubRequest<T>(baseUrl: string, path: string, options: RequestInit = {}): Promise<T> {
+async function hubRequest<T>(
+  baseUrl: string,
+  path: string,
+  options: RequestInit & { memberToken?: string | null } = {},
+): Promise<T> {
+  const { memberToken, ...init } = options;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string> | undefined),
+    ...(init.headers as Record<string, string> | undefined),
   };
 
   const root = rewriteLoopbackForPage(baseUrl);
   const url = `${root}${path}`;
+  if (memberToken) await applyMemberProof(headers, init.method ?? 'GET', url, memberToken);
   let response: Response;
   try {
-    response = await fetch(url, { cache: 'no-store', ...options, headers });
+    response = await fetch(url, { cache: 'no-store', ...init, headers });
   } catch {
     throw new Error(
       `Can't reach hub at ${root}. Is Snekl.Hub running? Try: snekl status`,
@@ -180,7 +185,7 @@ async function hubRequest<T>(baseUrl: string, path: string, options: RequestInit
 }
 
 function getToken(): string | null {
-  return localStorage.getItem('snekl_token');
+  return readBoundToken('snekl_token');
 }
 
 async function request<T>(baseUrl: string, path: string, options: RequestInit = {}): Promise<T> {
@@ -193,11 +198,11 @@ async function request<T>(baseUrl: string, path: string, options: RequestInit = 
     headers['Content-Type'] = 'application/json';
   }
 
-  const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-
   const root = rewriteLoopbackForPage(baseUrl);
   const url = `${root}${path}`;
+  const anonymousAuth = path.startsWith('/api/auth/') && !path.startsWith('/api/auth/reauthenticate');
+  const token = anonymousAuth ? null : getToken();
+  if (token) await applyMemberProof(headers, options.method ?? 'GET', url, token);
   let response: Response;
   try {
     response = await fetch(url, { ...options, headers });
@@ -221,7 +226,7 @@ export function hasPermission(permissions: string[] | undefined, name: string): 
 }
 
 export const authApi = {
-  register: (payload: {
+  register: async (payload: {
     username: string;
     email: string;
     password: string;
@@ -231,13 +236,13 @@ export const authApi = {
   }) =>
     request<RingSession>(getAuthBaseUrl(), '/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, deviceKey: await getDevicePublicJwk() }),
     }),
 
-  login: (email: string, password: string) =>
+  login: async (email: string, password: string) =>
     request<RingSession>(getAuthBaseUrl(), '/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, deviceKey: await getDevicePublicJwk() }),
     }),
 
   reauthenticate: (password: string) =>
@@ -740,8 +745,8 @@ export function createContentClient(baseUrl: string) {
     fetchMediaBlobUrl: async (mediaId: string) => {
       const headers: Record<string, string> = {};
       const token = getToken();
-      if (token) headers.Authorization = `Bearer ${token}`;
       const url = `${rewriteLoopbackForPage(root)}/api/media/${mediaId}`;
+      if (token) await applyMemberProof(headers, 'GET', url, token);
       const response = await fetch(url, { headers });
       if (!response.ok) throw new Error(`Could not load image (${response.status})`);
       const blob = await response.blob();

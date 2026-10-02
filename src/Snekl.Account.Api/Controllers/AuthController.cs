@@ -2,7 +2,10 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Snekl.Account.Domain.Dtos;
+using Snekl.Account.Infrastructure.Security;
 using Snekl.Account.Infrastructure.Services;
+using Snekl.Domain;
+using Snekl.Domain.Security;
 
 namespace Snekl.Account.Api.Controllers;
 
@@ -33,9 +36,12 @@ public class AuthController : ControllerBase
     [HttpPost("register")]
     public async Task<ActionResult<RingSessionDto>> Register(RegisterRequest request, CancellationToken ct)
     {
+        if (!TryDeviceKey(request.DeviceKey, out var thumbprint, out var keyError))
+            return BadRequest(new { error = keyError });
+
         try
         {
-            return Ok(await _auth.RegisterAsync(request, ct));
+            return Ok(await _auth.RegisterAsync(request, thumbprint, ct));
         }
         catch (InvalidOperationException ex)
         {
@@ -46,9 +52,12 @@ public class AuthController : ControllerBase
     [HttpPost("import")]
     public async Task<ActionResult<RingSessionDto>> Import(ImportIdentityRequest request, CancellationToken ct)
     {
+        if (!TryDeviceKey(request.DeviceKey, out var thumbprint, out var keyError))
+            return BadRequest(new { error = keyError });
+
         try
         {
-            return Ok(await _auth.ImportAsync(request, ct));
+            return Ok(await _auth.ImportAsync(request, thumbprint, ct));
         }
         catch (InvalidOperationException ex)
         {
@@ -59,7 +68,10 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<ActionResult<RingSessionDto>> Login(LoginRequest request, CancellationToken ct)
     {
-        var result = await _auth.LoginAsync(request, ct);
+        if (!TryDeviceKey(request.DeviceKey, out var thumbprint, out var keyError))
+            return BadRequest(new { error = keyError });
+
+        var result = await _auth.LoginAsync(request, thumbprint, ct);
         if (result is not null)
             return Ok(result);
 
@@ -86,7 +98,12 @@ public class AuthController : ControllerBase
         if (identityClaim is null || !Guid.TryParse(identityClaim, out var identityId))
             return Unauthorized(new { error = "Invalid session. Please log in again." });
 
-        var result = await _auth.ReauthenticateAsync(identityId, request.Password, ct);
+        var currentThumbprint = User.FindFirstValue(OAuthClaims.CnfJkt);
+        if (string.IsNullOrWhiteSpace(currentThumbprint)
+            && !TryDeviceKey(request.DeviceKey, out currentThumbprint, out var keyError))
+            return BadRequest(new { error = keyError });
+
+        var result = await _auth.ReauthenticateAsync(identityId, request.Password, currentThumbprint, ct);
         return result is not null
             ? Ok(result)
             : Unauthorized(new { error = "Invalid password." });
@@ -143,4 +160,7 @@ public class AuthController : ControllerBase
             return BadRequest(new { error = ex.Message });
         }
     }
+
+    private bool TryDeviceKey(DevicePublicJwk? bodyKey, out string thumbprint, out string error) =>
+        DeviceKeyReader.TryRead(bodyKey, Request.Headers[DeviceProof.DeviceKeyHeaderName].ToString(), out thumbprint, out error);
 }

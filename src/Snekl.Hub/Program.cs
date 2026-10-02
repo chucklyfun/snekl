@@ -7,6 +7,7 @@ using Snekl.Hub;
 using Snekl.Hub.Infrastructure;
 using Snekl.Hub.Infrastructure.Data;
 using Snekl.Hub.Infrastructure.Security;
+using Snekl.DeviceBinding;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +19,7 @@ var hubConnection = builder.Configuration.GetConnectionString("Hub")
     ?? "Host=localhost;Port=5432;Database=snekl_hub;Username=snekl;Password=snekl";
 
 builder.Services.AddHubInfrastructure(hubConnection, builder.Configuration);
+builder.Services.AddDeviceProof();
 builder.Services.AddHostedService<HubFeedOriginSyncHostedService>();
 
 var authBaseUrl = (builder.Configuration["Hub:AuthBaseUrl"] ?? "http://localhost:5100").TrimEnd('/');
@@ -115,6 +117,7 @@ app.Use(async (context, next) =>
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseDeviceProof();
 app.MapControllers();
 
 // Optional full member SPA only when wwwroot/index.html is present.

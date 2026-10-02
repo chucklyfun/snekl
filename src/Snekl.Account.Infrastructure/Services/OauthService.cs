@@ -20,6 +20,7 @@ public interface IOauthService
         ClaimsPrincipal user,
         string accessToken,
         AuthorizeInstallRequest request,
+        string? contentDeviceProof,
         CancellationToken ct = default);
     Task<OAuthTokenResponse> IssueTokenAsync(OAuthTokenRequest request, CancellationToken ct = default);
     Task<OAuthBotCreatedResponse> CreateBotAsync(ClaimsPrincipal user, CreateOAuthBotRequest request, CancellationToken ct = default);
@@ -117,6 +118,7 @@ public class OauthService : IOauthService
         ClaimsPrincipal user,
         string accessToken,
         AuthorizeInstallRequest request,
+        string? contentDeviceProof,
         CancellationToken ct = default)
     {
         if (!user.TryGetClusterId(out var clusterId))
@@ -139,7 +141,7 @@ public class OauthService : IOauthService
             throw new InvalidOperationException("redirect_uri is not registered for this application.");
 
         var contentBase = request.ContentBaseUrl.Trim().TrimEnd('/');
-        var install = await _installs.GetAsync(contentBase, request.InstallId, accessToken, ct)
+        var install = await _installs.GetAsync(contentBase, request.InstallId, accessToken, contentDeviceProof, ct)
             ?? throw new InvalidOperationException("Install was not found or you cannot authorize it.");
 
         if (!string.Equals(install.ClientId, app.ClientId, StringComparison.Ordinal))

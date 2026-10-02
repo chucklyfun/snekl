@@ -11,6 +11,7 @@ public interface IOriginJoinClient
         string authorizationHeader,
         string hubBaseUrl,
         string hubName,
+        string? deviceProof,
         CancellationToken ct = default);
 }
 
@@ -26,6 +27,7 @@ public class OriginJoinClient : IOriginJoinClient
         string authorizationHeader,
         string hubBaseUrl,
         string hubName,
+        string? deviceProof,
         CancellationToken ct = default)
     {
         var baseUrl = originBaseUrl.Trim().TrimEnd('/');
@@ -35,6 +37,8 @@ public class OriginJoinClient : IOriginJoinClient
         };
         if (!string.IsNullOrWhiteSpace(authorizationHeader))
             request.Headers.TryAddWithoutValidation("Authorization", authorizationHeader);
+        if (!string.IsNullOrWhiteSpace(deviceProof))
+            request.Headers.TryAddWithoutValidation("DPoP", deviceProof);
 
         using var response = await _http.SendAsync(request, ct);
         var body = await response.Content.ReadAsStringAsync(ct);

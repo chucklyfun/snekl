@@ -1,23 +1,27 @@
 namespace Snekl.Account.Domain.Dtos;
 
+public record DevicePublicJwk(string Kty, string Crv, string X, string Y);
+
 public record RegisterRequest(
     string Username,
     string Email,
     string Password,
     string DisplayName,
     string? Did = null,
-    string? KeyOwnershipProof = null);
+    string? KeyOwnershipProof = null,
+    DevicePublicJwk? DeviceKey = null);
 
 public record ImportIdentityRequest(
     string Username,
     string Email,
     string Password,
     string DisplayName,
-    string IdentityCredentialJson);
+    string IdentityCredentialJson,
+    DevicePublicJwk? DeviceKey = null);
 
-public record LoginRequest(string Email, string Password);
+public record LoginRequest(string Email, string Password, DevicePublicJwk? DeviceKey = null);
 
-public record ReauthenticateRequest(string Password);
+public record ReauthenticateRequest(string Password, DevicePublicJwk? DeviceKey = null);
 
 public record ForgotPasswordRequest(string Email);
 

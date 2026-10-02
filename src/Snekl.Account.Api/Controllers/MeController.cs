@@ -83,7 +83,9 @@ public class MeController : ControllerBase
                 identity,
                 cluster,
                 config.BaseUrl,
-                authTime.HasValue ? new TokenIssueOptions(AuthTime: authTime) : null);
+                new TokenIssueOptions(
+                    AuthTime: authTime,
+                    DeviceKeyThumbprint: User.FindFirstValue(OAuthClaims.CnfJkt)));
             return Ok(new UpdateProfileResponse(person, accessToken));
         }
         catch (InvalidOperationException ex)

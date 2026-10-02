@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { applyMemberProof } from '../deviceKey';
 import { adminFetch, memberToken } from './api';
 import { Checklist, type CheckItem } from './Checklist';
 
@@ -66,9 +67,12 @@ export function AuthAdmin() {
       return;
     }
     try {
-      const res = await fetch('/api/partners/trust', {
+      const url = new URL('/api/partners/trust', window.location.origin).href;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      await applyMemberProof(headers, 'POST', url, token);
+      const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers,
         body: JSON.stringify({ partnerBaseUrl: partnerUrl }),
       });
       const body = await res.json().catch(() => ({}));
@@ -166,7 +170,10 @@ export function AuthAdmin() {
 async function fetchPartners(): Promise<Partner[]> {
   const token = memberToken();
   if (!token) return [];
-  const res = await fetch('/api/partners/trust', { headers: { Authorization: `Bearer ${token}` } });
+  const url = new URL('/api/partners/trust', window.location.origin).href;
+  const headers: Record<string, string> = {};
+  await applyMemberProof(headers, 'GET', url, token);
+  const res = await fetch(url, { headers });
   if (!res.ok) return [];
   return res.json();
 }

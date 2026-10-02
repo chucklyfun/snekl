@@ -47,7 +47,8 @@ public class ExternalAuthClaimsTransformation : IClaimsTransformation
                      OAuthClaims.InstallId,
                      OAuthClaims.TokenUse,
                      OAuthClaims.ContentBaseUrl,
-                     OAuthClaims.AuthTime
+                     OAuthClaims.AuthTime,
+                     OAuthClaims.CnfJkt
                  })
         {
             var existing = principal.FindFirst(name);

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { createContentClient } from '../api';
+import { applyMemberProof, createDeviceProof, readBoundToken } from '../deviceKey';
 import { useAuth } from '../AuthContext';
 import { useServerRegistry } from '../ServerRegistryContext';
 import { getAuthBaseUrl } from '../hosts';
@@ -105,12 +106,16 @@ export function AuthorizeExtensionPage() {
             serverPermissions: DEFAULT_SERVER,
             forumPermissions: DEFAULT_FORUM,
           });
-      const res = await fetch(`${authUrl.replace(/\/$/, '')}/api/oauth/authorize`, {
+      const authorizeUrl = `${authUrl.replace(/\/$/, '')}/api/oauth/authorize`;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const token = readBoundToken('snekl_token');
+      if (!token) throw new Error('Sign in again before authorizing this extension.');
+      const installUrl = `${contentUrl.replace(/\/$/, '')}/api/extensions/installs/${install.id}`;
+      headers['X-Snekl-Content-DPoP'] = await createDeviceProof('GET', installUrl, token);
+      await applyMemberProof(headers, 'POST', authorizeUrl, token);
+      const res = await fetch(authorizeUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('snekl_token') || ''}`,
-        },
+        headers,
         body: JSON.stringify({
           clientId,
           redirectUri,

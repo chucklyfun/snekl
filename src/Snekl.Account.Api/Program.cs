@@ -6,6 +6,7 @@ using Snekl.Account.Infrastructure;
 using Snekl.Account.Infrastructure.Data;
 using Snekl.Account.Infrastructure.Security;
 using Snekl.Account.Infrastructure.Services;
+using Snekl.DeviceBinding;
 
 using Snekl.Redis;
 using Snekl.DevSession;
@@ -20,6 +21,7 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? "Host=localhost;Port=5432;Database=snekl_auth;Username=snekl;Password=snekl";
 
 builder.Services.AddAccountInfrastructure(connectionString, builder.Configuration);
+builder.Services.AddDeviceProof();
 
 var signingKey = builder.Configuration["Auth:SigningKey"] ?? "snekl-auth-dev-signing-key-change-in-production-min-32";
 var authBaseUrl = (builder.Configuration["Auth:BaseUrl"] ?? "http://localhost:5100").TrimEnd('/');
@@ -116,6 +118,7 @@ app.UseStaticFiles();
 app.UseSneklRateLimiting(builder.Configuration);
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseDeviceProof();
 app.MapControllers();
 
 app.Run();

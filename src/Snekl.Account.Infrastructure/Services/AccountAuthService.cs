@@ -13,10 +13,10 @@ namespace Snekl.Account.Infrastructure.Services;
 
 public interface IAccountAuthService
 {
-    Task<RingSessionDto> RegisterAsync(RegisterRequest request, CancellationToken ct = default);
-    Task<RingSessionDto> ImportAsync(ImportIdentityRequest request, CancellationToken ct = default);
-    Task<RingSessionDto?> LoginAsync(LoginRequest request, CancellationToken ct = default);
-    Task<RingSessionDto?> ReauthenticateAsync(Guid identityId, string password, CancellationToken ct = default);
+    Task<RingSessionDto> RegisterAsync(RegisterRequest request, string deviceKeyThumbprint, CancellationToken ct = default);
+    Task<RingSessionDto> ImportAsync(ImportIdentityRequest request, string deviceKeyThumbprint, CancellationToken ct = default);
+    Task<RingSessionDto?> LoginAsync(LoginRequest request, string deviceKeyThumbprint, CancellationToken ct = default);
+    Task<RingSessionDto?> ReauthenticateAsync(Guid identityId, string password, string? deviceKeyThumbprint, CancellationToken ct = default);
     Task<bool> EmailExistsAsync(string email, CancellationToken ct = default);
     Task DevResetPasswordAsync(DevResetPasswordRequest request, CancellationToken ct = default);
     Task<AuthIdentity?> GetIdentityAsync(Guid identityId, CancellationToken ct = default);
@@ -47,7 +47,7 @@ public class AccountAuthService : IAccountAuthService
         _verification = verification;
     }
 
-    public async Task<RingSessionDto> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
+    public async Task<RingSessionDto> RegisterAsync(RegisterRequest request, string deviceKeyThumbprint, CancellationToken ct = default)
     {
         var config = await _server.GetOrCreateAsync(ct);
         var username = request.Username.Trim().ToLowerInvariant();
@@ -109,11 +109,11 @@ public class AccountAuthService : IAccountAuthService
 
         await _verification.EnsureVerifiedOrSendAsync(cluster, ct);
 
-        var session = await _ring.CreateRingSessionAsync(identity, cluster, config, ct, DateTimeOffset.UtcNow);
+        var session = await _ring.CreateRingSessionAsync(identity, cluster, config, ct, DateTimeOffset.UtcNow, deviceKeyThumbprint);
         return session with { GeneratedKeyPrivatePkcs8Base64 = generatedPrivateKey };
     }
 
-    public async Task<RingSessionDto> ImportAsync(ImportIdentityRequest request, CancellationToken ct = default)
+    public async Task<RingSessionDto> ImportAsync(ImportIdentityRequest request, string deviceKeyThumbprint, CancellationToken ct = default)
     {
         var config = await _server.GetOrCreateAsync(ct);
         var username = request.Username.Trim().ToLowerInvariant();
@@ -159,10 +159,10 @@ public class AccountAuthService : IAccountAuthService
 
         await _verification.EnsureVerifiedOrSendAsync(cluster, ct);
 
-        return await _ring.CreateRingSessionAsync(identity, cluster, config, ct, DateTimeOffset.UtcNow);
+        return await _ring.CreateRingSessionAsync(identity, cluster, config, ct, DateTimeOffset.UtcNow, deviceKeyThumbprint);
     }
 
-    public async Task<RingSessionDto?> LoginAsync(LoginRequest request, CancellationToken ct = default)
+    public async Task<RingSessionDto?> LoginAsync(LoginRequest request, string deviceKeyThumbprint, CancellationToken ct = default)
     {
         var config = await _server.GetOrCreateAsync(ct);
         var email = request.Email.Trim().ToLowerInvariant();
@@ -190,10 +190,10 @@ public class AccountAuthService : IAccountAuthService
             await _db.SaveChangesAsync(ct);
         }
 
-        return await _ring.CreateRingSessionAsync(identity, identity.PersonCluster!, config, ct, DateTimeOffset.UtcNow);
+        return await _ring.CreateRingSessionAsync(identity, identity.PersonCluster!, config, ct, DateTimeOffset.UtcNow, deviceKeyThumbprint);
     }
 
-    public async Task<RingSessionDto?> ReauthenticateAsync(Guid identityId, string password, CancellationToken ct = default)
+    public async Task<RingSessionDto?> ReauthenticateAsync(Guid identityId, string password, string? deviceKeyThumbprint, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(password))
             return null;
@@ -206,7 +206,7 @@ public class AccountAuthService : IAccountAuthService
             return null;
 
         var config = await _server.GetOrCreateAsync(ct);
-        return await _ring.CreateRingSessionAsync(identity, identity.PersonCluster, config, ct, DateTimeOffset.UtcNow);
+        return await _ring.CreateRingSessionAsync(identity, identity.PersonCluster, config, ct, DateTimeOffset.UtcNow, deviceKeyThumbprint);
     }
 
     public Task<bool> EmailExistsAsync(string email, CancellationToken ct = default)
@@ -253,7 +253,8 @@ public interface IRingLoginService
         PersonCluster cluster,
         AuthServerConfig config,
         CancellationToken ct = default,
-        DateTimeOffset? authTime = null);
+        DateTimeOffset? authTime = null,
+        string? deviceKeyThumbprint = null);
 }
 
 public class RingLoginService : IRingLoginService
@@ -274,14 +275,15 @@ public class RingLoginService : IRingLoginService
         PersonCluster cluster,
         AuthServerConfig config,
         CancellationToken ct = default,
-        DateTimeOffset? authTime = null)
+        DateTimeOffset? authTime = null,
+        string? deviceKeyThumbprint = null)
     {
         var expiry = DateTime.UtcNow.AddDays(7);
         var localToken = _tokens.IssueToken(
             identity,
             cluster,
             config.BaseUrl,
-            authTime.HasValue ? new TokenIssueOptions(AuthTime: authTime) : null);
+            new TokenIssueOptions(AuthTime: authTime, DeviceKeyThumbprint: deviceKeyThumbprint));
 
         var ringSession = new RingSession
         {

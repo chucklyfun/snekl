@@ -7,6 +7,7 @@ using Snekl.Infrastructure.Services;
 using Snekl.Redis;
 using Snekl.DevSession;
 using Snekl.Infrastructure.Security;
+using Snekl.DeviceBinding;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +19,7 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? "Host=localhost;Port=5432;Database=snekl;Username=snekl;Password=snekl";
 
 builder.Services.AddSneklInfrastructure(connectionString, builder.Configuration);
+builder.Services.AddDeviceProof();
 
 var signalRBuilder = builder.Services.AddSignalR();
 var redisConnection = builder.Configuration.GetConnectionString("Redis");
@@ -530,6 +532,7 @@ app.UseStaticFiles();
 app.UseSneklRateLimiting(builder.Configuration);
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseDeviceProof();
 app.Use(async (context, next) =>
 {
     if (InstallTokenGuard.IsBlocked(context))

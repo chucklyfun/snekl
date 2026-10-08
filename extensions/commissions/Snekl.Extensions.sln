@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Snekl.Commissions", "Snekl.Commissions\Snekl.Commissions.csproj", "{1ECCE4E9-0838-4E80-A054-B89A41E2C31A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Snekl.Commissions.Tests", "Snekl.Commissions.Tests\Snekl.Commissions.Tests.csproj", "{92DE9011-0F34-4F42-B332-E7592609646E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1ECCE4E9-0838-4E80-A054-B89A41E2C31A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1ECCE4E9-0838-4E80-A054-B89A41E2C31A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1ECCE4E9-0838-4E80-A054-B89A41E2C31A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1ECCE4E9-0838-4E80-A054-B89A41E2C31A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{92DE9011-0F34-4F42-B332-E7592609646E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{92DE9011-0F34-4F42-B332-E7592609646E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{92DE9011-0F34-4F42-B332-E7592609646E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{92DE9011-0F34-4F42-B332-E7592609646E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

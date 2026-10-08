@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Snekl Commissions</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="top">
+    <strong>Snekl Commissions</strong>
+    <span id="who" class="muted"></span>
+  </header>
+  <main>
+    <p id="lede" class="lede">Studios, requests, escrow agreement records, and adult CCBill milestones. Escrow does not move money. Adult CCBill milestones settle to the artist's own CCBill account — never through Snekl Stripe.</p>
+    <p id="error" class="error" hidden></p>
+    <nav class="tabs" id="tabs">
+      <button type="button" data-view="listings">Listings</button>
+      <button type="button" data-view="orders">Orders</button>
+      <button type="button" data-view="studio">Studio</button>
+    </nav>
+    <section id="view"></section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

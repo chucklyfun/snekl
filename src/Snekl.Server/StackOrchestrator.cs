@@ -365,7 +365,9 @@ public static class StackOrchestrator
             return 1;
         }
 
-        var extensionsRepo = withSiblings ? SiblingRepo(root, "snekl-extensions", "extensions") : null;
+        var extensionsRepo = withSiblings
+            ? SiblingRepo(root, "snekl-extensions", "extensions") ?? InRepoExtensions(root)
+            : null;
         var landingRepo = withSiblings ? SiblingRepo(root, "snekl-landing", "landing") : null;
         if (IsPortInUse(5100) || IsPortInUse(5200) || IsPortInUse(5001) || IsPortInUse(5002) || IsPortInUse(5300)
             || (extensionsRepo is not null && IsPortInUse(5301)))
@@ -509,6 +511,18 @@ public static class StackOrchestrator
 
         var script = Path.Combine(dir, OperatingSystem.IsWindows() ? scriptStem + ".cmd" : scriptStem);
         return File.Exists(script) ? dir : null;
+    }
+
+    /// <summary>
+    /// Fallback when the sibling snekl-extensions repo is not checked out next to this tree.
+    /// Ships commissions under extensions/ so adult CCBill milestones can run from this repo alone.
+    /// </summary>
+    private static string? InRepoExtensions(string sneklRoot)
+    {
+        var dir = Path.Combine(sneklRoot, "extensions");
+        var script = Path.Combine(dir, OperatingSystem.IsWindows() ? "extensions.cmd" : "extensions");
+        var project = Path.Combine(dir, "commissions", "Snekl.Commissions", "Snekl.Commissions.csproj");
+        return File.Exists(script) && File.Exists(project) ? dir : null;
     }
 
     private static void ApplyErrorsOnlyLogging(IDictionary<string, string> env)

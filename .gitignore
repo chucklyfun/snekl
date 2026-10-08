@@ -260,3 +260,9 @@ client/snekl-web/.env
 artifacts/
 **/obj/
 **/bin/
+
+# Commissions extension local DB
+extensions/**/App_Data/
+extensions/**/*.db
+extensions/**/bin/
+extensions/**/obj/

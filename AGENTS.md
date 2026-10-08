@@ -16,7 +16,7 @@ See [README.md](README.md) for the canonical commands. Preferred local flow:
 
 On Windows: `.\snekl dev`. Equivalent: `dotnet run --project src/Snekl.Server --no-launch-profile -- dev`.
 
-`./snekl all` (Windows: `.\snekl all`) is the same stack plus the sibling `snekl-extensions` and `snekl-landing` repos when they sit next to this one. Extensions: `./extensions` in that repo (commissions on `:5301`). Landing: `./landing` (the site is not started, so that command reports it and exits).
+`./snekl all` (Windows: `.\snekl all`) is the same stack plus commissions and the sibling `snekl-landing` repo when present. Commissions: prefers sibling `snekl-extensions` (`./extensions`, port `:5301`), otherwise the in-repo [`extensions/`](extensions/) copy. Landing: `./landing` in `snekl-landing` (the site is not started, so that command reports it and exits).
 
 That starts Redis + PostgreSQL + MinIO + OpenSearch via `docker-compose.deps.yml`, then Auth (`:5100`), Hub (`:5200`), Content (`:5001` / `:5002`), the Vite frontend (`:5173`), and a watch build of the shared operator UI into each API’s `wwwroot/server`.
 

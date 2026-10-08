@@ -1,0 +1,20 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$AUTH_HOST} {
+	reverse_proxy auth:8080
+}
+
+{$HUB_HOST} {
+	handle /config.json {
+		header Content-Type application/json
+		header Cache-Control no-store
+		respond `{"authUrl":"https://{$AUTH_HOST}","hubUrl":"https://{$HUB_HOST}","contentUrl":"https://{$CONTENT_HOST}"}` 200
+	}
+	reverse_proxy hub:8080
+}
+
+{$CONTENT_HOST} {
+	reverse_proxy content:8080
+}

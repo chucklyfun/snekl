@@ -1,0 +1,27 @@
+# LAN / no public DNS. Browsers must trust Caddy's local CA
+# (install from the Caddy container or use the first-visit warning).
+# JWKS between containers still uses http://auth:8080.
+
+{
+	local_certs
+}
+
+{$AUTH_HOST} {
+	tls internal
+	reverse_proxy auth:8080
+}
+
+{$HUB_HOST} {
+	tls internal
+	handle /config.json {
+		header Content-Type application/json
+		header Cache-Control no-store
+		respond `{"authUrl":"https://{$AUTH_HOST}","hubUrl":"https://{$HUB_HOST}","contentUrl":"https://{$CONTENT_HOST}"}` 200
+	}
+	reverse_proxy hub:8080
+}
+
+{$CONTENT_HOST} {
+	tls internal
+	reverse_proxy content:8080
+}

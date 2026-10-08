@@ -1,0 +1,122 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
+using Snekl.Infrastructure.Services;
+using Snekl.Domain;
+
+namespace Snekl.Infrastructure.Security;
+
+public class ExternalAuthClaimsTransformation : IClaimsTransformation
+{
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IHttpContextAccessor? _httpContextAccessor;
+
+    public ExternalAuthClaimsTransformation(IServiceScopeFactory scopeFactory, IHttpContextAccessor? httpContextAccessor = null)
+    {
+        _scopeFactory = scopeFactory;
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
+    {
+        if (principal.Identity?.IsAuthenticated != true) return principal;
+        if (principal.HasClaim("auth_source", "shadow")) return principal;
+        if (SiteAdminAuthorization.IsSiteAdmin(principal)) return principal;
+
+        var did = principal.FindFirstValue("did");
+        if (string.IsNullOrWhiteSpace(did)) return principal;
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        // Find or create the shadow user inside the server this request is for.
+        RequestServerScope.Apply(_httpContextAccessor?.HttpContext, scope.ServiceProvider);
+        var externalAuth = scope.ServiceProvider.GetRequiredService<IExternalAuthService>();
+        var user = await externalAuth.GetOrCreateShadowUserAsync(principal);
+
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Name, user.Username),
+            new("did", did),
+            new("auth_source", "shadow")
+        };
+
+        if (!string.IsNullOrWhiteSpace(user.Email))
+            claims.Add(new Claim(ClaimTypes.Email, user.Email));
+
+        var identity = new ClaimsIdentity(claims, principal.Identity.AuthenticationType);
+        foreach (var name in new[]
+                 {
+                     OAuthClaims.Azp,
+                     OAuthClaims.Bot,
+                     OAuthClaims.InstallId,
+                     OAuthClaims.TokenUse,
+                     OAuthClaims.ContentBaseUrl,
+                     OAuthClaims.AuthTime,
+                     OAuthClaims.CnfJkt
+                 })
+        {
+            var existing = principal.FindFirst(name);
+            if (existing is not null)
+                identity.AddClaim(new Claim(name, existing.Value));
+        }
+
+        return new ClaimsPrincipal(identity);
+    }
+}
+
+public static class AuthenticationExtensions
+{
+    public static IServiceCollection AddSneklAuthentication(this IServiceCollection services, IConfiguration config)
+    {
+        services.AddScoped<IExternalAuthService, ExternalAuthService>();
+        services.AddScoped<IClaimsTransformation, ExternalAuthClaimsTransformation>();
+        services.AddHttpContextAccessor();
+
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer();
+
+        services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+            .Configure<IServiceScopeFactory, IHttpContextAccessor>((options, scopeFactory, httpContextAccessor) =>
+            {
+                // Keep JWT claim names stable; site admin checks both "role" and ClaimTypes.Role.
+                options.MapInboundClaims = false;
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidAudiences = ["snekl", SiteAdminClaims.Audience],
+                    IssuerSigningKeyResolver = (_, securityToken, _, _) =>
+                    {
+                        // JwtBearer may pass JsonWebToken (default) or JwtSecurityToken.
+                        // Use the base SecurityToken.Issuer so both work.
+                        if (securityToken is null || string.IsNullOrWhiteSpace(securityToken.Issuer))
+                            return [];
+
+                        using var scope = scopeFactory.CreateScope();
+                        RequestServerScope.Apply(httpContextAccessor.HttpContext, scope.ServiceProvider);
+                        var externalAuth = scope.ServiceProvider.GetRequiredService<IExternalAuthService>();
+                        return externalAuth.ResolveSigningKeysAsync(securityToken.Issuer).GetAwaiter().GetResult().ToList();
+                    },
+                    IssuerValidator = (issuer, _, _) =>
+                    {
+                        using var scope = scopeFactory.CreateScope();
+                        // Each server trusts its own issuers; a host-wide check would let a
+                        // virtual server accept tokens from issuers only the host trusts.
+                        RequestServerScope.Apply(httpContextAccessor.HttpContext, scope.ServiceProvider);
+                        var externalAuth = scope.ServiceProvider.GetRequiredService<IExternalAuthService>();
+                        if (!externalAuth.IsTrustedIssuer(issuer))
+                            throw new SecurityTokenInvalidIssuerException($"Untrusted issuer: {issuer}");
+                        return issuer;
+                    }
+                };
+            });
+
+        return services;
+    }
+}

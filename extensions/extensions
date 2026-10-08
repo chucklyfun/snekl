@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(cd "$(dirname "$0")" && pwd)"
+export PATH="${HOME}/.dotnet:${PATH}"
+export ASPNETCORE_ENVIRONMENT="${ASPNETCORE_ENVIRONMENT:-Development}"
+export DOTNET_URLS="${DOTNET_URLS:-http://0.0.0.0:5301}"
+exec dotnet run --project "$root/commissions/Snekl.Commissions/Snekl.Commissions.csproj" --no-launch-profile "$@"

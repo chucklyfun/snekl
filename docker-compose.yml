@@ -1,0 +1,218 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: rustfs/rustfs:latest@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+    command: ["/data"]
+    environment:
+      RUSTFS_ACCESS_KEY: snekl
+      RUSTFS_SECRET_KEY: sneklsecret
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ENABLE: "false"
+    ports:
+      - "9000:9000"
+    volumes:
+      - minio-data:/data
+
+  minio-init:
+    image: curlimages/curl:8.15.0
+    depends_on:
+      - minio
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["until curl -sf http://minio:9000/health; do sleep 1; done"]
+
+  postgres-auth-alpha:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: snekl
+      POSTGRES_PASSWORD: snekl
+      POSTGRES_DB: snekl_auth
+    volumes:
+      - postgres-auth-alpha-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U snekl -d snekl_auth"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-auth-beta:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: snekl
+      POSTGRES_PASSWORD: snekl
+      POSTGRES_DB: snekl_auth
+    volumes:
+      - postgres-auth-beta-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U snekl -d snekl_auth"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  auth-alpha:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.account.api
+    ports:
+      - "5100:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__Default: Host=postgres-auth-alpha;Port=5432;Database=snekl_auth;Username=snekl;Password=snekl
+      Auth__Name: Snekl Auth Alpha
+      Auth__BaseUrl: http://localhost:5100
+      Auth__SigningKey: snekl-auth-alpha-dev-signing-key-change-in-production
+      ConnectionStrings__Redis: redis:6379
+    depends_on:
+      postgres-auth-alpha:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  auth-beta:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.account.api
+    ports:
+      - "5101:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__Default: Host=postgres-auth-beta;Port=5432;Database=snekl_auth;Username=snekl;Password=snekl
+      Auth__Name: Snekl Auth Beta
+      Auth__BaseUrl: http://localhost:5101
+      Auth__SigningKey: snekl-auth-beta-dev-signing-key-change-in-production
+      ConnectionStrings__Redis: redis:6379
+    depends_on:
+      postgres-auth-beta:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres-alpha:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: snekl
+      POSTGRES_PASSWORD: snekl
+      POSTGRES_DB: snekl
+    volumes:
+      - postgres-alpha-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U snekl"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-beta:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: snekl
+      POSTGRES_PASSWORD: snekl
+      POSTGRES_DB: snekl
+    volumes:
+      - postgres-beta-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U snekl"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  opensearch:
+    image: opensearchproject/opensearch:2.18.0
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      cluster.name: snekl
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  api-alpha:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "5001:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__Default: Host=postgres-alpha;Port=5432;Database=snekl;Username=snekl;Password=snekl
+      Node__Name: Snekl Alpha
+      Node__BaseUrl: http://localhost:5001
+      Node__Description: Primary federated forum node
+      AuthIssuers__0__Name: Snekl Auth Alpha
+      AuthIssuers__0__IssuerUrl: http://localhost:5100
+      AuthIssuers__0__JwksUrl: http://host.docker.internal:5100/.well-known/jwks.json
+      ConnectionStrings__Redis: redis:6379
+      ObjectStorage__Endpoint: http://minio:9000
+      ObjectStorage__AccessKey: snekl
+      ObjectStorage__SecretKey: sneklsecret
+      ObjectStorage__Bucket: snekl-media
+      ObjectStorage__ForcePathStyle: "true"
+      ConnectionStrings__OpenSearch: http://opensearch:9200
+      OpenSearch__Index: snekl-posts-alpha
+    depends_on:
+      postgres-alpha:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      opensearch:
+        condition: service_healthy
+
+  api-beta:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "5002:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__Default: Host=postgres-beta;Port=5432;Database=snekl;Username=snekl;Password=snekl
+      Node__Name: Snekl Beta
+      Node__BaseUrl: http://localhost:5002
+      Node__Description: Secondary federated forum node
+      ConnectionStrings__Redis: redis:6379
+      ObjectStorage__Endpoint: http://minio:9000
+      ObjectStorage__AccessKey: snekl
+      ObjectStorage__SecretKey: sneklsecret
+      ObjectStorage__Bucket: snekl-media
+      ObjectStorage__ForcePathStyle: "true"
+      ConnectionStrings__OpenSearch: http://opensearch:9200
+      OpenSearch__Index: snekl-posts-beta
+    depends_on:
+      postgres-beta:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      opensearch:
+        condition: service_healthy
+
+volumes:
+  postgres-auth-alpha-data:
+  postgres-auth-beta-data:
+  postgres-alpha-data:
+  postgres-beta-data:
+  minio-data:
+  opensearch-data:

@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "Snekl.Faker": {
+      "commandName": "Project",
+      "applicationUrl": "http://localhost:5300",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

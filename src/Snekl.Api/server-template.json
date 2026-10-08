@@ -1,0 +1,44 @@
+{
+  "authIssuers": [],
+  "inheritHostAuthIssuers": true,
+  "inheritHostHubs": true,
+  "hub": {
+    "name": "",
+    "baseUrl": ""
+  },
+  "roles": [
+    {
+      "name": "@everyone",
+      "position": 0,
+      "isEveryone": true,
+      "modes": {
+        "ViewServer": "Direct"
+      }
+    },
+    {
+      "name": "Member",
+      "position": 1,
+      "color": "#4f8cff",
+      "isEveryone": false,
+      "modes": {
+        "ViewServer": "Direct",
+        "CreateForum": "Direct",
+        "CreateWatercooler": "Direct"
+      }
+    },
+    {
+      "name": "Moderator",
+      "position": 2,
+      "color": "#43b581",
+      "isEveryone": false,
+      "modes": {
+        "ViewServer": "Direct",
+        "CreateForum": "Direct",
+        "CreateWatercooler": "Direct",
+        "ManageServerMembers": "Direct",
+        "ManageContentBlocks": "Direct",
+        "ViewHistory": "Direct"
+      }
+    }
+  ]
+}

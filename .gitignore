@@ -250,3 +250,19 @@ paket-files/
 # JetBrains Rider
 .idea/
 *.sln.iml
+
+# Modern stack
+client/snekl-web/dist/
+client/snekl-web/dist-admin/
+client/snekl-web/node_modules/
+client/snekl-web/.env
+.snekl/
+artifacts/
+**/obj/
+**/bin/
+
+# Commissions extension local DB
+extensions/**/App_Data/
+extensions/**/*.db
+extensions/**/bin/
+extensions/**/obj/

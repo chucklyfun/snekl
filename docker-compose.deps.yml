@@ -1,0 +1,75 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: snekl
+      POSTGRES_PASSWORD: snekl
+      POSTGRES_DB: snekl
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+      - ./docker/postgres/init-databases.sql:/docker-entrypoint-initdb.d/01-init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U snekl"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: rustfs/rustfs:latest@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+    # The image runs as uid 10001. This dev volume was created as root, and rustfs
+    # exits immediately with "Permission denied" unless it can write /data.
+    user: "0:0"
+    command: ["/data"]
+    environment:
+      RUSTFS_ACCESS_KEY: snekl
+      RUSTFS_SECRET_KEY: sneklsecret
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ENABLE: "false"
+    ports:
+      - "9000:9000"
+    volumes:
+      - minio-dev-data:/data
+
+  minio-init:
+    image: curlimages/curl:8.15.0
+    depends_on:
+      - minio
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["until curl -sf http://minio:9000/health; do sleep 1; done"]
+
+  opensearch:
+    image: opensearchproject/opensearch:2.18.0
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      cluster.name: snekl-dev
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    volumes:
+      - opensearch-dev-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  postgres-dev-data:
+  minio-dev-data:
+  opensearch-dev-data:

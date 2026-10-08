@@ -1,0 +1,80 @@
+:root {
+  --bg: #f3efe6;
+  --ink: #1c1915;
+  --muted: #6b645a;
+  --line: #d9d0c2;
+  --accent: #0f6b5c;
+  --danger: #8b2e2e;
+  --card: #fffdf8;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, #e7f2ef 0, transparent 40%),
+    linear-gradient(180deg, #f7f2e8, var(--bg));
+  min-height: 100vh;
+}
+.top {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.2rem;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 253, 248, 0.85);
+  backdrop-filter: blur(6px);
+}
+main { padding: 1.2rem; max-width: 920px; margin: 0 auto; }
+.lede { color: var(--muted); line-height: 1.45; }
+.muted { color: var(--muted); font-size: 0.92rem; }
+.error { color: var(--danger); background: #f8e8e8; padding: 0.75rem 1rem; border-radius: 8px; }
+.tabs { display: flex; gap: 0.5rem; margin: 1rem 0; flex-wrap: wrap; }
+.tabs button, button.primary, button.ghost {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 0.45rem 0.8rem;
+  cursor: pointer;
+}
+.tabs button.active, button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+button.ghost { background: transparent; }
+.stack { display: grid; gap: 0.85rem; }
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1rem;
+}
+.panel h2, .panel h3 { margin: 0 0 0.5rem; font-size: 1.05rem; }
+label { display: grid; gap: 0.25rem; font-size: 0.9rem; }
+input, select, textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+  background: white;
+}
+textarea { min-height: 4.5rem; resize: vertical; }
+.row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: end; }
+.row > * { flex: 1 1 140px; }
+.milestone-row { display: grid; grid-template-columns: 2fr 1fr auto; gap: 0.5rem; align-items: end; }
+.pill {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.pill.adult { border-color: #b45309; color: #9a3412; background: #fff7ed; }
+.timeline { list-style: none; padding: 0; margin: 0.75rem 0 0; }
+.timeline li { padding: 0.35rem 0; border-top: 1px solid var(--line); font-size: 0.9rem; }

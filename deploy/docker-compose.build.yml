@@ -1,0 +1,20 @@
+# Overlay used when building images from the repository (not copied into the host tarball).
+
+services:
+  auth:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.linux
+      target: auth
+
+  hub:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.linux
+      target: hub
+
+  content:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.linux
+      target: content

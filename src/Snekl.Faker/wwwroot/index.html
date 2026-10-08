@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Snekl Faker</title>
+  <style>
+    :root { color-scheme: dark; --bg: #12141a; --card: #1b1f2a; --text: #f2f4f8; --muted: #9aa3b5; --accent: #6ea8fe; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    main { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1.05rem; margin: 0 0 0.4rem; }
+    p { color: var(--muted); }
+    .card { background: var(--card); border-radius: 12px; padding: 1rem 1.2rem; margin: 1rem 0; }
+    button, a.btn { display: inline-block; margin: 0.25rem 0.35rem 0.25rem 0; padding: 0.45rem 0.8rem; border: 0; border-radius: 8px; background: #3d8bff; color: #041018; font-weight: 700; cursor: pointer; text-decoration: none; }
+    button.ghost, a.btn.ghost { background: transparent; color: var(--text); outline: 1px solid #3a4152; font-weight: 600; }
+    button.danger, a.btn.danger { background: #ff3355; color: #fff; }
+    button.reconnect, a.btn.reconnect { background: #ffb020; color: #1a1200; }
+    button:disabled, a.btn.muted { background: #3a4152; color: #c5c9d4; cursor: default; pointer-events: none; }
+    .error { color: #ff8d8d; }
+    code { color: var(--accent); }
+    .card.conn-connected { border-left: 6px solid #22c55e; }
+    .card.conn-disconnected { border-left: 6px solid #6b7280; }
+    .card.conn-connecting { border-left: 6px solid #eab308; }
+    .card.conn-expired { border-left: 6px solid #ffb020; }
+    .card.conn-error { border-left: 6px solid #ff3355; }
+    .status { display: inline-block; margin: 0.15rem 0 0.5rem; padding: 0.22rem 0.75rem; border-radius: 999px; font-size: 0.8rem; font-weight: 800; letter-spacing: 0.03em; }
+    .status-connected { background: #22c55e; color: #052e16; }
+    .status-disconnected { background: #6b7280; color: #f8fafc; }
+    .status-connecting { background: #eab308; color: #1c1400; }
+    .status-expired { background: #ffb020; color: #1c1400; }
+    .status-error { background: #ff3355; color: #fff; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Snekl Faker</h1>
+    <p>Authorize this app as a forum or server admin on each content node, then create bots and fill it. OAuth is per node. Bots post through the normal APIs so SignalR and the hub feed are real.</p>
+    <div id="nodes">Loading…</div>
+    <div class="card">
+      <button type="button" onclick="post('/api/faker/posting', { enabled: true, intervalSeconds: 5 })">Start posting (all filled nodes)</button>
+      <button class="ghost" type="button" onclick="post('/api/faker/posting', { enabled: false })">Stop</button>
+      <p id="global"></p>
+    </div>
+  </main>
+  <script>
+    const statusLabel = {
+      connected: 'Connected',
+      disconnected: 'Disconnected',
+      connecting: 'Connecting',
+      expired: 'Expired',
+      error: 'Error'
+    };
+    function labelFor(url) {
+      if (url.endsWith(':5002')) return 'Beta';
+      if (url.endsWith(':5001')) return 'Alpha';
+      return url;
+    }
+    function oauthButtons(node) {
+      const q = encodeURIComponent(node.contentBaseUrl);
+      const connect = `/api/faker/connect?content=${q}`;
+      if (node.connection === 'connecting')
+        return '<span class="btn muted">Connecting…</span>';
+      if (node.connection === 'connected')
+        return `<button class="danger" type="button" onclick="post('/api/faker/disconnect', { content: '${node.contentBaseUrl}' })">Disconnect</button>`;
+      if (node.connection === 'expired')
+        return `<a class="btn reconnect" href="${connect}">Reconnect</a><button class="danger" type="button" onclick="post('/api/faker/disconnect', { content: '${node.contentBaseUrl}' })">Disconnect</button>`;
+      return `<a class="btn" href="${connect}">Connect</a>`;
+    }
+    async function refresh() {
+      const res = await fetch('/api/faker/status');
+      const data = await res.json();
+      const qError = new URLSearchParams(location.search).get('error');
+      const global = document.getElementById('global');
+      global.innerHTML = `
+        <p>Posting: ${data.posting ? 'on' : 'off'} · interval ${data.intervalSeconds}s</p>
+        <p>${data.lastAction ? 'Last: ' + data.lastAction : ''}</p>
+        ${qError ? '<p class="error">' + (qError === 'oauth' ? 'Connect did not finish. Try Connect on that node again.' : qError) + '</p>' : ''}
+        ${data.lastError ? '<p class="error">' + data.lastError + '</p>' : ''}
+      `;
+      const root = document.getElementById('nodes');
+      root.innerHTML = (data.nodes || []).map((node) => {
+        const connection = node.connection || (node.connected ? 'connected' : 'disconnected');
+        node.connection = connection;
+        return `
+        <div class="card conn-${connection}">
+          <h2>${labelFor(node.contentBaseUrl)}</h2>
+          <p><code>${node.contentBaseUrl}</code></p>
+          <p><span class="status status-${connection}">${statusLabel[connection] || connection}</span></p>
+          <p>Bots: ${node.botCount} ${node.bots && node.bots.length ? '(' + node.bots.join(', ') + ')' : ''}</p>
+          <p>Forums: ${node.forumCount} · threads: ${node.threadCount}</p>
+          <p>${node.lastAction ? 'Last: ' + node.lastAction : ''}</p>
+          ${node.lastError ? '<p class="error">' + node.lastError + '</p>' : ''}
+          ${oauthButtons(node)}
+          <button type="button" onclick="post('/api/faker/bots', { content: '${node.contentBaseUrl}', count: 8 })">Create bots</button>
+          <button type="button" onclick="post('/api/faker/fill', { content: '${node.contentBaseUrl}' })">Fill node</button>
+          <button class="ghost" type="button" onclick="post('/api/faker/clear', { content: '${node.contentBaseUrl}' })">Clear test data</button>
+        </div>
+      `;
+      }).join('');
+    }
+    async function post(url, body) {
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) alert(data.error || 'Request failed');
+      await refresh();
+    }
+    refresh();
+    setInterval(refresh, 4000);
+  </script>
+</body>
+</html>

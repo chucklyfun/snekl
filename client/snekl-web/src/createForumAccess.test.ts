@@ -55,7 +55,7 @@ describe('canRequestCreateForumFromServerRoles', () => {
         permissions: ['ViewServer', 'RequestCreateForum'],
         roles: [
           role('@everyone', ['ViewServer'], true),
-          role('Forum requester', ['ViewServer', 'RequestCreateForum']),
+          role('Nest requester', ['ViewServer', 'RequestCreateForum']),
         ],
       }),
     ).toBe(true);
@@ -76,7 +76,7 @@ describe('canOpenCreateForumPage', () => {
       canOpenCreateForumPage({
         isSuperUser: false,
         permissions: ['RequestCreateForum'],
-        roles: [role('Forum requester', ['RequestCreateForum'])],
+        roles: [role('Nest requester', ['RequestCreateForum'])],
       }),
     ).toBe(true);
   });

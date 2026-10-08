@@ -16,19 +16,22 @@ public class ServerRolesController : ControllerBase
     private readonly INsfwAgeCheckService _nsfwAge;
     private readonly IChangeLogService _changeLog;
     private readonly IOwnershipService _ownership;
+    private readonly INodeService _nodes;
 
     public ServerRolesController(
         IServerRoleService roles,
         IPermissionService permissions,
         INsfwAgeCheckService nsfwAge,
         IChangeLogService changeLog,
-        IOwnershipService ownership)
+        IOwnershipService ownership,
+        INodeService nodes)
     {
         _roles = roles;
         _permissions = permissions;
         _nsfwAge = nsfwAge;
         _changeLog = changeLog;
         _ownership = ownership;
+        _nodes = nodes;
     }
 
     private async Task RequireManageRolesAsync(Guid userId, CancellationToken ct)
@@ -53,6 +56,7 @@ public class ServerRolesController : ControllerBase
         var perms = await _permissions.GetServerPermissionsAsync(userId, ct);
         var roles = await _roles.ListEffectiveRolesForUserAsync(userId, ct);
         var age = await _nsfwAge.GetStatusAsync(userId, null, ct);
+        var voteAlertBase = await _nodes.GetVoteAlertBaseAsync(ct);
         return Ok(new ServerPermissionsDto(
             isSuper,
             PermissionNames.ToNames(perms),
@@ -60,7 +64,28 @@ public class ServerRolesController : ControllerBase
             age.RequiredByServer,
             age.MinimumAge,
             age.ViewerAttested,
-            isOwner));
+            isOwner,
+            voteAlertBase));
+    }
+
+    [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]
+    [HttpPut("vote-alerts")]
+    public async Task<ActionResult<VoteAlertBaseDto>> UpdateVoteAlerts(
+        UpdateVoteAlertBaseRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = this.RequireUserId();
+            if (!await _permissions.IsSuperUserAsync(userId, ct))
+                await _permissions.RequireServerPermissionAsync(userId, ServerPermissions.ManageServerSettings, ct);
+            var alertBase = await _nodes.SetVoteAlertBaseAsync(request.Base, ct);
+            return Ok(new VoteAlertBaseDto(alertBase));
+        }
+        catch (Exception ex)
+        {
+            return ControllerExtensions.HandlePermissionError(ex);
+        }
     }
 
     [Authorize(Policy = SiteAdminAuthorization.EndUserPolicy)]

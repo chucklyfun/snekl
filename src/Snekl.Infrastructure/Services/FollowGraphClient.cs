@@ -5,9 +5,12 @@ using Microsoft.Extensions.Logging;
 
 namespace Snekl.Infrastructure.Services;
 
+public sealed record FollowWatcher(string FollowerDid, string AlertMode);
+
 public interface IFollowGraphClient
 {
     Task<bool> FollowsAsync(string? issuerUrl, string followerDid, string targetDid, CancellationToken ct = default);
+    Task<IReadOnlyList<FollowWatcher>> ListWatchersAsync(string? issuerUrl, string targetDid, CancellationToken ct = default);
 }
 
 public class FollowGraphClient : IFollowGraphClient
@@ -60,5 +63,35 @@ public class FollowGraphClient : IFollowGraphClient
         }
     }
 
+    public async Task<IReadOnlyList<FollowWatcher>> ListWatchersAsync(
+        string? issuerUrl,
+        string targetDid,
+        CancellationToken ct = default)
+    {
+        var issuer = (issuerUrl ?? "").TrimEnd('/');
+        var target = (targetDid ?? "").Trim();
+        if (issuer.Length == 0 || target.Length == 0)
+            return [];
+
+        try
+        {
+            var url = $"{issuer}/api/follows/watchers?targetDid={Uri.EscapeDataString(target)}";
+            var result = await _http.GetFromJsonAsync<List<FollowWatcherResponse>>(url, JsonOptions, ct);
+            if (result is null)
+                return [];
+            return result
+                .Where(row => !string.IsNullOrWhiteSpace(row.FollowerDid))
+                .Select(row => new FollowWatcher(row.FollowerDid, row.AlertMode ?? ""))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to list follow alerts for {TargetDid} at {Issuer}", target, issuer);
+            return [];
+        }
+    }
+
     private sealed record FollowContainsResponse(bool Follows);
+
+    private sealed record FollowWatcherResponse(string FollowerDid, string? AlertMode);
 }

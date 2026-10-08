@@ -74,7 +74,7 @@ public sealed class ContentApiFixture : IAsyncLifetime
     {
         await using var scope = Factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SneklDbContext>();
-        var role = await db.ServerRoles.FirstAsync(r => r.Name == "Forum requester");
+        var role = await db.ServerRoles.FirstAsync(r => r.Name == "Nest requester");
         if (!await db.ServerRoleAssignments.AnyAsync(a => a.UserId == userId && a.RoleId == role.Id))
         {
             db.ServerRoleAssignments.Add(new ServerRoleAssignment

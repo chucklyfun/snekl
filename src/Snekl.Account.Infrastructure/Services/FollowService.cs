@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Snekl.Account.Domain.Dtos;
 using Snekl.Account.Domain.Entities;
 using Snekl.Account.Infrastructure.Data;
+using Snekl.Domain.Enums;
 using Snekl.Domain.Identity.Did;
 
 namespace Snekl.Account.Infrastructure.Services;
@@ -11,8 +12,10 @@ public interface IFollowService
 {
     Task<IReadOnlyList<FollowDto>> ListAsync(Guid clusterId, CancellationToken ct = default);
     Task<FollowDto> UpsertAsync(Guid clusterId, UpsertFollowRequest request, CancellationToken ct = default);
+    Task<FollowDto> SetAlertModeAsync(Guid clusterId, string did, string mode, CancellationToken ct = default);
     Task RemoveAsync(Guid clusterId, string did, CancellationToken ct = default);
     Task<bool> FollowsAsync(string followerDid, string targetDid, CancellationToken ct = default);
+    Task<IReadOnlyList<FollowWatcherDto>> ListWatchersAsync(string targetDid, CancellationToken ct = default);
 }
 
 public class FollowService : IFollowService
@@ -59,7 +62,8 @@ public class FollowService : IFollowService
             did,
             string.IsNullOrWhiteSpace(request.DisplayName) ? null : request.DisplayName.Trim(),
             string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim(),
-            index >= 0 ? follows[index].AddedAt : DateTime.UtcNow);
+            index >= 0 ? follows[index].AddedAt : DateTime.UtcNow,
+            index >= 0 ? FollowAlertModes.NormalizeOrOff(follows[index].AlertMode) : FollowAlertModes.Off);
 
         if (index >= 0)
             follows[index] = follow;
@@ -68,6 +72,70 @@ public class FollowService : IFollowService
 
         await SaveAsync(settings, follows, ct);
         return follow;
+    }
+
+    public async Task<FollowDto> SetAlertModeAsync(Guid clusterId, string did, string mode, CancellationToken ct = default)
+    {
+        var normalized = FollowAlertModes.Normalize(mode);
+        var target = (did ?? "").Trim();
+        if (!DidKey.TryParse(target, out _))
+            throw new InvalidOperationException("A valid did:key is required.");
+
+        await EnsureClusterExistsAsync(clusterId, ct);
+        var settings = await GetOrCreateSettingsAsync(clusterId, ct);
+        var follows = Deserialize(settings.FollowsJson).ToList();
+        var index = follows.FindIndex(f => string.Equals(f.Did, target, StringComparison.Ordinal));
+        if (index < 0)
+            throw new InvalidOperationException("Follow not found.");
+
+        var current = follows[index];
+        var updated = current with { AlertMode = normalized };
+        follows[index] = updated;
+        await SaveAsync(settings, follows, ct);
+        return updated;
+    }
+
+    public async Task<IReadOnlyList<FollowWatcherDto>> ListWatchersAsync(string targetDid, CancellationToken ct = default)
+    {
+        var target = (targetDid ?? "").Trim();
+        if (target.Length == 0)
+            return [];
+
+        var rows = await _db.SettingsReplicas.AsNoTracking()
+            .Select(s => new { s.PersonClusterId, s.FollowsJson })
+            .ToListAsync(ct);
+
+        var hits = new List<(Guid ClusterId, string Mode)>();
+        foreach (var row in rows)
+        {
+            foreach (var follow in Deserialize(row.FollowsJson))
+            {
+                if (!string.Equals(follow.Did, target, StringComparison.Ordinal))
+                    continue;
+                var mode = FollowAlertModes.NormalizeOrOff(follow.AlertMode);
+                if (mode == FollowAlertModes.Off)
+                    continue;
+                hits.Add((row.PersonClusterId, mode));
+            }
+        }
+
+        if (hits.Count == 0)
+            return [];
+
+        var clusterIds = hits.Select(hit => hit.ClusterId).Distinct().ToList();
+        var dids = await _db.PersonClusters.AsNoTracking()
+            .Where(c => clusterIds.Contains(c.Id))
+            .Select(c => new { c.Id, c.Did })
+            .ToDictionaryAsync(c => c.Id, c => c.Did, ct);
+
+        var watchers = new List<FollowWatcherDto>();
+        foreach (var (clusterId, mode) in hits)
+        {
+            if (dids.TryGetValue(clusterId, out var followerDid) && !string.IsNullOrWhiteSpace(followerDid))
+                watchers.Add(new FollowWatcherDto(followerDid, mode));
+        }
+
+        return watchers;
     }
 
     public async Task<bool> FollowsAsync(string followerDid, string targetDid, CancellationToken ct = default)

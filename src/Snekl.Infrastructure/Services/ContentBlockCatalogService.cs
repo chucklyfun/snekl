@@ -20,17 +20,30 @@ public class ContentBlockCatalogService : IContentBlockCatalogService
         ("ads", "Advertising", "First-class ad placements.", 20),
         ("links", "Links", "Supplemental links and information.", 30),
         ("extension", "Extension", "Sandboxed iframe from an installed extension.", 40),
-        ("cooler-list", "Watercooler list", "Directory of watercoolers under this forum.", 50),
-        ("cooler-feed", "Watercooler feed", "Live watercooler with a full composer.", 60)
+        ("stack", "Stack", "Vertical layout split.", 45),
+        ("columns", "Columns", "Horizontal layout split.", 46),
+        ("grid", "Grid", "Rows and columns that wrap.", 46),
+        ("forum-header", "Nest header", "Nest identity, banner, join and favorite.", 47),
+        ("page-body", "Page body", "Slot in shared chrome where each page layout is injected.", 47),
+        ("forum-view", "Nest view", "Titled thread list.", 48),
+        ("subforum-grid", "Subnest grid", "Subnest directory cards.", 49),
+        ("cooler-list", "Watercooler list", "Directory of watercoolers under this nest.", 50),
+        ("watercooler-view", "Watercooler view", "Live watercooler with a full composer.", 55),
+        ("cooler-feed", "Watercooler feed", "Alias for watercooler-view (legacy placement).", 60)
     ];
 
     private static readonly (string TypeKey, string Name, string Label, string Scope, int Position)[] Permissions =
     [
         ("calendar", "ManageCalendar", "Schedule and edit calendar events", ContentBlockScopes.Forum, 1),
-        ("ads", "ManageAds", "Configure advertising in this forum", ContentBlockScopes.Forum, 1),
+        ("ads", "ManageAds", "Configure advertising in this nest", ContentBlockScopes.Forum, 1),
         ("ads", "ManageAds", "Configure advertising on this server", ContentBlockScopes.Server, 1),
         ("links", "ManageLinks", "Edit the links block", ContentBlockScopes.Forum, 1),
+        ("forum-header", "ManageForumHeader", "Place and configure the nest header", ContentBlockScopes.Forum, 1),
+        ("page-body", "ManagePageBody", "Place the page-body slot in shared chrome", ContentBlockScopes.Forum, 1),
+        ("forum-view", "ManageForumView", "Place and configure the thread list view", ContentBlockScopes.Forum, 1),
+        ("subforum-grid", "ManageSubforumGrid", "Place the subnest directory", ContentBlockScopes.Forum, 1),
         ("cooler-list", "ManageCoolerList", "Place the watercooler directory block", ContentBlockScopes.Forum, 1),
+        ("watercooler-view", "ManageCoolerFeed", "Place a watercooler view on a nest page", ContentBlockScopes.Forum, 1),
         ("cooler-feed", "ManageCoolerFeed", "Place a watercooler feed block", ContentBlockScopes.Forum, 1)
     ];
 

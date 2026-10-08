@@ -12,12 +12,14 @@ function copyAdminPlugin() {
     closeBundle() {
       const src = path.join(rootDir, 'dist-admin')
       if (!fs.existsSync(src)) return
-      const dests = [
-        path.join(rootDir, '../../src/Snekl.Api/wwwroot/admin'),
-        path.join(rootDir, '../../src/Snekl.Hub/wwwroot/admin'),
-        path.join(rootDir, '../../src/Snekl.Account.Api/wwwroot/admin'),
+      const hosts = [
+        path.join(rootDir, '../../src/Snekl.Api/wwwroot'),
+        path.join(rootDir, '../../src/Snekl.Hub/wwwroot'),
+        path.join(rootDir, '../../src/Snekl.Account.Api/wwwroot'),
       ]
-      for (const dest of dests) {
+      for (const wwwroot of hosts) {
+        fs.rmSync(path.join(wwwroot, 'admin'), { recursive: true, force: true })
+        const dest = path.join(wwwroot, 'server')
         fs.rmSync(dest, { recursive: true, force: true })
         fs.mkdirSync(dest, { recursive: true })
         fs.cpSync(src, dest, { recursive: true })
@@ -28,7 +30,7 @@ function copyAdminPlugin() {
 
 export default defineConfig({
   plugins: [react(), copyAdminPlugin()],
-  base: '/admin/',
+  base: '/server/',
   root: path.join(rootDir, 'admin'),
   publicDir: false,
   server: {

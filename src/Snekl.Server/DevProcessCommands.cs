@@ -6,16 +6,17 @@ namespace Snekl.Server;
 
 public static class DevProcessCommands
 {
-    /// <summary>Content, Auth, Hub, and Faker — anything that locks Debug output under src/.</summary>
+    /// <summary>Content, Auth, Hub, Faker, and the commissions extension when it is running.</summary>
     private static readonly string[] ServiceProcessNames =
     [
         "Snekl.Api",
         "Snekl.Account.Api",
         "Snekl.Hub",
         "Snekl.Faker",
+        "Snekl.Commissions",
     ];
 
-    private static readonly int[] DevListenPorts = [5001, 5002, 5100, 5200, 5300];
+    private static readonly int[] DevListenPorts = [5001, 5002, 5100, 5200, 5300, 5301];
 
     public static int RunStatus(string root)
     {
@@ -182,7 +183,7 @@ public static class DevProcessCommands
         const string command =
             @"Get-CimInstance Win32_Process -Filter ""Name = 'dotnet.exe'"" |
               Where-Object {
-                $_.CommandLine -match 'Snekl\.(Api|Account\.Api|Hub|Faker|Server)' -and
+                $_.CommandLine -match 'Snekl\.(Api|Account\.Api|Hub|Faker|Commissions|Server)' -and
                 $_.CommandLine -notmatch '\sstop(\s|$)'
               } |
               Select-Object -ExpandProperty ProcessId";

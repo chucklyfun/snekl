@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.AddSingleton<ITokenService, TokenService>();
         services.AddScoped<IAuthServerService, AuthServerService>();
         services.AddScoped<IAccountAuthService, AccountAuthService>();
+        services.AddScoped<ITwoFactorService, TwoFactorService>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<IEmailVerificationService, EmailVerificationService>();
         services.AddScoped<IRingLoginService, RingLoginService>();
@@ -36,6 +37,10 @@ public static class DependencyInjection
         services.AddHttpClient("extension-install");
         services.AddScoped<IContentInstallLookup, ContentInstallLookup>();
         services.AddScoped<IOauthService, OauthService>();
+        services.AddScoped<IBusinessAccountService, BusinessAccountService>();
+        services.Configure<BusinessHostingOptions>(config.GetSection(BusinessHostingOptions.SectionName));
+        services.AddSingleton<BusinessHostingReplayGuard>();
+        services.AddHttpClient<IBusinessHostingRequestVerifier, BusinessHostingRequestVerifier>();
 
         if (!string.IsNullOrWhiteSpace(config["Smtp:Host"]))
             services.AddSingleton<IEmailSender, SmtpEmailSender>();

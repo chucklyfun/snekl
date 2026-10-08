@@ -1,36 +1,65 @@
+import { Capacitor } from '@capacitor/core';
 import { type FormEvent, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../AuthContext';
-import { authApi } from '../api';
-import { getAuthBaseUrl, setAuthBaseUrl } from '../hosts';
+import { ApiRequestError, TwoFactorRequiredError, authApi } from '../api';
+import { AuthServerField } from '../components/AuthServerField';
+import { setAuthBaseUrl } from '../hosts';
 
 const devPasswordResetEnabled =
-  import.meta.env.VITE_ALLOW_DEV_PASSWORD_RESET === 'true' || import.meta.env.DEV;
+  !Capacitor.isNativePlatform() &&
+  (import.meta.env.VITE_ALLOW_DEV_PASSWORD_RESET === 'true' || import.meta.env.DEV);
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, completeTwoFactorLogin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const successMessage = (location.state as { message?: string } | null)?.message;
   const returnTo = new URLSearchParams(location.search).get('return');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showDevReset, setShowDevReset] = useState(false);
   const [newPassword, setNewPassword] = useState('');
-  const [authUrl, setAuthUrl] = useState(getAuthBaseUrl());
+  const [authUrl, setAuthUrl] = useState('');
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+    if (!authUrl) return;
     try {
       setAuthBaseUrl(authUrl);
       await login(email, password);
       const next = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/';
       navigate(next);
     } catch (err) {
+      if (err instanceof TwoFactorRequiredError) {
+        setChallengeToken(err.challengeToken);
+        setTwoFactorCode('');
+        return;
+      }
+      setError(err instanceof Error ? err.message : 'Login failed');
+    }
+  };
+
+  const handleTwoFactor = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!challengeToken) return;
+    setError('');
+    setSuccess('');
+    try {
+      await completeTwoFactorLogin(challengeToken, twoFactorCode);
+      const next = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/';
+      navigate(next);
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.code === 'two_factor_expired') {
+        setChallengeToken(null);
+        setTwoFactorCode('');
+      }
       setError(err instanceof Error ? err.message : 'Login failed');
     }
   };
@@ -39,7 +68,9 @@ export function LoginPage() {
     e.preventDefault();
     setError('');
     setSuccess('');
+    if (!authUrl) return;
     try {
+      setAuthBaseUrl(authUrl);
       const result = await authApi.devResetPassword(email.trim(), newPassword);
       setSuccess(result.message);
       setPassword(newPassword);
@@ -61,17 +92,41 @@ export function LoginPage() {
       )}
       {error && <div className="error-banner">{error}</div>}
       {success && <div className="card" style={{ borderColor: 'var(--accent)', marginBottom: '1rem' }}>{success}</div>}
+      {challengeToken ? (
+        <form onSubmit={handleTwoFactor}>
+          <p style={{ color: 'var(--muted)', marginBottom: '1rem' }}>
+            Enter the 6-digit code from your authenticator app, or a backup code.
+          </p>
+          <div className="form-group">
+            <label htmlFor="two-factor-code">Authentication code</label>
+            <input
+              id="two-factor-code"
+              value={twoFactorCode}
+              onChange={(e) => setTwoFactorCode(e.target.value)}
+              autoComplete="one-time-code"
+              inputMode="text"
+              autoFocus
+              required
+            />
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button type="submit" className="btn-primary">Verify</button>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => {
+                setChallengeToken(null);
+                setTwoFactorCode('');
+                setError('');
+              }}
+            >
+              Back
+            </button>
+          </div>
+        </form>
+      ) : (
       <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label htmlFor="auth-url">Auth server URL</label>
-          <input
-            id="auth-url"
-            type="url"
-            value={authUrl}
-            onChange={(e) => setAuthUrl(e.target.value)}
-            required
-          />
-        </div>
+        <AuthServerField id="auth-url" value={authUrl} onChange={setAuthUrl} />
         <div className="form-group">
           <label htmlFor="email">Email</label>
           <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
@@ -83,8 +138,9 @@ export function LoginPage() {
             <Link to="/forgot-password">Forgot password?</Link>
           </p>
         </div>
-        <button type="submit" className="btn-primary">Log in</button>
+        <button type="submit" className="btn-primary" disabled={!authUrl}>Log in</button>
       </form>
+      )}
 
       {devPasswordResetEnabled && (
         <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>

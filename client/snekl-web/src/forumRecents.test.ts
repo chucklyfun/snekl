@@ -19,7 +19,7 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
 });
 
-describe('forum recents', () => {
+describe('nest recents', () => {
   const did = 'did:key:zTest';
 
   beforeEach(() => {
@@ -67,7 +67,7 @@ describe('forum recents', () => {
     expect(readForumRecents(did)[0].forumId).toBe(String(MAX_FORUM_RECENTS + 3));
   });
 
-  it('updates a renamed forum and child addresses that used its old slug', () => {
+  it('updates a renamed nest and child addresses that used its old slug', () => {
     recordForumVisit(did, {
       serverDid: 'did:a',
       forumId: 'parent',

@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { authApi } from './api';
 import { useAuth } from './AuthContext';
-import type { Follow } from './types';
+import type { Follow, FollowAlertMode } from './types';
 
 interface FollowsContextValue {
   follows: Follow[];
@@ -17,6 +17,7 @@ interface FollowsContextValue {
   isFollowing: (did: string | null | undefined) => boolean;
   follow: (payload: { did: string; displayName?: string | null; username?: string | null }) => Promise<Follow>;
   unfollow: (did: string) => Promise<void>;
+  setFollowAlert: (did: string, mode: FollowAlertMode) => Promise<Follow>;
   refresh: () => Promise<void>;
 }
 
@@ -68,9 +69,15 @@ export function FollowsProvider({ children }: { children: ReactNode }) {
     setFollows((current) => current.filter((f) => f.did !== did));
   }, []);
 
+  const setFollowAlert = useCallback(async (did: string, mode: FollowAlertMode) => {
+    const updated = await authApi.setFollowAlert(did, mode);
+    setFollows((current) => current.map((person) => (person.did === updated.did ? updated : person)));
+    return updated;
+  }, []);
+
   const value = useMemo(
-    () => ({ follows, loading, isFollowing, follow, unfollow, refresh }),
-    [follows, loading, isFollowing, follow, unfollow, refresh],
+    () => ({ follows, loading, isFollowing, follow, unfollow, setFollowAlert, refresh }),
+    [follows, loading, isFollowing, follow, unfollow, setFollowAlert, refresh],
   );
 
   return <FollowsContext.Provider value={value}>{children}</FollowsContext.Provider>;

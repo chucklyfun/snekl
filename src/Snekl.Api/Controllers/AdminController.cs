@@ -128,6 +128,7 @@ public class AdminSiteController : ControllerBase
         Ok(await _identity.ListTrustedIssuersAsync(ct));
 
     [HttpPost("issuers")]
+    [Snekl.Api.Hosting.RequiredAuthIssuerConflict]
     public async Task<ActionResult<TrustedAuthIssuer>> RegisterIssuer(
         RegisterTrustedIssuerRequest request,
         CancellationToken ct) =>

@@ -166,7 +166,7 @@ public class HubFeedPublisher : IHubFeedPublisher
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Hub membership enqueue failed for forum {ForumId}", forumId);
+            _logger.LogWarning(ex, "Hub membership enqueue failed for nest {ForumId}", forumId);
         }
     }
 
@@ -217,10 +217,8 @@ public class HubFeedPublisher : IHubFeedPublisher
 
     private async Task<IReadOnlyList<string>> ListAcceptedHubsAsync(CancellationToken ct)
     {
-        var urls = await _db.HubInvites.AsNoTracking()
-            .Where(i => i.Status == "accepted")
-            .Select(i => i.HubBaseUrl)
-            .ToListAsync(ct);
+        // Includes the host's hubs for a spawned server that inherits them.
+        var urls = await _db.EffectiveAcceptedHubUrlsAsync(ct);
         return urls
             .Select(u => u.Trim().TrimEnd('/'))
             .Where(u => u.Length > 0)

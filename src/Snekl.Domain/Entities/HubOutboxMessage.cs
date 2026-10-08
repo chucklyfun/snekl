@@ -1,7 +1,8 @@
 namespace Snekl.Domain.Entities;
 
-public class HubOutboxMessage
+public class HubOutboxMessage : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public string HubBaseUrl { get; set; } = "";
     public string Path { get; set; } = "";

@@ -104,7 +104,7 @@ export function HubAdmin() {
       setFlash(
         result.status === 'active'
           ? 'Already a member.'
-          : `Invite sent. Have their site admin open ${root}/admin/ and accept.`,
+          : `Invite sent. Have their site admin open ${root}/server/ and accept.`,
       );
       load();
     } catch (err) {
@@ -172,7 +172,7 @@ export function HubAdmin() {
                 {s.baseUrl} · {s.did}
               </div>
             </div>
-            <a className="btn-ghost" href={`${s.baseUrl.replace(/\/$/, '')}/admin/`}>
+            <a className="btn-ghost" href={`${s.baseUrl.replace(/\/$/, '')}/server/`}>
               Origin admin
             </a>
           </div>

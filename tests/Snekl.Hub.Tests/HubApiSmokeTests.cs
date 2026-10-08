@@ -189,7 +189,7 @@ public class HubApiSmokeTests
     [Fact]
     public async Task HubAdminBootstrap_ReturnsHubKind()
     {
-        var bootstrap = await _fixture.Client.GetFromJsonAsync<AdminBootstrapDto>("/admin/bootstrap", JsonOptions);
+        var bootstrap = await _fixture.Client.GetFromJsonAsync<AdminBootstrapDto>("/server/bootstrap", JsonOptions);
         Assert.NotNull(bootstrap);
         Assert.Equal("hub", bootstrap.Kind);
         Assert.Equal("http://auth.test", bootstrap.AuthLoginUrl);

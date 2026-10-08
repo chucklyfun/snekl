@@ -14,6 +14,7 @@ namespace Snekl.Account.Api.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAccountAuthService _auth;
+    private readonly ITwoFactorService _twoFactor;
     private readonly IPasswordResetService _passwordReset;
     private readonly IEmailVerificationService _emailVerification;
     private readonly IConfiguration _configuration;
@@ -21,12 +22,14 @@ public class AuthController : ControllerBase
 
     public AuthController(
         IAccountAuthService auth,
+        ITwoFactorService twoFactor,
         IPasswordResetService passwordReset,
         IEmailVerificationService emailVerification,
         IConfiguration configuration,
         IWebHostEnvironment environment)
     {
         _auth = auth;
+        _twoFactor = twoFactor;
         _passwordReset = passwordReset;
         _emailVerification = emailVerification;
         _configuration = configuration;
@@ -66,14 +69,25 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<RingSessionDto>> Login(LoginRequest request, CancellationToken ct)
+    public async Task<IActionResult> Login(LoginRequest request, CancellationToken ct)
     {
         if (!TryDeviceKey(request.DeviceKey, out var thumbprint, out var keyError))
             return BadRequest(new { error = keyError });
 
         var result = await _auth.LoginAsync(request, thumbprint, ct);
         if (result is not null)
-            return Ok(result);
+        {
+            if (result.RequiresTwoFactor)
+            {
+                return Unauthorized(new TwoFactorChallengeDto(
+                    "Two-factor authentication required.",
+                    TwoFactorErrorCodes.Required,
+                    result.ChallengeToken!,
+                    result.ChallengeExpiresAt ?? DateTime.UtcNow.AddMinutes(5)));
+            }
+
+            return Ok(result.Session);
+        }
 
         if (_environment.IsDevelopment())
         {
@@ -90,9 +104,30 @@ public class AuthController : ControllerBase
         return Unauthorized(new { error = "Invalid credentials." });
     }
 
+    [HttpPost("login/two-factor")]
+    public async Task<IActionResult> CompleteTwoFactorLogin(CompleteTwoFactorLoginRequest request, CancellationToken ct)
+    {
+        var result = await _twoFactor.CompleteLoginAsync(request.ChallengeToken, request.Code, ct);
+        return result.Status switch
+        {
+            TwoFactorLoginStatus.Success => Ok(result.Session),
+            TwoFactorLoginStatus.InvalidCode => Unauthorized(new
+            {
+                error = "Invalid authentication code.",
+                code = TwoFactorErrorCodes.Invalid
+            }),
+            TwoFactorLoginStatus.InvalidChallenge => Unauthorized(new
+            {
+                error = "That sign-in attempt expired. Enter your password again.",
+                code = TwoFactorErrorCodes.Expired
+            }),
+            _ => throw new InvalidOperationException($"Unexpected two-factor login status {result.Status}.")
+        };
+    }
+
     [Authorize]
     [HttpPost("reauthenticate")]
-    public async Task<ActionResult<RingSessionDto>> Reauthenticate(ReauthenticateRequest request, CancellationToken ct)
+    public async Task<IActionResult> Reauthenticate(ReauthenticateRequest request, CancellationToken ct)
     {
         var identityClaim = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
         if (identityClaim is null || !Guid.TryParse(identityClaim, out var identityId))
@@ -103,10 +138,23 @@ public class AuthController : ControllerBase
             && !TryDeviceKey(request.DeviceKey, out currentThumbprint, out var keyError))
             return BadRequest(new { error = keyError });
 
-        var result = await _auth.ReauthenticateAsync(identityId, request.Password, currentThumbprint, ct);
-        return result is not null
-            ? Ok(result)
-            : Unauthorized(new { error = "Invalid password." });
+        var result = await _auth.ReauthenticateAsync(identityId, request.Password, request.TwoFactorCode, currentThumbprint, ct);
+        return result.Status switch
+        {
+            AccountReauthStatus.Success => Ok(result.Session),
+            AccountReauthStatus.InvalidPassword => Unauthorized(new { error = "Invalid password." }),
+            AccountReauthStatus.TwoFactorRequired => Unauthorized(new
+            {
+                error = "Two-factor code required.",
+                code = TwoFactorErrorCodes.Required
+            }),
+            AccountReauthStatus.TwoFactorInvalid => Unauthorized(new
+            {
+                error = "Invalid two-factor code.",
+                code = TwoFactorErrorCodes.Invalid
+            }),
+            _ => throw new InvalidOperationException($"Unexpected reauth status {result.Status}.")
+        };
     }
 
     [HttpPost("forgot-password")]

@@ -211,7 +211,7 @@ function suggestionMeaning(item: EmoteSuggestion): string | null {
         parsed.forumQual === 'server'
           ? 'Server'
           : parsed.forumQual === 'forum'
-            ? 'Forum'
+            ? 'Nest'
             : parsed.forumQual
               ? item.emote.forumName ?? parsed.forumQual
               : null;

@@ -98,7 +98,7 @@ public class PersonClusterMappingService : IPersonClusterMappingService
     }
 
     public async Task<IReadOnlyList<TrustedAuthIssuer>> ListTrustedIssuersAsync(CancellationToken ct = default) =>
-        await _db.TrustedAuthIssuers.Where(i => i.IsActive).OrderBy(i => i.Name).ToListAsync(ct);
+        (await _db.EffectiveTrustedIssuersAsync(ct)).OrderBy(i => i.Name, StringComparer.Ordinal).ToList();
 
     public async Task<TrustedAuthIssuer> RegisterTrustedIssuerAsync(RegisterTrustedIssuerRequest request, CancellationToken ct = default)
     {

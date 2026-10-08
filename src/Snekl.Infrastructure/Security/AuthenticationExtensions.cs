@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
@@ -12,8 +13,13 @@ namespace Snekl.Infrastructure.Security;
 public class ExternalAuthClaimsTransformation : IClaimsTransformation
 {
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IHttpContextAccessor? _httpContextAccessor;
 
-    public ExternalAuthClaimsTransformation(IServiceScopeFactory scopeFactory) => _scopeFactory = scopeFactory;
+    public ExternalAuthClaimsTransformation(IServiceScopeFactory scopeFactory, IHttpContextAccessor? httpContextAccessor = null)
+    {
+        _scopeFactory = scopeFactory;
+        _httpContextAccessor = httpContextAccessor;
+    }
 
     public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
@@ -25,6 +31,8 @@ public class ExternalAuthClaimsTransformation : IClaimsTransformation
         if (string.IsNullOrWhiteSpace(did)) return principal;
 
         await using var scope = _scopeFactory.CreateAsyncScope();
+        // Find or create the shadow user inside the server this request is for.
+        RequestServerScope.Apply(_httpContextAccessor?.HttpContext, scope.ServiceProvider);
         var externalAuth = scope.ServiceProvider.GetRequiredService<IExternalAuthService>();
         var user = await externalAuth.GetOrCreateShadowUserAsync(principal);
 
@@ -66,12 +74,13 @@ public static class AuthenticationExtensions
     {
         services.AddScoped<IExternalAuthService, ExternalAuthService>();
         services.AddScoped<IClaimsTransformation, ExternalAuthClaimsTransformation>();
+        services.AddHttpContextAccessor();
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer();
 
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
-            .Configure<IServiceScopeFactory>((options, scopeFactory) =>
+            .Configure<IServiceScopeFactory, IHttpContextAccessor>((options, scopeFactory, httpContextAccessor) =>
             {
                 // Keep JWT claim names stable; site admin checks both "role" and ClaimTypes.Role.
                 options.MapInboundClaims = false;
@@ -90,12 +99,16 @@ public static class AuthenticationExtensions
                             return [];
 
                         using var scope = scopeFactory.CreateScope();
+                        RequestServerScope.Apply(httpContextAccessor.HttpContext, scope.ServiceProvider);
                         var externalAuth = scope.ServiceProvider.GetRequiredService<IExternalAuthService>();
                         return externalAuth.ResolveSigningKeysAsync(securityToken.Issuer).GetAwaiter().GetResult().ToList();
                     },
                     IssuerValidator = (issuer, _, _) =>
                     {
                         using var scope = scopeFactory.CreateScope();
+                        // Each server trusts its own issuers; a host-wide check would let a
+                        // virtual server accept tokens from issuers only the host trusts.
+                        RequestServerScope.Apply(httpContextAccessor.HttpContext, scope.ServiceProvider);
                         var externalAuth = scope.ServiceProvider.GetRequiredService<IExternalAuthService>();
                         if (!externalAuth.IsTrustedIssuer(issuer))
                             throw new SecurityTokenInvalidIssuerException($"Untrusted issuer: {issuer}");

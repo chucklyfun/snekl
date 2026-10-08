@@ -73,7 +73,13 @@ public class ChangeLogServiceTests
         await db.SaveChangesAsync();
 
         var changeLog = new ChangeLogService(db);
-        var coolerService = new WatercoolerService(db, new PermissionService(db), new RoleSeedService(db), new NullPresentation(), changeLog);
+        var coolerService = new WatercoolerService(
+            db,
+            new PermissionService(db),
+            new RoleSeedService(db),
+            new NullPresentation(),
+            new ForumPageService(db, new PermissionService(db)),
+            changeLog);
         var cooler = await coolerService.CreateAsync(owner.Id, new CreateWatercoolerRequest("Chat", "chat", "", forum.Id));
         await coolerService.UpdateAsync(owner.Id, cooler.Id, new UpdateWatercoolerRequest(Name: "Lounge"));
 

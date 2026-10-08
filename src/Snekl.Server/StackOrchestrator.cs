@@ -72,7 +72,8 @@ public sealed class ProcessRunner : IDisposable
         string fileName,
         IReadOnlyList<string> arguments,
         string workingDirectory,
-        IDictionary<string, string>? environment = null)
+        IDictionary<string, string>? environment = null,
+        bool errorsOnly = false)
     {
         var psi = new ProcessStartInfo
         {
@@ -97,10 +98,13 @@ public sealed class ProcessRunner : IDisposable
         var stderr = process.StandardError.ReadToEnd();
         process.WaitForExit();
 
-        if (!string.IsNullOrWhiteSpace(stdout))
-            Console.Write(stdout);
-        if (!string.IsNullOrWhiteSpace(stderr))
-            Console.Error.Write(stderr);
+        if (!errorsOnly || process.ExitCode != 0)
+        {
+            if (!string.IsNullOrWhiteSpace(stdout))
+                Console.Write(stdout);
+            if (!string.IsNullOrWhiteSpace(stderr))
+                Console.Error.Write(stderr);
+        }
 
         return process.ExitCode;
     }
@@ -146,10 +150,12 @@ public static class StackOrchestrator
         var root = RepoPaths.FindRoot(Directory.GetCurrentDirectory());
         var withFrontend = !args.Contains("--no-frontend");
         var resetDb = args.Contains("--reset-db");
+        var errorsOnly = args.Contains("--errors-only");
 
         return command switch
         {
-            "dev" => await RunDevAsync(root, withFrontend, resetDb, ct),
+            "dev" => await RunDevAsync(root, withFrontend, resetDb, withSiblings: false, errorsOnly, ct),
+            "all" => await RunDevAsync(root, withFrontend, resetDb, withSiblings: true, errorsOnly, ct),
             "status" => DevProcessCommands.RunStatus(root),
             "stop" => DevProcessCommands.RunStop(root),
             "up" => RunDockerCompose(root, "docker-compose.yml", ["up", "--build"]),
@@ -157,6 +163,7 @@ public static class StackOrchestrator
             "deps" => RunDockerCompose(root, "docker-compose.deps.yml", ["up", "-d"]),
             "deps-down" => RunDockerCompose(root, "docker-compose.deps.yml", ["down"]),
             "pack" => PackLinux(root, args),
+            "android" => AndroidApk.Build(root),
             "help" or "--help" or "-h" => PrintHelp(),
             _ => UnknownCommand(command)
         };
@@ -179,17 +186,20 @@ public static class StackOrchestrator
 
             Commands:
               dev         Start Redis + Postgres + MinIO + OpenSearch (Docker), auth, hub, content alpha/beta, Faker, and frontend locally
+              all         Same as dev, and also start snekl-extensions and snekl-landing when those repos sit next to this one
               status      Show running Snekl APIs and recent request activity
-              stop        Stop running Snekl API processes (skips rebuild so a locked snekl.exe is fine)
+              stop        Stop running Snekl API processes, including commissions when it is running (skips rebuild so a locked snekl.exe is fine)
               up          Start the full Docker stack (docker compose up --build)
               down        Stop the full Docker stack
               deps        Start only Redis + Postgres + MinIO + OpenSearch for local development
               deps-down   Stop Redis + Postgres + MinIO + OpenSearch
               pack        Build Linux Docker images and write artifacts/snekl-linux-deploy.tar.gz
+              android     Build the member SPA into a debug APK
               help        Show this help
 
             Options:
-              --no-frontend   Skip starting the React dev server during 'dev'
+              --no-frontend   Skip starting the React dev server during 'dev' or 'all'
+              --errors-only   During 'dev' or 'all', hide info logs so the port list stays visible. Errors still print.
               --reset-db      Wipe auth/hub/content databases before starting (fresh dev state)
               --version TAG   Image tag for 'pack' (default latest)
               --force         Accepted by 'stop' for older snekl.exe builds (current builds always stop)
@@ -257,17 +267,16 @@ public static class StackOrchestrator
         Directory.CreateDirectory(Path.Combine(outDir, "targets"));
 
         foreach (var name in new[] { "docker-compose.yml", "Caddyfile", "Caddyfile.internal", ".env.example", "README.md", "up.sh", "down.sh", "gen-env.sh" })
-            File.Copy(Path.Combine(deployDir, name), Path.Combine(outDir, name), overwrite: true);
-        File.Copy(
+            CopyLinuxText(Path.Combine(deployDir, name), Path.Combine(outDir, name));
+        CopyLinuxText(
             Path.Combine(deployDir, "postgres", "init-databases.sql"),
-            Path.Combine(outDir, "postgres", "init-databases.sql"),
-            overwrite: true);
+            Path.Combine(outDir, "postgres", "init-databases.sql"));
         foreach (var targetEnv in Directory.GetFiles(Path.Combine(deployDir, "targets"), "*.env"))
-            File.Copy(targetEnv, Path.Combine(outDir, "targets", Path.GetFileName(targetEnv)), overwrite: true);
+            CopyLinuxText(targetEnv, Path.Combine(outDir, "targets", Path.GetFileName(targetEnv)));
 
         var envExample = Path.Combine(outDir, ".env.example");
         var exampleText = File.ReadAllText(envExample).Replace("SNEKL_VERSION=latest", $"SNEKL_VERSION={version}", StringComparison.Ordinal);
-        File.WriteAllText(envExample, exampleText);
+        File.WriteAllText(envExample, ToLinuxNewlines(exampleText));
 
         var imagesTar = Path.Combine(outDir, "images.tar");
         Console.WriteLine("Saving images to images.tar...");
@@ -301,7 +310,16 @@ public static class StackOrchestrator
         return 0;
     }
 
-    private static int RunDockerCompose(string root, string composeFile, IReadOnlyList<string> composeArgs)
+    /// <summary>Pack text as LF so a Windows checkout still produces a Linux-runnable tarball.</summary>
+    private static void CopyLinuxText(string source, string destination)
+    {
+        File.WriteAllText(destination, ToLinuxNewlines(File.ReadAllText(source)));
+    }
+
+    private static string ToLinuxNewlines(string text) =>
+        text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\r", "\n", StringComparison.Ordinal);
+
+    private static int RunDockerCompose(string root, string composeFile, IReadOnlyList<string> composeArgs, bool errorsOnly = false)
     {
         var composePath = Path.Combine(root, composeFile);
         if (!File.Exists(composePath))
@@ -312,14 +330,14 @@ public static class StackOrchestrator
 
         var arguments = new List<string> { "compose", "-f", composePath };
         arguments.AddRange(composeArgs);
-        return ProcessRunner.RunToCompletion("docker", arguments, root);
+        return ProcessRunner.RunToCompletion("docker", arguments, root, errorsOnly: errorsOnly);
     }
 
-    private static async Task<int> RunDevAsync(string root, bool withFrontend, bool resetDb, CancellationToken ct)
+    private static async Task<int> RunDevAsync(string root, bool withFrontend, bool resetDb, bool withSiblings, bool errorsOnly, CancellationToken ct)
     {
         if (resetDb)
             Console.WriteLine("Resetting dev databases (--reset-db)...");
-        if (RunDockerCompose(root, "docker-compose.deps.yml", ["up", "-d"]) != 0)
+        if (RunDockerCompose(root, "docker-compose.deps.yml", ["up", "-d"], errorsOnly) != 0)
         {
             Console.Error.WriteLine("Failed to start Redis/PostgreSQL/MinIO/OpenSearch. Is Docker running?");
             return 1;
@@ -336,10 +354,10 @@ public static class StackOrchestrator
         }
 
         Console.WriteLine("Building API projects...");
-        if (ProcessRunner.RunToCompletion("dotnet", ["build", "src/Snekl.Account.Api/Snekl.Account.Api.csproj", "-c", "Debug"], root) != 0 ||
-            ProcessRunner.RunToCompletion("dotnet", ["build", "src/Snekl.Hub/Snekl.Hub.csproj", "-c", "Debug"], root) != 0 ||
-            ProcessRunner.RunToCompletion("dotnet", ["build", "src/Snekl.Api/Snekl.Api.csproj", "-c", "Debug"], root) != 0 ||
-            ProcessRunner.RunToCompletion("dotnet", ["build", "src/Snekl.Faker/Snekl.Faker.csproj", "-c", "Debug"], root) != 0)
+        if (ProcessRunner.RunToCompletion("dotnet", ["build", "src/Snekl.Account.Api/Snekl.Account.Api.csproj", "-c", "Debug"], root, errorsOnly: errorsOnly) != 0 ||
+            ProcessRunner.RunToCompletion("dotnet", ["build", "src/Snekl.Hub/Snekl.Hub.csproj", "-c", "Debug"], root, errorsOnly: errorsOnly) != 0 ||
+            ProcessRunner.RunToCompletion("dotnet", ["build", "src/Snekl.Api/Snekl.Api.csproj", "-c", "Debug"], root, errorsOnly: errorsOnly) != 0 ||
+            ProcessRunner.RunToCompletion("dotnet", ["build", "src/Snekl.Faker/Snekl.Faker.csproj", "-c", "Debug"], root, errorsOnly: errorsOnly) != 0)
         {
             Console.Error.WriteLine("Build failed. A running Snekl API may be locking build output.");
             Console.Error.WriteLine($"Check activity: {CliHints.StatusCommand}");
@@ -347,14 +365,20 @@ public static class StackOrchestrator
             return 1;
         }
 
-        if (IsPortInUse(5100) || IsPortInUse(5200) || IsPortInUse(5001) || IsPortInUse(5002) || IsPortInUse(5300))
+        var extensionsRepo = withSiblings ? SiblingRepo(root, "snekl-extensions", "extensions") : null;
+        var landingRepo = withSiblings ? SiblingRepo(root, "snekl-landing", "landing") : null;
+        if (IsPortInUse(5100) || IsPortInUse(5200) || IsPortInUse(5001) || IsPortInUse(5002) || IsPortInUse(5300)
+            || (extensionsRepo is not null && IsPortInUse(5301)))
         {
-            Console.Error.WriteLine("Ports 5100, 5200, 5001, 5002, or 5300 are already in use. Stop the previous Snekl dev session first.");
+            var ports = extensionsRepo is not null
+                ? "5100, 5200, 5001, 5002, 5300, or 5301"
+                : "5100, 5200, 5001, 5002, or 5300";
+            Console.Error.WriteLine($"Ports {ports} are already in use. Stop the previous Snekl dev session first.");
             return 1;
         }
 
-        EnsurePostgresDatabase(root, "snekl_beta");
-        EnsurePostgresDatabase(root, "snekl_hub");
+        EnsurePostgresDatabase(root, "snekl_beta", errorsOnly);
+        EnsurePostgresDatabase(root, "snekl_hub", errorsOnly);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         Console.CancelKeyPress += (_, e) =>
@@ -375,6 +399,8 @@ public static class StackOrchestrator
 
         if (resetDb)
             sharedEnv["Snekl__ResetDb"] = "true";
+        if (errorsOnly)
+            ApplyErrorsOnlyLogging(sharedEnv);
 
         var authEnv = new Dictionary<string, string>(sharedEnv)
         {
@@ -407,7 +433,7 @@ public static class StackOrchestrator
             ["ConnectionStrings__Default"] = "Host=localhost;Port=5432;Database=snekl_beta;Username=snekl;Password=snekl",
             ["Node__Name"] = "Snekl Beta",
             ["Node__BaseUrl"] = ContentBetaUrl,
-            ["Node__Description"] = "Secondary federated forum node",
+            ["Node__Description"] = "Secondary federated nest node",
             ["OpenSearch__Index"] = "snekl-posts-beta",
             ["DOTNET_URLS"] = "http://0.0.0.0:5002"
         };
@@ -437,9 +463,12 @@ public static class StackOrchestrator
         if (withFrontend && Directory.Exists(Path.Combine(root, "client/snekl-web")))
         {
             EnsureFrontendEnv(root);
-            if (!TryStartFrontend(runner, root))
+            if (!TryStartFrontend(runner, root, errorsOnly))
                 return 1;
         }
+
+        if (withSiblings)
+            StartSiblings(runner, extensionsRepo, landingRepo, errorsOnly);
 
         Console.WriteLine();
         Console.WriteLine("Snekl dev stack is running:");
@@ -448,6 +477,10 @@ public static class StackOrchestrator
         Console.WriteLine($"  Content alpha:  {ContentUrl} (listening on 0.0.0.0:5001)");
         Console.WriteLine($"  Content beta:   {ContentBetaUrl} (listening on 0.0.0.0:5002)");
         Console.WriteLine($"  Faker:          {FakerUrl} (listening on 0.0.0.0:5300)");
+        if (extensionsRepo is not null)
+            Console.WriteLine("  Commissions:    http://localhost:5301");
+        if (landingRepo is not null)
+            Console.WriteLine("  Landing:        http://localhost:5400");
         if (withFrontend)
         {
             Console.WriteLine($"  Frontend:       {FrontendUrl}");
@@ -468,7 +501,88 @@ public static class StackOrchestrator
         return 0;
     }
 
-    private static bool TryStartFrontend(ProcessRunner runner, string root)
+    private static string? SiblingRepo(string sneklRoot, string folderName, string scriptStem)
+    {
+        var dir = Path.GetFullPath(Path.Combine(sneklRoot, "..", folderName));
+        if (!Directory.Exists(dir))
+            return null;
+
+        var script = Path.Combine(dir, OperatingSystem.IsWindows() ? scriptStem + ".cmd" : scriptStem);
+        return File.Exists(script) ? dir : null;
+    }
+
+    private static void ApplyErrorsOnlyLogging(IDictionary<string, string> env)
+    {
+        env["Logging__LogLevel__Default"] = "Error";
+        env["Logging__LogLevel__Microsoft.AspNetCore"] = "Error";
+        env["Logging__LogLevel__Microsoft.EntityFrameworkCore"] = "Error";
+        env["Logging__LogLevel__Microsoft.Hosting.Lifetime"] = "Error";
+    }
+
+    private static void StartSiblings(ProcessRunner runner, string? extensionsRepo, string? landingRepo, bool errorsOnly)
+    {
+        if (extensionsRepo is null)
+            Console.WriteLine("Skipping snekl-extensions: repo or extensions script was not found next to this repo.");
+        else
+            StartExtensions(runner, extensionsRepo, errorsOnly);
+
+        if (landingRepo is null)
+            Console.WriteLine("Skipping snekl-landing: repo or landing script was not found next to this repo.");
+        else
+            StartLanding(runner, landingRepo);
+    }
+
+    private static void StartExtensions(ProcessRunner runner, string repoDir, bool errorsOnly)
+    {
+        var project = Path.Combine(repoDir, "commissions", "Snekl.Commissions", "Snekl.Commissions.csproj");
+        if (!File.Exists(project))
+        {
+            Console.WriteLine("Skipping commissions: project was not found.");
+            return;
+        }
+
+        if (!HasProject(Path.Combine(repoDir, "calendar")))
+            Console.WriteLine("Calendar has no server yet; skipping.");
+
+        Console.WriteLine("Starting commissions at http://localhost:5301");
+        var commissionsEnv = new Dictionary<string, string>
+        {
+            ["ASPNETCORE_ENVIRONMENT"] = "Development",
+            ["DOTNET_URLS"] = "http://0.0.0.0:5301"
+        };
+        if (errorsOnly)
+            ApplyErrorsOnlyLogging(commissionsEnv);
+        var commissionsArgs = new List<string> { "run", "--project", project, "--no-launch-profile" };
+        if (errorsOnly)
+            commissionsArgs.AddRange(["-v", "q"]);
+        runner.Start("dotnet", commissionsArgs, repoDir, commissionsEnv);
+    }
+
+    private static void StartLanding(ProcessRunner runner, string repoDir)
+    {
+        if (!File.Exists(Path.Combine(repoDir, "package.json")))
+        {
+            Console.WriteLine("The landing site is not started yet.");
+            return;
+        }
+
+        var viteBin = Path.Combine(repoDir, "node_modules", "vite", "bin", "vite.js");
+        if (!File.Exists(viteBin))
+        {
+            Console.Error.WriteLine("Landing dependencies are missing. Run: npm install in the snekl-landing repo");
+            return;
+        }
+
+        // Invoke Vite via node directly — nvm's npm.cmd resolves npm relative to cwd and breaks in subfolders.
+        Console.WriteLine("Starting the landing site at http://localhost:5400");
+        runner.Start("node", [viteBin], repoDir);
+    }
+
+    private static bool HasProject(string directory) =>
+        Directory.Exists(directory) &&
+        Directory.EnumerateFiles(directory, "*.csproj", SearchOption.AllDirectories).Any();
+
+    private static bool TryStartFrontend(ProcessRunner runner, string root, bool errorsOnly)
     {
         var webRoot = Path.Combine(root, "client/snekl-web");
         var viteBin = Path.Combine(webRoot, "node_modules/vite/bin/vite.js");
@@ -478,11 +592,12 @@ public static class StackOrchestrator
             return false;
         }
 
+        var quiet = errorsOnly ? new[] { "--logLevel", "error" } : Array.Empty<string>();
         // Invoke Vite via node directly — nvm's npm.cmd resolves npm relative to cwd and breaks in subfolders.
         Console.WriteLine($"Starting frontend at {FrontendUrl}");
-        runner.Start("node", [viteBin, "--host", "0.0.0.0", "--port", "5173"], webRoot);
-        Console.WriteLine("Watching admin UI into Auth/Hub/Content wwwroot/admin");
-        runner.Start("node", [viteBin, "build", "--config", "vite.admin.config.ts", "--watch"], webRoot);
+        runner.Start("node", [viteBin, "--host", "0.0.0.0", "--port", "5173", .. quiet], webRoot);
+        Console.WriteLine("Watching operator UI into Auth/Hub/Content wwwroot/server");
+        runner.Start("node", [viteBin, "build", "--config", "vite.admin.config.ts", "--watch", .. quiet], webRoot);
         return true;
     }
 
@@ -498,14 +613,14 @@ public static class StackOrchestrator
             File.WriteAllText(envPath, "VITE_AUTH_URL=http://localhost:5100\nVITE_ALLOW_DEV_PASSWORD_RESET=true\n");
     }
 
-    private static void EnsurePostgresDatabase(string root, string databaseName)
+    private static void EnsurePostgresDatabase(string root, string databaseName, bool errorsOnly)
     {
         var composePath = Path.Combine(root, "docker-compose.deps.yml");
         ProcessRunner.RunToCompletion("docker", [
             "compose", "-f", composePath, "exec", "-T", "postgres",
             "psql", "-U", "snekl", "-d", "postgres", "-v", "ON_ERROR_STOP=0",
             "-c", $"CREATE DATABASE {databaseName};"
-        ], root);
+        ], root, errorsOnly: errorsOnly);
     }
 
     private static bool IsPortInUse(int port)

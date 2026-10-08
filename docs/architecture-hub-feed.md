@@ -33,13 +33,13 @@ Related: [Auth ring](architecture-auth-ring.md). Replaces the “broadcast every
 | Auth webservice (login/register/session + account lists) | **Separate** Account service (`:5100`) |
 | Federation config document + feed index | Hub (or any HTTPS host that serves the config contract) |
 | Thread/reply/vote/moderation **API** + media | Origin content server |
-| Auth operator UI | `{authHost}/admin/` (`:5100/admin/`) — Account identity plus an auth-only operator password |
-| Federation invite send | `{hubHost}/admin/` (`:5200/admin/`) — Account identity plus a hub-only operator password; origin checks `RequestFederation` |
-| Federation invite accept + node/issuers/Super Users | `{contentHost}/admin/` (`:5001/admin/`) — Account identity plus a **content-node** operator password |
+| Auth operator UI | `{authHost}/server/` (`:5100/server/`) — Account identity plus an auth-only operator password |
+| Federation invite send | `{hubHost}/server/` (`:5200/server/`) — Account identity plus a hub-only operator password; origin checks `RequestFederation` |
+| Federation invite accept + node/issuers/Super Users | `{contentHost}/server/` (`:5001/server/`) — Account identity plus a **content-node** operator password |
 
-Admin is always `{thatHost}/admin/` on Auth, Hub, or content. Same JS bundle; `GET /admin/bootstrap` returns `{ kind, name, publicBaseUrl, did, authLoginUrl }`. Operator JWT stays per origin (two passwords: Account, then host operator). Dashboard + redoable checklist, not a one-shot wizard.
+Admin is always `{thatHost}/server/` on Auth, Hub, or content. Same JS bundle; `GET /server/bootstrap` returns `{ kind, name, publicBaseUrl, did, authLoginUrl }`. Operator JWT stays per origin (two passwords: Account, then host operator). Dashboard + redoable checklist, not a one-shot wizard.
 
-**Local ports (dev):** Auth `:5100`, Hub `:5200`, Content `:5001`/`:5002`, Vite member SPA `:5173`. Admin UIs are served from each API’s `wwwroot/admin` (watched by `vite.admin.config.ts` when using `dotnet run … -- dev`).
+**Local ports (dev):** Auth `:5100`, Hub `:5200`, Content `:5001`/`:5002`, Vite member SPA `:5173`. Operator UIs are served from each API’s `wwwroot/server` (watched by `vite.admin.config.ts` when using `dotnet run … -- dev`).
 
 **Auth URL:** configured on Auth/Hub/content (`Auth:BaseUrl`, `Hub:AuthBaseUrl`, `AuthIssuers`). The client stores one Auth URL after login (`VITE_AUTH_URL` is first-run only).
 
@@ -53,7 +53,7 @@ Admin is always `{thatHost}/admin/` on Auth, Hub, or content. Same JS bundle; `G
 
 **Click-through:** the client calls the card’s `originBaseUrl` APIs. `originPostUrl` is the canonical resource identity / share target, not a requirement to load origin HTML.
 
-**Clients:** v1 ships the portable SPA. Later: native apps, desktop tools, and third-party clients talking to **auth + federation config + origin** APIs.
+**Clients:** v1 ships the portable SPA, plus an Android shell (`client/snekl-web/android`) that runs that same SPA. Later: desktop tools and third-party clients talking to **auth + federation config + origin** APIs.
 
 ## Actors and joins
 
@@ -354,7 +354,7 @@ Nodes push cards with current mapVersion
 
 ## Implementation order (suggested)
 
-1. Portable SPA + Auth/Hub/content APIs; auth remains Account.Api; each host serves `/admin/` (done for skeleton)
+1. Portable SPA + Auth/Hub/content APIs; auth remains Account.Api; each host serves `/server/` (done for skeleton)
 2. Hub registry + map/ack; hub sends invite (Account JWT + origin `RequestFederation`); origin site-admin accepts
 3. Card + score ingest, Redis keys, per-federation feed
 4. Membership sync + private card filtering

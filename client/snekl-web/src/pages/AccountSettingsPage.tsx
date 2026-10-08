@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 import { authApi } from '../api';
 import { useAuth } from '../AuthContext';
 import type { PersonCluster } from '../types';
+import { TwoFactorSettings } from './TwoFactorSettings';
 
 function applyPersonToForm(person: PersonCluster) {
   return {
@@ -222,6 +223,7 @@ export function AccountSettingsPage() {
           {submitting ? 'Saving…' : 'Save changes'}
         </button>
       </form>
+      <TwoFactorSettings />
     </div>
   );
 }

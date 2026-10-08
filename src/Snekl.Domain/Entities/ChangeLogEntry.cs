@@ -1,7 +1,8 @@
 namespace Snekl.Domain.Entities;
 
-public class ChangeLogEntry
+public class ChangeLogEntry : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Scope { get; set; } = string.Empty;
     public Guid? ForumId { get; set; }

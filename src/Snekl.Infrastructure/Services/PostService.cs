@@ -77,6 +77,7 @@ public class PostService : IPostService
     private readonly IPostSearchIndex _searchIndex;
     private readonly IFollowGraphClient _followGraph;
     private readonly INsfwAgeCheckService _nsfwAge;
+    private readonly IReplyAlertService _replyAlerts;
     private readonly ILogger<PostService> _logger;
 
     public PostService(
@@ -92,6 +93,7 @@ public class PostService : IPostService
         IPostSearchIndex searchIndex,
         IFollowGraphClient followGraph,
         INsfwAgeCheckService nsfwAge,
+        IReplyAlertService replyAlerts,
         ILogger<PostService> logger)
     {
         _db = db;
@@ -106,6 +108,7 @@ public class PostService : IPostService
         _searchIndex = searchIndex;
         _followGraph = followGraph;
         _nsfwAge = nsfwAge;
+        _replyAlerts = replyAlerts;
         _logger = logger;
     }
 
@@ -115,13 +118,13 @@ public class PostService : IPostService
             return await CreateWatercoolerPostAsync(userId, request, viewerUserId, ct);
 
         if (!request.ForumId.HasValue)
-            throw new InvalidOperationException("Forum or watercooler is required.");
+            throw new InvalidOperationException("Nest or watercooler is required.");
 
         var forum = await _db.Forums.FindAsync([request.ForumId.Value], ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
 
         if (!ForumApprovalStatuses.IsApproved(forum.ApprovalStatus))
-            throw new InvalidOperationException("This forum is waiting for approval and cannot be used yet.");
+            throw new InvalidOperationException("This nest is waiting for approval and cannot be used yet.");
 
         await _nsfwAge.EnsureViewerMayEnterForumAsync(userId, forum.Id, ct);
 
@@ -131,7 +134,7 @@ public class PostService : IPostService
             await _permissions.RequireForumPermissionAsync(userId, forum.Id, ForumPermissions.CreateThread, ct);
 
         if (await _moderation.IsBannedAsync(forum.Id, userId, ct))
-            throw new InvalidOperationException("You are banned from this forum.");
+            throw new InvalidOperationException("You are banned from this nest.");
 
         var message = request.Message?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(message))
@@ -151,7 +154,7 @@ public class PostService : IPostService
                 ?? throw new InvalidOperationException("Parent post not found.");
 
             if (parent.ForumId != forum.Id)
-                throw new InvalidOperationException("Parent post belongs to a different forum.");
+                throw new InvalidOperationException("Parent post belongs to a different nest.");
 
             var rootId = await GetThreadRootIdAsync(parent.Id, ct);
             var root = await _db.Posts.FindAsync([rootId], ct);
@@ -189,6 +192,7 @@ public class PostService : IPostService
             await _media.AttachToPostAsync(post.Id, userId, request.MediaAssetIds, request.NsfwMedia, ct);
 
         await TryIndexPostAsync(post, ct);
+        await TryRecordReplyAlertAsync(post, ct);
 
         var authorPresentation = await _presentation.GetPresentationAsync(userId, viewerUserId ?? userId, forum.Id, ct);
         return await ToDtoAsync(post, authorPresentation, [], new HashSet<Guid>(), viewerUserId, ct);
@@ -209,7 +213,7 @@ public class PostService : IPostService
         await _permissions.RequireWatercoolerPermissionAsync(userId, cooler.Id, WatercoolerPermissions.SpeakWatercooler, ct);
 
         if (cooler.ParentForumId.HasValue && await _moderation.IsBannedAsync(cooler.ParentForumId.Value, userId, ct))
-            throw new InvalidOperationException("You are banned from this forum.");
+            throw new InvalidOperationException("You are banned from this nest.");
 
         if (cooler.ParentForumId.HasValue)
             await _nsfwAge.EnsureViewerMayEnterForumAsync(userId, cooler.ParentForumId.Value, ct);
@@ -271,6 +275,7 @@ public class PostService : IPostService
             await _media.AttachToPostAsync(post.Id, userId, request.MediaAssetIds, nsfwHints: null, ct);
 
         await TryIndexPostAsync(post, ct);
+        await TryRecordReplyAlertAsync(post, ct);
 
         var authorPresentation = await _presentation.GetPresentationAsync(
             userId, viewerUserId ?? userId, cooler.ParentForumId, ct);
@@ -1204,6 +1209,18 @@ public class PostService : IPostService
             post, presentations[post.AuthorUserId], childDtos, viewerUpvotes, viewerUserId, ct, attachments, reactions: reactions, threadRoot: threadRoot);
     }
 
+    private async Task TryRecordReplyAlertAsync(Post post, CancellationToken ct)
+    {
+        try
+        {
+            await _replyAlerts.RecordReplyAsync(post, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to record reply alert for post {PostId}", post.Id);
+        }
+    }
+
     private async Task TryIndexPostAsync(Post post, CancellationToken ct)
     {
         if (!_searchIndex.IsEnabled) return;
@@ -1566,11 +1583,10 @@ public class PostService : IPostService
 
         if (string.IsNullOrWhiteSpace(issuerUrl))
         {
-            issuerUrl = await _db.TrustedAuthIssuers.AsNoTracking()
-                .Where(i => i.IsActive)
-                .OrderBy(i => i.Name)
+            issuerUrl = (await _db.EffectiveTrustedIssuersAsync(ct))
+                .OrderBy(i => i.Name, StringComparer.Ordinal)
                 .Select(i => i.IssuerUrl)
-                .FirstOrDefaultAsync(ct);
+                .FirstOrDefault();
         }
 
         return await _followGraph.FollowsAsync(issuerUrl, opDid, viewerDid, ct);

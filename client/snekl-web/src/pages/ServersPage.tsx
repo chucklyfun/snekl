@@ -4,6 +4,7 @@ import { useAuth } from '../AuthContext';
 import { useServerRegistry } from '../ServerRegistryContext';
 import { shortServerDid, serverSettingsPath } from '../serverDid';
 import { adminUrl } from '../hosts';
+import { BusinessServerCard } from '../components/BusinessServerCard';
 
 export function ServersPage() {
   const { user } = useAuth();
@@ -82,6 +83,8 @@ export function ServersPage() {
           {success}
         </div>
       )}
+
+      <BusinessServerCard />
 
       <form onSubmit={handleSubscribeFederation} className="card">
         <h2 className="card-title">Add a federation</h2>

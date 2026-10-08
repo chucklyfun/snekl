@@ -53,7 +53,7 @@ public class ExternalAuthService : IExternalAuthService
     {
         var normalized = issuer.Trim().TrimEnd('/');
         if (normalized == (_config["Jwt:Issuer"] ?? "snekl")) return true;
-        return _db.TrustedAuthIssuers.AsNoTracking().Any(i => i.IsActive && i.IssuerUrl == normalized);
+        return _db.EffectiveTrustedIssuers().Any(i => i.IssuerUrl.TrimEnd('/') == normalized);
     }
 
     public async Task<IReadOnlyList<SecurityKey>> ResolveSigningKeysAsync(string issuer, CancellationToken ct = default)
@@ -74,7 +74,7 @@ public class ExternalAuthService : IExternalAuthService
                 .ToList();
         }
 
-        var trusted = await _db.TrustedAuthIssuers.FirstOrDefaultAsync(i => i.IsActive && i.IssuerUrl == normalized, ct);
+        var trusted = (await _db.EffectiveTrustedIssuersAsync(ct)).FirstOrDefault(i => i.IssuerUrl.TrimEnd('/') == normalized);
         if (trusted is null) return [];
 
         var http = _httpFactory.CreateClient();
@@ -114,6 +114,9 @@ public class ExternalAuthService : IExternalAuthService
         var normalizedEmail = email.Trim().ToLowerInvariant();
 
         var cacheKey = CacheKeys.ShadowUser(issuer, subjectId);
+        // A person has one shadow user per server, so cache the mapping per server too.
+        if (_db.HasServerScope)
+            cacheKey = $"{cacheKey}:{_db.ScopedServerId:N}";
         var cachedUserId = await _cache.GetStringAsync(cacheKey, ct);
         if (cachedUserId is not null && Guid.TryParse(cachedUserId, out var userId))
         {
@@ -122,6 +125,8 @@ public class ExternalAuthService : IExternalAuthService
         }
 
         var user = await FindShadowUserAsync(did, issuer, subjectId, normalizedEmail, ct);
+        if (user is null && _db.HasServerScope)
+            user = await AdoptUnscopedShadowUserAsync(did, issuer, subjectId, normalizedEmail, ct);
 
         if (user is null)
         {
@@ -222,6 +227,33 @@ public class ExternalAuthService : IExternalAuthService
             u.Did == did ||
             (u.AuthIssuerUrl == issuer && u.AuthSubjectId == subjectId) ||
             (u.Email == normalizedEmail && (u.AuthIssuerUrl == issuer || u.AuthIssuerUrl == null)), ct);
+
+    /// <summary>
+    /// Shadow users created before sign-in knew the request's server were saved with an empty
+    /// ServerId, which hides them from every server. Move a matching one into the current server
+    /// so the person keeps their account and authored content instead of getting a new user.
+    /// The caller saves the change.
+    /// </summary>
+    private async Task<User?> AdoptUnscopedShadowUserAsync(
+        string did,
+        string issuer,
+        Guid subjectId,
+        string normalizedEmail,
+        CancellationToken ct)
+    {
+        var orphan = await _db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u =>
+            u.ServerId == Guid.Empty &&
+            (u.Did == did ||
+             (u.AuthIssuerUrl == issuer && u.AuthSubjectId == subjectId) ||
+             (u.Email == normalizedEmail && (u.AuthIssuerUrl == issuer || u.AuthIssuerUrl == null))), ct);
+        if (orphan is null)
+            return null;
+
+        orphan.ServerId = _db.ScopedServerId;
+        if (await _db.Users.AnyAsync(u => u.Username == orphan.Username && u.Id != orphan.Id, ct))
+            orphan.Username = $"{orphan.Username}-{did[^4..]}".ToLowerInvariant();
+        return orphan;
+    }
 
     private sealed record JwksDocument([property: JsonPropertyName("keys")] IReadOnlyList<JwkDocumentKey> Keys);
     private sealed record JwkDocumentKey(

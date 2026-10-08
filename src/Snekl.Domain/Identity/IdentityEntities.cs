@@ -1,3 +1,5 @@
+using Snekl.Domain.Entities;
+
 namespace Snekl.Domain.Identity;
 
 /// <summary>Shared identity reference used by content servers and federation.</summary>
@@ -23,11 +25,18 @@ public class AuthorIdentityMap
     public DateTime MappedAt { get; set; } = DateTime.UtcNow;
 }
 
-public class TrustedAuthIssuer
+public class TrustedAuthIssuer : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public string IssuerUrl { get; set; } = string.Empty;
     public string JwksUrl { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// Pinned for this server, e.g. the auth server a business-hosted server's owner signed up
+    /// through. Always trusted, and it can't be removed, disabled or repointed.
+    /// </summary>
+    public bool IsRequired { get; set; }
 }

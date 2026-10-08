@@ -5,7 +5,7 @@ import {
   starterPackPermissions,
 } from './forumRoles';
 
-describe('forum role starter packs', () => {
+describe('nest role starter packs', () => {
   it('gives new roles a member pack without management permissions', () => {
     const perms = starterPackPermissions('member');
         expect(perms).toEqual(['SeeForum', 'ViewForum', 'SeeContentBlocks', 'CreateThread', 'Reply']);

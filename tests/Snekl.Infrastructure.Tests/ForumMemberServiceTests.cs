@@ -166,7 +166,7 @@ public class ForumMemberServiceTests
                 forum.Id,
                 new UpdateForumSettingsRequest(null, null, null, Slug: "Taken")));
 
-        Assert.Equal("Forum slug already exists.", ex.Message);
+        Assert.Equal("Nest slug already exists.", ex.Message);
     }
 
     [Fact]
@@ -207,7 +207,7 @@ public class ForumMemberServiceTests
             service.UpdateForumSettingsAsync(
                 forum.Id,
                 new UpdateForumSettingsRequest("  ", null, null)));
-        Assert.Equal("Forum name is required.", blank.Message);
+        Assert.Equal("Nest name is required.", blank.Message);
 
         var reserved = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.UpdateForumSettingsAsync(

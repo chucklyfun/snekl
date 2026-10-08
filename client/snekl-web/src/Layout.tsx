@@ -1,7 +1,10 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useMatch, useNavigate, useSearchParams } from 'react-router';
+import { createContentClient } from './api';
 import { useAuth } from './AuthContext';
 import { useServerRegistry } from './ServerRegistryContext';
+import { replyAlertsChangedEvent } from './replyAlerts';
+import { useReplyAlertPush } from './replyAlertPush';
 import { ForumBrowser } from './components/ForumBrowser';
 import { decodeServerDid, resolveServerBaseUrl } from './serverDid';
 import { adminUrl, getAuthBaseUrl } from './hosts';
@@ -42,13 +45,16 @@ function HeaderSearch({ onNavigate }: { onNavigate: () => void }) {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
-  const { federations, resolveBaseUrl } = useServerRegistry();
+  const { federations, resolveBaseUrl, servers } = useServerRegistry();
   const serverRoute = useMatch('/s/:serverDid/*');
   const [menuOpen, setMenuOpen] = useState(false);
   const [forumsOpen, setForumsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const serverKey = servers.map((server) => server.serverDid).join('|');
+  useReplyAlertPush(user ? servers : []);
 
   const contextServerDid = serverRoute?.params.serverDid
     ? decodeServerDid(serverRoute.params.serverDid)
@@ -71,6 +77,38 @@ export function Layout({ children }: { children: React.ReactNode }) {
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [userMenuOpen]);
+
+  useEffect(() => {
+    if (!user || servers.length === 0) {
+      setUnreadAlerts(0);
+      return;
+    }
+
+    let cancelled = false;
+    const load = () => {
+      void Promise.all(
+        servers.map(async (server) => {
+          try {
+            const result = await createContentClient(server.baseUrl).getReplyAlertUnreadCount();
+            return result.count;
+          } catch {
+            return 0;
+          }
+        }),
+      ).then((counts) => {
+        if (!cancelled) setUnreadAlerts(counts.reduce((sum, count) => sum + count, 0));
+      });
+    };
+
+    load();
+    window.addEventListener('focus', load);
+    window.addEventListener(replyAlertsChangedEvent, load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', load);
+      window.removeEventListener(replyAlertsChangedEvent, load);
+    };
+  }, [user, serverKey, servers]);
 
   const closeMenus = () => {
     setMenuOpen(false);
@@ -105,7 +143,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               aria-controls="forum-browser"
               onClick={() => setForumsOpen((open) => !open)}
             >
-              Forums
+              Nests
             </button>
           )}
           </div>
@@ -114,14 +152,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <NavLink to="/" end className={navClassName} onClick={closeMenus}>
             Home
           </NavLink>
-          <NavLink to="/forums" end className={navClassName} onClick={closeMenus}>
-            Browse forums
+          {user && (
+            <NavLink to="/alerts" className={navClassName} onClick={closeMenus}>
+              Alerts
+              {unreadAlerts > 0 && <span className="nav-badge">{unreadAlerts}</span>}
+            </NavLink>
+          )}
+          <NavLink to="/nests" end className={navClassName} onClick={closeMenus}>
+            Browse nests
           </NavLink>
           <NavLink to="/lists" className={navClassName} onClick={closeMenus}>
             Lists
           </NavLink>
-          <NavLink to="/extensions" className={navClassName} onClick={closeMenus}>
-            Extensions
+          <NavLink to="/commissions" className={navClassName} onClick={closeMenus}>
+            Commissions
           </NavLink>
           <NavLink to="/temp" className={navClassName} onClick={closeMenus}>
             Temp
@@ -145,11 +189,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   <Link to={`/users/${user.username}`} role="menuitem" onClick={closeMenus}>
                     Profile
                   </Link>
+                  <Link to="/commissions" role="menuitem" onClick={closeMenus}>
+                    Commissions
+                  </Link>
                   <Link to="/following" role="menuitem" onClick={closeMenus}>
                     Following
                   </Link>
                   <Link to="/messages" role="menuitem" onClick={closeMenus}>
                     Messages
+                  </Link>
+                  <Link to="/alerts" role="menuitem" onClick={closeMenus}>
+                    Alerts
                   </Link>
                   <Link to="/servers" role="menuitem" onClick={closeMenus}>
                     Servers
@@ -208,7 +258,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 className="forum-browser-backdrop"
-                aria-label="Close forum browser"
+                aria-label="Close nest browser"
                 onClick={() => setForumsOpen(false)}
               />
             )}
@@ -223,7 +273,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <main className="app-main">{children}</main>
       </div>
       <footer className="app-footer">
-        Open source federated forum network — each node runs independently.{' '}
+        Open source federated nest network — each node runs independently.{' '}
         <Link to="/admin">Admins</Link>
         {' · '}
         <Link to="/temp">Temp</Link>

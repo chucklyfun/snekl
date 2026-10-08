@@ -177,10 +177,10 @@ export function HomePage() {
       <h1 className="page-title">Home</h1>
       <p className="page-subtitle">
         {user ? (
-          <>Hot posts across forums you follow. Open a forum from the left rail.</>
+          <>Hot posts across nests you follow. Open a nest from the left rail.</>
         ) : (
           <>
-            Browse public forums after you add a federation or content server.{' '}
+            Browse public nests after you add a federation or content server.{' '}
             <Link to="/login">Log in</Link> to load your lists.
           </>
         )}
@@ -214,7 +214,7 @@ export function HomePage() {
                       to={
                         post.serverDid
                           ? forumPath(post.serverDid, post.forumSlug, post.parentForumSlug ?? undefined)
-                          : `/forums/${post.forumSlug}`
+                          : `/nests/${post.forumSlug}`
                       }
                       style={{ marginLeft: post.serverDid ? '0.5rem' : 0 }}
                     >
@@ -286,7 +286,7 @@ export function HomePage() {
           <p>
             {user ? (
               <>
-                No hot posts yet. <Link to="/forums">Browse forums</Link> to join one, or{' '}
+                No hot posts yet. <Link to="/nests">Browse nests</Link> to join one, or{' '}
                 <Link to="/servers">manage your subscriptions</Link>.
               </>
             ) : (

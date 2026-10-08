@@ -82,7 +82,7 @@ describe('parseMessageWithEmotes', () => {
     ]);
   });
 
-  it('prefers the forum emote for a shared code and honors :emoji.forum: / :emoji.server: suffixes', () => {
+  it('prefers the nest emote for a shared code and honors :emoji.forum: / :emoji.server: suffixes', () => {
     const forum = { ...emotes[0], id: 'f', forumId: 'forum-1' };
     const server = { ...emotes[0], id: 's', forumId: null, imageUrl: 'http://example/server-pog.png' };
     const catalog = [server, forum];
@@ -237,7 +237,7 @@ describe('parseMessageWithEmotes', () => {
     expect(catalogEmoteShortcode(forum, [forum])).toBe(':pog.garden.home:');
   });
 
-  it('qualifies with forum slug and server prefix across catalogs', () => {
+  it('qualifies with nest slug and server prefix across catalogs', () => {
     const home = { forumId: 'forum-1', serverDid: 'did:web:home' };
     const local = {
       ...emotes[0],
@@ -304,7 +304,7 @@ describe('emote autocomplete', () => {
     expect(findOpenEmoteQuery('wow :pog.for', 12)).toEqual({ start: 4, end: 12, query: 'pog.for' });
   });
 
-  it('suggests qualified shortcodes when forum and server share a code', () => {
+  it('suggests qualified shortcodes when nest and server share a code', () => {
     const catalog = [
       { ...emotes[0], id: 'f', forumId: 'forum-1' },
       { ...emotes[0], id: 's', forumId: null },

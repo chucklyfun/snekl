@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import { adminFetch } from './api';
+import { adminFetch, setContentServerId } from './api';
 import { Checklist, type CheckItem } from './Checklist';
+import { VirtualServersPanel } from './VirtualServersPanel';
 
 type NodeInfo = { id: string; did: string; name: string; baseUrl: string; description: string };
 type Operator = { id: string; username: string; did?: string; hasPassword: boolean };
@@ -74,6 +75,7 @@ export function ContentAdmin() {
     ])
       .then(([n, o, s, i, h]) => {
         setNode(n);
+        setContentServerId(n.id);
         setName(n.name);
         setBaseUrl(n.baseUrl);
         setDescription(n.description || '');
@@ -143,6 +145,7 @@ export function ContentAdmin() {
       <Checklist items={checks} />
       {flash && <p className="card-meta">{flash}</p>}
       {error && <div className="error-banner">{error}</div>}
+      <VirtualServersPanel onOpen={load} />
 
       {invites.length > 0 && (
         <div className="card">
@@ -164,7 +167,7 @@ export function ContentAdmin() {
                     try {
                       await adminFetch('content', `/api/admin/site/hub-invites/${inv.id}/accept`, { method: 'POST' });
                       rememberHub(inv.hubBaseUrl);
-                      setFlash(`Accepted. Hub admin is ${inv.hubBaseUrl}/admin/`);
+                      setFlash(`Accepted. Hub admin is ${inv.hubBaseUrl}/server/`);
                       load();
                     } catch (err) {
                       setError(err instanceof Error ? err.message : 'Accept failed');

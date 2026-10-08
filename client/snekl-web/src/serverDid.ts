@@ -17,9 +17,9 @@ export function decodeServerDid(encoded: string): string {
 
 export function forumPath(serverDid: string, slug: string, parentSlug?: string): string {
   if (parentSlug) {
-    return `/s/${encodeServerDid(serverDid)}/forums/${parentSlug}/${slug}`;
+    return `/s/${encodeServerDid(serverDid)}/nests/${parentSlug}/${slug}`;
   }
-  return `/s/${encodeServerDid(serverDid)}/forums/${slug}`;
+  return `/s/${encodeServerDid(serverDid)}/nests/${slug}`;
 }
 
 export function subforumPath(serverDid: string, parentSlug: string, slug: string): string {
@@ -28,8 +28,8 @@ export function subforumPath(serverDid: string, parentSlug: string, slug: string
 
 export function forumSettingsPath(serverDid: string, slug: string, parentSlug?: string): string {
   const base = parentSlug
-    ? `/s/${encodeServerDid(serverDid)}/forums/${parentSlug}/${slug}/settings`
-    : `/s/${encodeServerDid(serverDid)}/forums/${slug}/settings`;
+    ? `/s/${encodeServerDid(serverDid)}/nests/${parentSlug}/${slug}/settings`
+    : `/s/${encodeServerDid(serverDid)}/nests/${slug}/settings`;
   return base;
 }
 
@@ -46,7 +46,7 @@ export function threadPath(serverDid: string, postId: string): string {
 }
 
 export function createForumPath(serverDid: string): string {
-  return `/s/${encodeServerDid(serverDid)}/forums/new`;
+  return `/s/${encodeServerDid(serverDid)}/nests/new`;
 }
 
 export function watercoolerPath(
@@ -78,7 +78,7 @@ export function watercoolerSettingsPath(
 
 /** Create-forum page when no content server is in the URL context. */
 export function createForumChooserPath(): string {
-  return '/forums/new';
+  return '/nests/new';
 }
 
 export function shortServerDid(did: string): string {

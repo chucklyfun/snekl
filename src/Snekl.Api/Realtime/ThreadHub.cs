@@ -26,14 +26,14 @@ public class ThreadHub : Hub
     public Task JoinForum(string forumId)
     {
         if (!Guid.TryParse(forumId, out var id))
-            throw new HubException("Invalid forum id.");
+            throw new HubException("Invalid nest id.");
         return Groups.AddToGroupAsync(Context.ConnectionId, ForumGroup(id));
     }
 
     public Task LeaveForum(string forumId)
     {
         if (!Guid.TryParse(forumId, out var id))
-            throw new HubException("Invalid forum id.");
+            throw new HubException("Invalid nest id.");
         return Groups.RemoveFromGroupAsync(Context.ConnectionId, ForumGroup(id));
     }
 

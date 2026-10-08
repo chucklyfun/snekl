@@ -44,7 +44,7 @@ export function CreateForumDialog({
   const canCreate = urlServerDid
     ? urlServerCanCreate === true
     : (eligibleServers[0]?.canCreateTopLevel ?? false);
-  const title = canCreate ? 'New forum' : 'Request a forum';
+  const title = canCreate ? 'New nest' : 'Request a nest';
 
   return (
     <div

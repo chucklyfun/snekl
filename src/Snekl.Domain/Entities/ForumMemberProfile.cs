@@ -1,7 +1,8 @@
 namespace Snekl.Domain.Entities;
 
-public class ForumFlairTemplate
+public class ForumFlairTemplate : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ForumId { get; set; }
     public Forum? Forum { get; set; }
@@ -15,8 +16,9 @@ public class ForumFlairTemplate
     public ForumFlairTemplate? InheritFromTemplate { get; set; }
 }
 
-public class ForumMemberFlair
+public class ForumMemberFlair : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ForumId { get; set; }
     public Forum? Forum { get; set; }
@@ -26,8 +28,9 @@ public class ForumMemberFlair
     public ForumFlairTemplate? Template { get; set; }
 }
 
-public class ForumMemberAlias
+public class ForumMemberAlias : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ForumId { get; set; }
     public Forum? Forum { get; set; }

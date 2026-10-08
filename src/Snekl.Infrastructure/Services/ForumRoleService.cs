@@ -159,7 +159,7 @@ public class ForumRoleService : IForumRoleService
             ?? throw new InvalidOperationException("User not found.");
 
         var forum = await _db.Forums.AsNoTracking().FirstOrDefaultAsync(f => f.Id == forumId, ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
 
         var ownerRoleIds = await _db.ForumRoles
             .Where(r => r.ForumId == forumId && r.IsOwner)
@@ -170,7 +170,7 @@ public class ForumRoleService : IForumRoleService
         if (forum.OwnerUserId == userId && !keepsOwnerRole &&
             !await _permissions.CanOverrideForumOwnerAsync(actorUserId, ct))
         {
-            throw new InvalidOperationException("Other forum admins cannot remove the Owner role from the forum owner.");
+            throw new InvalidOperationException("Other nest admins cannot remove the Owner role from the nest owner.");
         }
 
         var validRoleIds = await _db.ForumRoles
@@ -462,9 +462,9 @@ public class ForumMemberService : IForumMemberService
     public async Task SetAliasAsync(Guid forumId, Guid userId, string alias, CancellationToken ct = default)
     {
         var forum = await _db.Forums.FindAsync([forumId], ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
         if (!forum.AllowAliases)
-            throw new InvalidOperationException("Aliases are not allowed in this forum.");
+            throw new InvalidOperationException("Aliases are not allowed in this nest.");
 
         var trimmed = alias.Trim();
         if (string.IsNullOrEmpty(trimmed))
@@ -492,14 +492,14 @@ public class ForumMemberService : IForumMemberService
     public async Task UpdateForumSettingsAsync(Guid forumId, UpdateForumSettingsRequest request, Guid? actorUserId = null, CancellationToken ct = default)
     {
         var forum = await _db.Forums.FindAsync([forumId], ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
 
         var before = ForumSettingsSnapshot(forum);
         if (request.Name is not null)
         {
             var name = request.Name.Trim();
             if (name.Length == 0)
-                throw new InvalidOperationException("Forum name is required.");
+                throw new InvalidOperationException("Nest name is required.");
             forum.Name = name;
         }
         if (request.Slug is not null)
@@ -528,7 +528,7 @@ public class ForumMemberService : IForumMemberService
                 forum.Id,
                 ChangeLogActions.Updated,
                 actorUserId,
-                $"Updated forum settings for {forum.Name}",
+                $"Updated nest settings for {forum.Name}",
                 before,
                 ForumSettingsSnapshot(forum),
                 ct);
@@ -560,7 +560,7 @@ public class ForumMemberService : IForumMemberService
             f => f.Id != forum.Id && f.ParentForumId == forum.ParentForumId && f.Slug == slug,
             ct);
         if (taken)
-            throw new InvalidOperationException("Forum slug already exists.");
+            throw new InvalidOperationException("Nest slug already exists.");
 
         forum.Slug = slug;
     }

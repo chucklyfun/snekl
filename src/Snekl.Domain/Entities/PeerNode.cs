@@ -1,7 +1,8 @@
 namespace Snekl.Domain.Entities;
 
-public class PeerNode
+public class PeerNode : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public string BaseUrl { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;

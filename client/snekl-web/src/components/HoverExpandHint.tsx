@@ -9,7 +9,7 @@ export function HoverExpandHint({ text }: { text: string }) {
 
 const PERMISSION_HINTS: Record<string, string> = {
   RequestDirectMessage: 'follow-back to DM; keep off new members',
-  UseOtherForumEmotes: 'insert emotes from other forums on this server',
+  UseOtherForumEmotes: 'insert emotes from other nests on this server',
   UseOtherServerEmotes: 'insert emotes from other servers you belong to',
 };
 

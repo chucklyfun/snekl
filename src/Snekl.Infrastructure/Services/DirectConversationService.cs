@@ -75,9 +75,9 @@ public class DirectConversationService : IDirectConversationService
                 ? "A follow-back request is already pending."
                 : "They already asked you to follow back.";
         else if (permittedForums.Count == 0)
-            reason = "No shared forum grants you permission to request a follow-back for DMs.";
+            reason = "No shared nest grants you permission to request a follow-back for DMs.";
         else if (forums.Count == 0)
-            reason = "They are not accepting follow-back requests from the forums you can use.";
+            reason = "They are not accepting follow-back requests from the nests you can use.";
         else
             canRequest = true;
 
@@ -350,7 +350,7 @@ public class DirectConversationService : IDirectConversationService
     {
         var normalized = DirectMessageForumPreferenceModes.Normalize(mode);
         var forum = await _db.Forums.AsNoTracking().FirstOrDefaultAsync(f => f.Id == forumId, ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
 
         var hasIncoming = await _db.DirectConversationRequests.AsNoTracking()
             .AnyAsync(r => r.TargetUserId == userId && r.ForumId == forumId, ct);
@@ -417,9 +417,9 @@ public class DirectConversationService : IDirectConversationService
     {
         var mode = await GetPreferenceModeAsync(targetUserId, forumId, ct);
         if (mode == DirectMessageForumPreferenceModes.Reject)
-            throw new InvalidOperationException("This person is not accepting follow-back requests from this forum.");
+            throw new InvalidOperationException("This person is not accepting follow-back requests from this nest.");
         if (mode == DirectMessageForumPreferenceModes.Ignore)
-            throw new InvalidOperationException("This person is ignoring follow-back requests from this forum.");
+            throw new InvalidOperationException("This person is ignoring follow-back requests from this nest.");
     }
 
     private async Task<string> GetPreferenceModeAsync(Guid userId, Guid forumId, CancellationToken ct)
@@ -500,11 +500,11 @@ public class DirectConversationService : IDirectConversationService
         if (forumId.HasValue || !string.IsNullOrWhiteSpace(forumSlug))
         {
             if (forum is null)
-                throw new InvalidOperationException("Forum not found.");
+                throw new InvalidOperationException("Nest not found.");
         }
 
         if (forum is null)
-            throw new InvalidOperationException("Choose the forum whose permission you are using for this request.");
+            throw new InvalidOperationException("Choose the nest whose permission you are using for this request.");
 
         if (!await ForumAllowsRequestAsync(forum.Id, requesterUserId, targetUserId, ct))
             throw new PermissionDeniedException(nameof(ForumPermissions.RequestDirectMessage), "forum");
@@ -556,20 +556,24 @@ public class DirectConversationService : IDirectConversationService
         return PermissionModeMap.AtLeast(modes, ForumPermissions.RequestDirectMessage, GrantMode.Direct);
     }
 
+    private async Task<string?> PublicParentSlugAsync(Guid forumId, CancellationToken ct)
+    {
+        var refs = await _db.Forums.AsNoTracking()
+            .Select(f => new NestRef(f.Id, f.ParentForumId, f.Slug))
+            .ToListAsync(ct);
+        var byId = refs.ToDictionary(n => n.Id);
+        return byId.ContainsKey(forumId) ? NestTopology.PublicAddress(forumId, byId).TopSlug : null;
+    }
+
     private async Task<Forum?> FindForumBySlugAsync(string slug, string? parentSlug, CancellationToken ct)
     {
-        var normalized = slug.ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(parentSlug))
-        {
-            return await _db.Forums.AsNoTracking()
-                .FirstOrDefaultAsync(f => f.Slug == normalized && f.ParentForumId == null, ct);
-        }
-
-        var parent = await _db.Forums.AsNoTracking().FirstOrDefaultAsync(
-            f => f.Slug == parentSlug.ToLowerInvariant() && f.ParentForumId == null, ct);
-        if (parent is null) return null;
-        return await _db.Forums.AsNoTracking()
-            .FirstOrDefaultAsync(f => f.Slug == normalized && f.ParentForumId == parent.Id, ct);
+        var refs = await _db.Forums.AsNoTracking()
+            .Select(f => new NestRef(f.Id, f.ParentForumId, f.Slug))
+            .ToListAsync(ct);
+        var id = NestTopology.FindByPublicAddress(slug, parentSlug, refs);
+        if (id is not Guid forumId)
+            return null;
+        return await _db.Forums.AsNoTracking().FirstOrDefaultAsync(f => f.Id == forumId, ct);
     }
 
     private async Task<DirectConversationRequest?> FindPendingBetweenAsync(Guid userA, Guid userB, CancellationToken ct) =>
@@ -601,13 +605,8 @@ public class DirectConversationService : IDirectConversationService
         var users = await LoadUsersAsync([entity.RequesterUserId, entity.TargetUserId], ct);
         var forum = await _db.Forums.AsNoTracking().FirstAsync(f => f.Id == entity.ForumId, ct);
         string? parentSlug = null;
-        if (forum.ParentForumId is Guid parentId)
-        {
-            parentSlug = await _db.Forums.AsNoTracking()
-                .Where(f => f.Id == parentId)
-                .Select(f => f.Slug)
-                .FirstOrDefaultAsync(ct);
-        }
+        if (forum.ParentForumId is not null)
+            parentSlug = await PublicParentSlugAsync(forum.Id, ct);
 
         return new DirectConversationRequestDto(
             entity.Id,
@@ -655,13 +654,8 @@ public class DirectConversationService : IDirectConversationService
         var forum = await _db.Forums.AsNoTracking().FirstOrDefaultAsync(f => f.Id == forumId.Value, ct);
         if (forum is null) return null;
         string? parentSlug = null;
-        if (forum.ParentForumId is Guid parentId)
-        {
-            parentSlug = await _db.Forums.AsNoTracking()
-                .Where(f => f.Id == parentId)
-                .Select(f => f.Slug)
-                .FirstOrDefaultAsync(ct);
-        }
+        if (forum.ParentForumId is not null)
+            parentSlug = await PublicParentSlugAsync(forum.Id, ct);
 
         return new DirectMessageForumOptionDto(forum.Id, forum.Name, forum.Slug, parentSlug);
     }

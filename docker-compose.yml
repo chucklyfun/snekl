@@ -10,27 +10,24 @@ services:
       retries: 5
 
   minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+    image: rustfs/rustfs:latest@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+    command: ["/data"]
     environment:
-      MINIO_ROOT_USER: snekl
-      MINIO_ROOT_PASSWORD: sneklsecret
+      RUSTFS_ACCESS_KEY: snekl
+      RUSTFS_SECRET_KEY: sneklsecret
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ENABLE: "false"
     ports:
       - "9000:9000"
-      - "9001:9001"
     volumes:
       - minio-data:/data
 
   minio-init:
-    image: minio/mc:latest
+    image: curlimages/curl:8.15.0
     depends_on:
       - minio
-    entrypoint: >
-      /bin/sh -c "
-      until mc alias set local http://minio:9000 snekl sneklsecret; do sleep 1; done;
-      mc mb --ignore-existing local/snekl-media;
-      exit 0;
-      "
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["until curl -sf http://minio:9000/health; do sleep 1; done"]
 
   postgres-auth-alpha:
     image: postgres:16-alpine

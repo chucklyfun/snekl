@@ -2,6 +2,8 @@ export type ForumSettingsSectionId =
   | 'general'
   | 'emotes'
   | 'structure'
+  | 'pages'
+  | 'extensions'
   | 'roles'
   | 'members'
   | 'moderation'
@@ -12,7 +14,9 @@ export type ForumSettingsSectionId =
 export const FORUM_SETTINGS_SECTIONS: { id: ForumSettingsSectionId; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'emotes', label: 'Emotes' },
-  { id: 'structure', label: 'Forums & rooms' },
+  { id: 'structure', label: 'Nests & rooms' },
+  { id: 'pages', label: 'Pages' },
+  { id: 'extensions', label: 'Extensions' },
   { id: 'roles', label: 'Roles' },
   { id: 'members', label: 'Members' },
   { id: 'moderation', label: 'Reports' },

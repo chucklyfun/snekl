@@ -207,7 +207,7 @@ export function defaultHighlightSlots(emotes: CatalogEmote[] = [], forumId?: str
   return DEFAULT_HIGHLIGHT_CODES.map((code) => {
     const chosen = pickHighlightSlot(pool, code) ?? pickHighlightSlot(server, code);
     if (chosen) return chosen;
-    const emoji = defaultEmojiForCode(code)!;
+    const emoji = defaultEmojiForCode(code) as keyof typeof DEFAULT_REACTION_META;
     const meta = DEFAULT_REACTION_META[emoji];
     return {
       id: `default:${code}`,

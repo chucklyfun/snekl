@@ -1,0 +1,9 @@
+{
+  "Snekl.DevSession, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.DevSession",
+  "Snekl.Domain, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.Domain",
+  "Snekl.Hub, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.Hub",
+  "Snekl.Hub.Domain, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.Hub.Domain",
+  "Snekl.Hub.Infrastructure, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.Hub.Infrastructure",
+  "Snekl.Redis, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.Redis",
+  "Snekl.Tests.Shared, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\tests\\Snekl.Tests.Shared"
+}

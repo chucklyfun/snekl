@@ -187,11 +187,21 @@ public class ContentWorkflowTests
     [Fact]
     public async Task AdminBootstrap_ReturnsContentKind()
     {
-        var response = await _fixture.Client.GetAsync("/admin/bootstrap");
+        var response = await _fixture.Client.GetAsync("/server/bootstrap");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var bootstrap = await response.Content.ReadFromJsonAsync<AdminBootstrapDto>(JsonOptions);
         Assert.NotNull(bootstrap);
         Assert.Equal("content", bootstrap.Kind);
+    }
+
+    [Fact]
+    public async Task PublicNodeAuth_ListsTrustedIssuersWithoutServerHeader()
+    {
+        var response = await _fixture.Client.GetAsync("/api/node/auth");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var auth = await response.Content.ReadFromJsonAsync<NodeAuthInfoDto>(JsonOptions);
+        Assert.NotNull(auth);
+        Assert.Contains(auth!.Issuers, i => i.Name == "Unused" && i.IssuerUrl == "http://unused.invalid");
     }
 
     [Fact]

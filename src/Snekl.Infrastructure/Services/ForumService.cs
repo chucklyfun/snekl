@@ -31,6 +31,7 @@ public class ForumService : IForumService
     private readonly IHubFeedPublisher _hubFeed;
     private readonly INsfwAgeCheckService _nsfwAge;
     private readonly IMediaService _media;
+    private readonly IForumPageService _forumPages;
 
     public ForumService(
         SneklDbContext db,
@@ -40,7 +41,8 @@ public class ForumService : IForumService
         IForumModerationService moderation,
         IHubFeedPublisher hubFeed,
         INsfwAgeCheckService nsfwAge,
-        IMediaService media)
+        IMediaService media,
+        IForumPageService forumPages)
     {
         _db = db;
         _presentation = presentation;
@@ -50,6 +52,7 @@ public class ForumService : IForumService
         _hubFeed = hubFeed;
         _nsfwAge = nsfwAge;
         _media = media;
+        _forumPages = forumPages;
     }
 
     public async Task<ForumDto> CreateAsync(Guid userId, CreateForumRequest request, Guid? viewerUserId = null, CancellationToken ct = default)
@@ -59,7 +62,7 @@ public class ForumService : IForumService
         if (request.ParentForumId.HasValue)
         {
             parent = await _db.Forums.FindAsync([request.ParentForumId.Value], ct)
-                ?? throw new InvalidOperationException("Parent forum not found.");
+                ?? throw new InvalidOperationException("Parent nest not found.");
             await _permissions.RequireForumPermissionAsync(userId, parent.Id, ForumPermissions.ManageForum, ct);
         }
         else
@@ -80,8 +83,19 @@ public class ForumService : IForumService
 
         var slug = request.Slug.Trim().ToLowerInvariant();
         var parentId = request.ParentForumId;
-        if (await _db.Forums.AnyAsync(f => f.ParentForumId == parentId && f.Slug == slug, ct))
-            throw new InvalidOperationException("Forum slug already exists.");
+        var refs = await _db.Forums.AsNoTracking()
+            .Select(f => new NestRef(f.Id, f.ParentForumId, f.Slug))
+            .ToListAsync(ct);
+        var taken = parent is null
+            ? refs.Where(f => f.ParentId is null).Select(f => f.Slug).ToHashSet(StringComparer.Ordinal)
+            : NestTopology.DescendantSlugs(
+                NestTopology.RootId(parent.Id, NestTopology.Parents(refs)),
+                refs.ToDictionary(f => f.Id),
+                null);
+        if (taken.Contains(slug))
+            throw new InvalidOperationException("Nest slug already exists.");
+        var siblingOrders = await _db.Forums.Where(f => f.ParentForumId == parentId).Select(f => (int?)f.SortOrder).ToListAsync(ct);
+        var sortOrder = siblingOrders.Count == 0 ? 0 : siblingOrders.Max()!.Value + 1;
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
@@ -93,6 +107,7 @@ public class ForumService : IForumService
             CreatedByUserId = userId,
             OwnerUserId = userId,
             ParentForumId = parentId,
+            SortOrder = sortOrder,
             AllowAliases = parent?.AllowAliases ?? true,
             ApprovalStatus = approvalStatus
         };
@@ -109,6 +124,7 @@ public class ForumService : IForumService
             await _roleSeed.SeedForumRolesAsync(forum.Id, userId, ct);
 
         await EnsureMembershipAsync(userId, forum.Id, ct);
+        await _forumPages.EnsureDefaultHomeAsync(forum.Id, ct);
         await _db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
@@ -126,10 +142,10 @@ public class ForumService : IForumService
             .Include(f => f.ParentForum)
             .Include(f => f.Subforums)
             .FirstOrDefaultAsync(f => f.Id == forumId, ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
 
         if (ForumApprovalStatuses.IsApproved(forum.ApprovalStatus))
-            throw new InvalidOperationException("Forum is already approved.");
+            throw new InvalidOperationException("Nest is already approved.");
 
         forum.ApprovalStatus = ForumApprovalStatuses.Approved;
         forum.UpdatedAt = DateTime.UtcNow;
@@ -145,10 +161,10 @@ public class ForumService : IForumService
     {
         await RequireForumApprovalPermissionAsync(userId, ct);
         var forum = await _db.Forums.FirstOrDefaultAsync(f => f.Id == forumId, ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
 
         if (ForumApprovalStatuses.IsApproved(forum.ApprovalStatus))
-            throw new InvalidOperationException("Approved forums cannot be rejected. Delete the forum instead.");
+            throw new InvalidOperationException("Approved nests cannot be rejected. Delete the nest instead.");
 
         var roleIds = await _db.ForumRoles.Where(r => r.ForumId == forum.Id).Select(r => r.Id).ToListAsync(ct);
         _db.ForumMemberships.RemoveRange(
@@ -165,7 +181,7 @@ public class ForumService : IForumService
     public async Task DeleteAsync(Guid userId, Guid forumId, CancellationToken ct = default)
     {
         var forum = await _db.Forums.FirstOrDefaultAsync(f => f.Id == forumId, ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
 
         if (forum.ParentForumId.HasValue)
             await _permissions.RequireForumPermissionAsync(userId, forum.ParentForumId.Value, ForumPermissions.ManageForum, ct);
@@ -177,7 +193,7 @@ public class ForumService : IForumService
             await DeleteAsync(userId, childId, ct);
 
         forum = await _db.Forums.FirstOrDefaultAsync(f => f.Id == forumId, ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
         await RemoveForumGraphAsync(forum, ct);
     }
 
@@ -213,6 +229,10 @@ public class ForumService : IForumService
             await _db.ForumRoleAssignments.Where(a => a.ForumId == forum.Id).ToListAsync(ct));
         _db.ForumFlairTemplates.RemoveRange(
             await _db.ForumFlairTemplates.Where(t => t.ForumId == forum.Id).ToListAsync(ct));
+        _db.ForumContentBlocks.RemoveRange(
+            await _db.ForumContentBlocks.Where(b => b.ForumId == forum.Id).ToListAsync(ct));
+        _db.ForumPages.RemoveRange(
+            await _db.ForumPages.Where(p => p.ForumId == forum.Id).ToListAsync(ct));
         _db.ForumRoles.RemoveRange(await _db.ForumRoles.Where(r => r.ForumId == forum.Id).ToListAsync(ct));
         _db.Forums.Remove(forum);
         await _db.SaveChangesAsync(ct);
@@ -231,7 +251,8 @@ public class ForumService : IForumService
             .Include(f => f.CreatedBy)
             .Include(f => f.ParentForum)
             .Include(f => f.Subforums)
-            .OrderByDescending(f => f.CreatedAt)
+            .OrderBy(f => f.SortOrder)
+            .ThenBy(f => f.Name)
             .ToListAsync(ct);
 
         var postCounts = await _db.Posts
@@ -247,6 +268,9 @@ public class ForumService : IForumService
         foreach (var forum in forums)
         {
             await EnsureForumRolesAsync(forum, ct);
+
+            if (HiddenBranch(forum, forums))
+                continue;
 
             if (!await _permissions.CanViewForumAsync(viewerUserId, forum.Id, ct))
                 continue;
@@ -271,7 +295,11 @@ public class ForumService : IForumService
         await EnsureForumRolesAsync(forum, ct);
 
         if (!await _permissions.CanViewForumAsync(viewerUserId, forum.Id, ct))
+        {
+            if (await IsPubliclyConcealedAsync(forum, ct))
+                return null;
             throw new PermissionDeniedException(ForumPermissions.ViewForum.ToString(), "forum");
+        }
 
         var postCount = await _db.Posts.CountAsync(p => p.ForumId == forum.Id && p.ParentPostId == null, ct);
         var createdBy = forum.CreatedByUserId != Guid.Empty
@@ -282,36 +310,29 @@ public class ForumService : IForumService
 
     public async Task<Forum?> GetEntityBySlugAsync(string slug, string? parentSlug = null, CancellationToken ct = default)
     {
-        var normalized = slug.ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(parentSlug))
-        {
-            return await _db.Forums
-                .Include(f => f.CreatedBy)
-                .Include(f => f.ParentForum)
-                .Include(f => f.Subforums)
-                .FirstOrDefaultAsync(f => f.Slug == normalized && f.ParentForumId == null, ct);
-        }
-
-        var parent = await _db.Forums.FirstOrDefaultAsync(
-            f => f.Slug == parentSlug.ToLowerInvariant() && f.ParentForumId == null, ct);
-        if (parent is null) return null;
+        var refs = await _db.Forums.AsNoTracking()
+            .Select(f => new NestRef(f.Id, f.ParentForumId, f.Slug))
+            .ToListAsync(ct);
+        var id = NestTopology.FindByPublicAddress(slug, parentSlug, refs);
+        if (id is not Guid forumId)
+            return null;
 
         return await _db.Forums
             .Include(f => f.CreatedBy)
             .Include(f => f.ParentForum)
             .Include(f => f.Subforums)
-            .FirstOrDefaultAsync(f => f.Slug == normalized && f.ParentForumId == parent.Id, ct);
+            .FirstOrDefaultAsync(f => f.Id == forumId, ct);
     }
 
     public async Task<ForumDto> JoinAsync(Guid userId, string slug, string? parentSlug = null, CancellationToken ct = default)
     {
         var forum = await GetEntityBySlugAsync(slug, parentSlug, ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
 
         await EnsureForumRolesAsync(forum, ct);
 
         if (!ForumApprovalStatuses.IsApproved(forum.ApprovalStatus))
-            throw new InvalidOperationException("This forum is waiting for approval and cannot be joined yet.");
+            throw new InvalidOperationException("This nest is waiting for approval and cannot be joined yet.");
 
         if (!await _permissions.CanViewForumAsync(userId, forum.Id, ct))
             throw new PermissionDeniedException(ForumPermissions.ViewForum.ToString(), "forum");
@@ -319,7 +340,7 @@ public class ForumService : IForumService
         await _nsfwAge.EnsureViewerMayEnterForumAsync(userId, forum.Id, ct);
 
         if (await _moderation.IsBannedAsync(forum.Id, userId, ct))
-            throw new InvalidOperationException("You are banned from this forum.");
+            throw new InvalidOperationException("You are banned from this nest.");
 
         if (!await _permissions.HasForumRoleAssignmentAsync(userId, forum.Id, ct))
         {
@@ -342,7 +363,7 @@ public class ForumService : IForumService
     public async Task<ForumDto> LeaveAsync(Guid userId, string slug, string? parentSlug = null, CancellationToken ct = default)
     {
         var forum = await GetEntityBySlugAsync(slug, parentSlug, ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
 
         if (!await _permissions.HasForumRoleAssignmentAsync(userId, forum.Id, ct)
             && !await _db.ForumMemberships.AnyAsync(m => m.ForumId == forum.Id && m.UserId == userId, ct))
@@ -371,11 +392,11 @@ public class ForumService : IForumService
         CancellationToken ct = default)
     {
         var forum = await GetEntityBySlugAsync(slug, parentSlug, ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
 
         if (!await _permissions.HasForumRoleAssignmentAsync(userId, forum.Id, ct)
             && !await _db.ForumMemberships.AnyAsync(m => m.ForumId == forum.Id && m.UserId == userId, ct))
-            throw new InvalidOperationException("Join this forum before adding it to favorites.");
+            throw new InvalidOperationException("Join this nest before adding it to favorites.");
 
         var membership = await EnsureMembershipAsync(userId, forum.Id, ct);
         membership.IsFavorite = isFavorite;
@@ -453,13 +474,17 @@ public class ForumService : IForumService
         Guid? viewerUserId,
         CancellationToken ct)
     {
+        var (topSlug, topName) = await TopReferenceAsync(forum, ct);
+        var childTopSlug = topSlug ?? forum.Slug;
         var subforumSummaries = new List<ForumSummaryDto>();
-        foreach (var sub in forum.Subforums.OrderBy(s => s.Name))
+        foreach (var sub in forum.Subforums.OrderBy(s => s.SortOrder).ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
         {
+            if (sub.Hidden)
+                continue;
             if (!await _permissions.CanViewForumAsync(viewerUserId, sub.Id, ct))
                 continue;
             var subCount = await _db.Posts.CountAsync(p => p.ForumId == sub.Id && p.ParentPostId == null, ct);
-            subforumSummaries.Add(new ForumSummaryDto(sub.Id, sub.Name, sub.Slug, subCount, MediaUrl(sub.AvatarMediaAssetId)));
+            subforumSummaries.Add(new ForumSummaryDto(sub.Id, sub.Name, sub.Slug, subCount, MediaUrl(sub.AvatarMediaAssetId), childTopSlug));
         }
 
         IReadOnlyList<string>? viewerPerms = null;
@@ -509,11 +534,20 @@ public class ForumService : IForumService
             .ToListAsync(ct);
 
         var age = await _nsfwAge.GetStatusAsync(viewerUserId, forum.Id, ct);
+        ForumPageDto? homePage = null;
+        ForumPageDto? sharedChrome = null;
+        IReadOnlyList<ForumPageSummaryDto>? pages = null;
         if (age.BlocksEntry)
         {
             subforumSummaries.Clear();
             watercoolers.Clear();
             contentBlocks.Clear();
+        }
+        else
+        {
+            homePage = await _forumPages.EnsureDefaultHomeAsync(forum.Id, ct);
+            sharedChrome = await _forumPages.EnsureChromeAsync(forum.Id, ct);
+            pages = await _forumPages.ListPagesAsync(forum.Id, viewerUserId, ct);
         }
 
         string? ownerUsername = null;
@@ -536,7 +570,7 @@ public class ForumService : IForumService
             postCount,
             forum.CreatedAt,
             forum.ParentForumId,
-            forum.ParentForum?.Slug,
+            topSlug,
             subforumSummaries,
             viewerPerms,
             forum.AllowAliases,
@@ -549,6 +583,9 @@ public class ForumService : IForumService
             viewerIsFavorite,
             watercoolers,
             contentBlocks,
+            homePage,
+            sharedChrome,
+            pages,
             forum.NsfwAgeCheckRequired,
             age.RequiredByServer,
             age.Enforced,
@@ -560,7 +597,65 @@ public class ForumService : IForumService
             age.BlocksEntry,
             age.ForumExplanation,
             ownerUsername,
-            viewerUserId.HasValue && forum.OwnerUserId == viewerUserId);
+            viewerUserId.HasValue && forum.OwnerUserId == viewerUserId,
+            forum.Locked,
+            forum.Hidden,
+            topName);
+    }
+
+    private async Task<(string? Slug, string? Name)> TopReferenceAsync(Forum forum, CancellationToken ct)
+    {
+        var current = forum;
+        var guard = 0;
+        while (current.ParentForumId is Guid parentId && guard++ < NestTopology.MaxDepth)
+        {
+            var parent = current.ParentForum?.Id == parentId
+                ? current.ParentForum
+                : await _db.Forums.AsNoTracking().FirstOrDefaultAsync(f => f.Id == parentId, ct);
+            if (parent is null)
+                break;
+            current = parent;
+        }
+
+        return current.Id == forum.Id ? (null, null) : (current.Slug, current.Name);
+    }
+
+    private async Task<bool> IsPubliclyConcealedAsync(Forum forum, CancellationToken ct)
+    {
+        var current = forum;
+        var guard = 0;
+        while (guard++ < NestTopology.MaxDepth)
+        {
+            if (current.Locked || current.Hidden)
+                return true;
+            if (current.ParentForumId is not Guid parentId)
+                return false;
+            var parent = current.ParentForum?.Id == parentId
+                ? current.ParentForum
+                : await _db.Forums.AsNoTracking().FirstOrDefaultAsync(f => f.Id == parentId, ct);
+            if (parent is null)
+                return false;
+            current = parent;
+        }
+
+        return true;
+    }
+
+    private static bool HiddenBranch(Forum forum, IReadOnlyList<Forum> forums)
+    {
+        var byId = forums.ToDictionary(f => f.Id);
+        var current = forum;
+        var guard = 0;
+        while (guard++ < NestTopology.MaxDepth)
+        {
+            if (current.Hidden)
+                return true;
+            if (current.ParentForumId is not Guid parentId || !byId.TryGetValue(parentId, out var parent))
+                return false;
+            current = parent;
+        }
+
+        return true;
     }
 
     private string? MediaUrl(Guid? mediaAssetId) =>
@@ -609,7 +704,7 @@ public class ForumService : IForumService
             .ToListAsync(ct);
 
         if (adminUserIds.Count == 1 && adminUserIds[0] == userId)
-            throw new InvalidOperationException("Cannot leave this forum as the last owner.");
+            throw new InvalidOperationException("Cannot leave this nest as the last owner.");
     }
 
     private async Task<ForumMembership> EnsureMembershipAsync(Guid userId, Guid forumId, CancellationToken ct)

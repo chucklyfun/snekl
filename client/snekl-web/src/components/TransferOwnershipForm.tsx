@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from 'react';
+import { ApiRequestError } from '../api';
 import { useAuth } from '../AuthContext';
 
 export function TransferOwnershipForm({
@@ -15,6 +16,8 @@ export function TransferOwnershipForm({
   const { reauthenticate } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState('');
 
@@ -26,11 +29,14 @@ export function TransferOwnershipForm({
     setBusy(true);
     setLocalError('');
     try {
-      await reauthenticate(password);
+      await reauthenticate(password, needsTwoFactor ? twoFactorCode : undefined);
       await onTransfer(handle);
       setUsername('');
       setPassword('');
     } catch (err) {
+      if (err instanceof ApiRequestError && (err.code === 'two_factor_required' || err.code === 'two_factor_invalid')) {
+        setNeedsTwoFactor(true);
+      }
       setLocalError(err instanceof Error ? err.message : 'Transfer failed');
     } finally {
       setBusy(false);
@@ -63,6 +69,16 @@ export function TransferOwnershipForm({
             autoComplete="current-password"
             required
           />
+          {needsTwoFactor && (
+            <input
+              id={`transfer-totp-${id}`}
+              value={twoFactorCode}
+              onChange={(e) => setTwoFactorCode(e.target.value)}
+              placeholder="Authenticator code"
+              autoComplete="one-time-code"
+              required
+            />
+          )}
           <button type="submit" className="btn-ghost" disabled={busy}>
             Transfer
           </button>

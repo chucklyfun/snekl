@@ -23,17 +23,20 @@ public class PasswordResetService : IPasswordResetService
     private readonly IAuthServerService _server;
     private readonly IEmailSender _email;
     private readonly IConfiguration _config;
+    private readonly ITwoFactorService _twoFactor;
 
     public PasswordResetService(
         AccountDbContext db,
         IAuthServerService server,
         IEmailSender email,
-        IConfiguration config)
+        IConfiguration config,
+        ITwoFactorService twoFactor)
     {
         _db = db;
         _server = server;
         _email = email;
         _config = config;
+        _twoFactor = twoFactor;
     }
 
     public async Task<ForgotPasswordResponse> RequestResetAsync(ForgotPasswordRequest request, CancellationToken ct = default)
@@ -114,6 +117,7 @@ public class PasswordResetService : IPasswordResetService
 
         resetToken.UsedAt = now;
         resetToken.AuthIdentity.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        await _twoFactor.InvalidateLoginChallengesAsync(resetToken.AuthIdentity.Id, ct);
 
         await _db.SaveChangesAsync(ct);
 

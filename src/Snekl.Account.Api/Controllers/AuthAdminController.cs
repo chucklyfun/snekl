@@ -117,7 +117,7 @@ public class AuthServerInfoController : ControllerBase
 }
 
 [ApiController]
-[Route("admin")]
+[Route("server")]
 public class AuthAdminBootstrapController : ControllerBase
 {
     private readonly IAuthServerService _server;

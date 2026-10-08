@@ -18,6 +18,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Update="server-template.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Snekl.DevSession\Snekl.DevSession.csproj" />
     <ProjectReference Include="..\Snekl.DeviceBinding\Snekl.DeviceBinding.csproj" />
     <ProjectReference Include="..\Snekl.Domain\Snekl.Domain.csproj" />

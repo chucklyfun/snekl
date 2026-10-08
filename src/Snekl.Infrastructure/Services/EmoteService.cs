@@ -282,7 +282,7 @@ public class EmoteService : IEmoteService
             await _permissions.RequireWatercoolerPermissionAsync(userId, post.WatercoolerId.Value, WatercoolerPermissions.ViewWatercooler, ct);
             var cooler = await _db.Watercoolers.AsNoTracking().FirstOrDefaultAsync(w => w.Id == post.WatercoolerId.Value, ct);
             if (cooler?.ParentForumId is Guid parentForum && await _moderation.IsBannedAsync(parentForum, userId, ct))
-                throw new InvalidOperationException("You are banned from this forum.");
+                throw new InvalidOperationException("You are banned from this nest.");
         }
         else
         {
@@ -290,7 +290,7 @@ public class EmoteService : IEmoteService
                 throw new InvalidOperationException("Post not found.");
             await _permissions.RequireForumPermissionAsync(userId, post.ForumId.Value, ForumPermissions.ViewForum, ct);
             if (await _moderation.IsBannedAsync(post.ForumId.Value, userId, ct))
-                throw new InvalidOperationException("You are banned from this forum.");
+                throw new InvalidOperationException("You are banned from this nest.");
         }
 
         Emote? emote = null;
@@ -307,7 +307,7 @@ public class EmoteService : IEmoteService
                     {
                         var dest = await _permissions.GetForumPermissionsAsync(userId, postForum, ct);
                         if (!dest.HasFlag(ForumPermissions.UseOtherForumEmotes))
-                            throw new InvalidOperationException("You cannot use emotes from other forums here.");
+                            throw new InvalidOperationException("You cannot use emotes from other nests here.");
                     }
                     if (!await _permissions.CanViewForumAsync(userId, emoteForum, ct))
                         throw new InvalidOperationException("That emote is not available.");

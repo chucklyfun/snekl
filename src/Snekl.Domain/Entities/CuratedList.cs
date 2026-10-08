@@ -2,8 +2,9 @@ using Snekl.Domain.Enums;
 
 namespace Snekl.Domain.Entities;
 
-public class CuratedList
+public class CuratedList : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;

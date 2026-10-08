@@ -3,8 +3,11 @@ import {
   defaultAuthFallback,
   defaultContentFallback,
   defaultHubFallback,
+  homeSubscriptionsEnabled,
   loadRuntimeConfig,
   resetRuntimeConfig,
+  frameOriginMatches,
+  rewriteFrameUrl,
   rewriteLoopbackForPage,
   rewriteLoopbackUrlFields,
 } from './hosts';
@@ -27,6 +30,44 @@ describe('rewriteLoopbackForPage', () => {
   it('does not rewrite non-loopback hosts', () => {
     expect(rewriteLoopbackForPage('http://alpha.example:5001', '192.168.0.250')).toBe(
       'http://alpha.example:5001',
+    );
+  });
+});
+
+describe('rewriteFrameUrl', () => {
+  it('keeps a loopback frame when the page host already matches', () => {
+    expect(rewriteFrameUrl('http://localhost:5301', 'localhost')).toBe('http://localhost:5301');
+  });
+
+  it('aligns localhost and 127.0.0.1 so the frame matches the page', () => {
+    expect(rewriteFrameUrl('http://localhost:5301/', '127.0.0.1')).toBe('http://127.0.0.1:5301');
+    expect(rewriteFrameUrl('http://127.0.0.1:5301', 'localhost')).toBe('http://localhost:5301');
+  });
+
+  it('rewrites a loopback frame to the LAN page host', () => {
+    expect(rewriteFrameUrl('http://localhost:5301', '192.168.0.250')).toBe('http://192.168.0.250:5301');
+  });
+
+  it('leaves a public frame host alone', () => {
+    expect(rewriteFrameUrl('https://commissions.example', '192.168.0.250')).toBe(
+      'https://commissions.example',
+    );
+  });
+});
+
+describe('frameOriginMatches', () => {
+  it('accepts the install host, a loopback alias, or the LAN page host on the same port', () => {
+    expect(frameOriginMatches('http://localhost:5301', 'http://localhost:5301', 'localhost')).toBe(true);
+    expect(frameOriginMatches('http://127.0.0.1:5301', 'http://localhost:5301', 'localhost')).toBe(true);
+    expect(frameOriginMatches('http://192.168.0.250:5301', 'http://localhost:5301', '192.168.0.250')).toBe(
+      true,
+    );
+  });
+
+  it('rejects a different port or an unrelated host', () => {
+    expect(frameOriginMatches('http://localhost:5300', 'http://localhost:5301', 'localhost')).toBe(false);
+    expect(frameOriginMatches('http://evil.example:5301', 'http://localhost:5301', '192.168.0.250')).toBe(
+      false,
     );
   });
 });
@@ -59,6 +100,12 @@ describe('default service URLs', () => {
     expect(defaultHubFallback()).toBe('http://localhost:5200');
   });
 
+  it('ignores loopback defaults in the Android shell', () => {
+    resetRuntimeConfig();
+    expect(defaultAuthFallback(true)).toBe('');
+    expect(homeSubscriptionsEnabled(true)).toBe(false);
+  });
+
   it('prefers /config.json when the edge proxy serves it', async () => {
     const original = globalThis.fetch;
     globalThis.fetch = (async () =>
@@ -73,8 +120,10 @@ describe('default service URLs', () => {
     try {
       await loadRuntimeConfig();
       expect(defaultAuthFallback()).toBe('https://auth.example.com');
+      expect(defaultAuthFallback(true)).toBe('https://auth.example.com');
       expect(defaultHubFallback()).toBe('https://hub.example.com');
       expect(defaultContentFallback()).toBe('https://origin.example.com');
+      expect(homeSubscriptionsEnabled(true)).toBe(true);
     } finally {
       globalThis.fetch = original;
       resetRuntimeConfig();

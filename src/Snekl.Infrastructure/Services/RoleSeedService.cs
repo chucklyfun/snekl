@@ -62,11 +62,12 @@ public class RoleSeedService : IRoleSeedService
             });
         }
 
-        if (!await _db.ServerRoles.AnyAsync(r => r.Name == "Forum requester", ct))
+        var nestRequester = await _db.ServerRoles.FirstOrDefaultAsync(r => r.Name == "Nest requester" || r.Name == "Forum requester", ct);
+        if (nestRequester is null)
         {
             _db.ServerRoles.Add(new ServerRole
             {
-                Name = "Forum requester",
+                Name = "Nest requester",
                 Position = 3,
                 Color = "#faa61a",
                 Modes = new Dictionary<string, GrantMode>(StringComparer.OrdinalIgnoreCase)
@@ -77,6 +78,8 @@ public class RoleSeedService : IRoleSeedService
                 }
             });
         }
+        else if (nestRequester.Name == "Forum requester")
+            nestRequester.Name = "Nest requester";
 
         await _db.SaveChangesAsync(ct);
     }

@@ -110,8 +110,8 @@ app.UseSneklForwardedHeaders();
 app.UseCors();
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path == "/admin" || context.Request.Path == "/admin/")
-        context.Request.Path = "/admin/index.html";
+    if (context.Request.Path == "/server" || context.Request.Path == "/server/")
+        context.Request.Path = "/server/index.html";
     await next();
 });
 app.UseStaticFiles();

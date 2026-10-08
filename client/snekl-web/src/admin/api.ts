@@ -1,8 +1,14 @@
+import { ApiRequestError, TwoFactorRequiredError } from '../api';
 import { applyMemberProof, createDeviceProof, getDevicePublicJwk, readBoundToken } from '../deviceKey';
 import type { AdminBootstrap } from '../types';
 
 const ADMIN_TOKEN = 'snekl_admin_token';
 const MEMBER_TOKEN = 'snekl_admin_member_token';
+const CONTENT_SERVER_ID = 'snekl_content_server_id';
+
+export function setContentServerId(id: string) {
+  localStorage.setItem(CONTENT_SERVER_ID, id);
+}
 
 export type AdminKind = 'auth' | 'hub' | 'content';
 
@@ -34,9 +40,28 @@ export function clearAdminSession() {
 }
 
 export async function loadBootstrap(): Promise<AdminBootstrap> {
-  const res = await fetch('/admin/bootstrap', { cache: 'no-store' });
+  const res = await fetch('/server/bootstrap', { cache: 'no-store' });
   if (!res.ok) throw new Error('This host did not return admin bootstrap. Is it a Snekl Auth, Hub, or content server?');
   return res.json();
+}
+
+type AccountSession = { accessToken: string; person?: { displayName?: string; canonicalUsername?: string } };
+
+async function readAccountSession(res: Response): Promise<AccountSession> {
+  const body = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    code?: string;
+    challengeToken?: string;
+    accessToken?: string;
+  };
+  if (!res.ok) {
+    if (body.code === 'two_factor_required' && typeof body.challengeToken === 'string') {
+      throw new TwoFactorRequiredError(body.challengeToken);
+    }
+    throw new ApiRequestError(res.status, body, res.url);
+  }
+  if (!body.accessToken) throw new Error('Auth server did not return an access token.');
+  return body as AccountSession;
 }
 
 export async function accountLogin(authBase: string, email: string, password: string) {
@@ -45,10 +70,16 @@ export async function accountLogin(authBase: string, email: string, password: st
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password, deviceKey: await getDevicePublicJwk() }),
   });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `Account login failed (${res.status})`);
-  if (!body.accessToken) throw new Error('Auth server did not return an access token.');
-  return body as { accessToken: string; person?: { displayName?: string; canonicalUsername?: string } };
+  return readAccountSession(res);
+}
+
+export async function completeAccountTwoFactor(authBase: string, challengeToken: string, code: string) {
+  const res = await fetch(`${authBase.replace(/\/$/, '')}/api/auth/login/two-factor`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ challengeToken, code }),
+  });
+  return readAccountSession(res);
 }
 
 function statusPath(kind: AdminKind) {
@@ -89,6 +120,11 @@ export async function adminFetch<T>(
   const wantAdmin = wantAdminFlag || (kind === 'content' && !wantMember);
   const method = rest.method ?? 'GET';
   const url = new URL(path, window.location.origin).href;
+
+  if (kind === 'content') {
+    const serverId = localStorage.getItem(CONTENT_SERVER_ID);
+    if (serverId && !headers['X-Snekl-Server']) headers['X-Snekl-Server'] = serverId;
+  }
 
   if (wantMember && member) {
     await applyMemberProof(headers, method, url, member);

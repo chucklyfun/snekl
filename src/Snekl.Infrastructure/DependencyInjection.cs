@@ -14,8 +14,12 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddSneklInfrastructure(this IServiceCollection services, string connectionString, IConfiguration config)
     {
+        services.AddScoped<ICurrentServer, CurrentServer>();
         services.AddDbContext<SneklDbContext>(options =>
             options.UseNpgsql(connectionString));
+        services.AddScoped<IVirtualServerService, VirtualServerService>();
+        services.AddHttpClient<IBusinessHostingAuthClient, BusinessHostingAuthClient>();
+        services.AddScoped<IBusinessServerService, BusinessServerService>();
 
         services.AddSneklRedis(config, config["Node:Name"] ?? "snekl-content");
 
@@ -31,6 +35,8 @@ public static class DependencyInjection
         services.AddScoped<IOwnershipService, OwnershipService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IForumService, ForumService>();
+        services.AddScoped<INestMapService, NestMapService>();
+        services.AddScoped<INestTransferService, NestTransferService>();
         services.AddHttpClient<IFollowGraphClient, FollowGraphClient>();
         services.AddScoped<IPostService, PostService>();
         AddPostSearch(services, config);
@@ -57,7 +63,11 @@ public static class DependencyInjection
         services.AddHttpClient<IFederationClient, FederationClient>();
         services.AddScoped<IExtensionInstallService, ExtensionInstallService>();
         services.AddScoped<IWatercoolerService, WatercoolerService>();
+        services.AddScoped<IForumPageService, ForumPageService>();
         services.AddScoped<IDirectConversationService, DirectConversationService>();
+        services.AddHttpClient("fcm");
+        services.AddSingleton<IReplyAlertPushSender, FcmReplyAlertPushSender>();
+        services.AddScoped<IReplyAlertService, ReplyAlertService>();
         services.AddScoped<IContentBlockCatalogService, ContentBlockCatalogService>();
         services.AddScoped<IHubFeedPublisher, HubFeedPublisher>();
         services.AddHostedService<HubOutboxDispatcher>();

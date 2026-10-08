@@ -1,7 +1,8 @@
 namespace Snekl.Domain.Entities;
 
-public class PostRevision
+public class PostRevision : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid PostId { get; set; }
     public Post? Post { get; set; }

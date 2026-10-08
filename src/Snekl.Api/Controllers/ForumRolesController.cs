@@ -40,7 +40,7 @@ public class ForumRolesController : ControllerBase
     private async Task<(Guid ForumId, ForumDto Forum)> ResolveForumAsync(string slug, string? parentSlug, Guid? viewerId, CancellationToken ct)
     {
         var forum = await _forums.GetBySlugAsync(slug, viewerId, parentSlug, ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
         return (forum.Id, forum);
     }
 
@@ -61,8 +61,23 @@ public class ForumRolesController : ControllerBase
             var (forumId, _) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
             await _ownership.TransferForumOwnershipAsync(forumId, viewerId, request.Username, ct);
             var updated = await _forums.GetBySlugAsync(slug, viewerId, parentSlug, ct)
-                ?? throw new InvalidOperationException("Forum not found.");
+                ?? throw new InvalidOperationException("Nest not found.");
             return Ok(updated);
+        }
+        catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
+    }
+
+    [HttpGet("role-names")]
+    public async Task<ActionResult<IReadOnlyList<string>>> RoleNames(
+        string slug,
+        [FromQuery] string? parentSlug,
+        CancellationToken ct)
+    {
+        try
+        {
+            var (forumId, _) = await ResolveForumAsync(slug, parentSlug, this.ViewerUserId(), ct);
+            var roles = await _roles.ListRolesAsync(forumId, ct);
+            return Ok(roles.Select(role => role.Name).ToList());
         }
         catch (Exception ex) { return ControllerExtensions.HandlePermissionError(ex); }
     }
@@ -432,7 +447,7 @@ public class ForumRolesController : ControllerBase
             var viewerId = this.RequireUserId();
             var (forumId, forum) = await ResolveForumAsync(slug, parentSlug, viewerId, ct);
             if (!forum.AllowAliases)
-                return BadRequest(new { error = "Aliases are not allowed in this forum." });
+                return BadRequest(new { error = "Aliases are not allowed in this nest." });
             await _members.SetAliasAsync(forumId, viewerId, request.Alias, ct);
             return NoContent();
         }

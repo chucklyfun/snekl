@@ -1,6 +1,6 @@
 # Linux host deployment (Caddy)
 
-Same-server layout: **Caddy** on 80/443, then Auth, Hub, Content, PostgreSQL, Redis, and MinIO on a private Docker network. The member SPA is served from Hub (`https://hub…`). Admin UIs stay at `{host}/admin/` on each API.
+Same-server layout: **Caddy** on 80/443, then Auth, Hub, Content, PostgreSQL, Redis, and MinIO on a private Docker network. The member SPA is served from Hub (`https://hub…`). Operator UIs stay at `{host}/server/` on each API.
 
 ## Host targets
 
@@ -65,9 +65,9 @@ Internal TLS (no public DNS): set `CADDYFILE=Caddyfile.internal` in `.env`. Brow
 
 1. Open the SPA at `https://<HUB_HOST>/` and register through Auth.
 2. Claim each admin (first Account user to succeed sets that host’s operator password):
-   - `https://<AUTH_HOST>/admin/`
-   - `https://<HUB_HOST>/admin/`
-   - `https://<CONTENT_HOST>/admin/`
+   - `https://<AUTH_HOST>/server/`
+   - `https://<HUB_HOST>/server/`
+   - `https://<CONTENT_HOST>/server/`
 3. On Content admin, confirm the Auth issuer. From Hub admin, send a federation invite; accept it on Content.
 
 Do not enable `Snekl:ResetDb` or `Auth:AllowDevPasswordReset` on this stack. Postgres, Redis, MinIO, and OpenSearch are not published to the internet.

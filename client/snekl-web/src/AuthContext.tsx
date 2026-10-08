@@ -15,7 +15,8 @@ interface AuthContextValue {
   serverPermissions: string[];
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  reauthenticate: (password: string) => Promise<void>;
+  completeTwoFactorLogin: (challengeToken: string, code: string) => Promise<void>;
+  reauthenticate: (password: string, twoFactorCode?: string) => Promise<void>;
   register: (username: string, email: string, password: string, displayName: string) => Promise<string>;
   logout: () => void;
   refreshMe: () => Promise<void>;
@@ -94,19 +95,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const result = await authApi.login(email, password);
+  const adoptSession = async (result: { accessToken: string; person: { did: string } }, refreshDirectory: boolean) => {
     localStorage.setItem('snekl_token', result.accessToken);
     setDid(result.person.did);
-    await refreshServers();
+    if (refreshDirectory) await refreshServers();
     await refreshMe();
   };
 
-  const reauthenticate = async (password: string) => {
-    const result = await authApi.reauthenticate(password);
-    localStorage.setItem('snekl_token', result.accessToken);
-    setDid(result.person.did);
-    await refreshMe();
+  const login = async (email: string, password: string) => {
+    const result = await authApi.login(email, password);
+    await adoptSession(result, true);
+  };
+
+  const completeTwoFactorLogin = async (challengeToken: string, code: string) => {
+    const result = await authApi.completeTwoFactorLogin(challengeToken, code);
+    await adoptSession(result, true);
+  };
+
+  const reauthenticate = async (password: string, twoFactorCode?: string) => {
+    const result = await authApi.reauthenticate(password, twoFactorCode);
+    await adoptSession(result, false);
   };
 
   const register = async (username: string, email: string, password: string, displayName: string) => {
@@ -154,6 +162,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         serverPermissions,
         loading,
         login,
+        completeTwoFactorLogin,
         reauthenticate,
         register,
         logout,

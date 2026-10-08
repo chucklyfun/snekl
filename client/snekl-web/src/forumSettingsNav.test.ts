@@ -12,4 +12,8 @@ describe('resolveForumSettingsSection', () => {
     expect(resolveForumSettingsSection('', [...available])).toBe('general');
     expect(resolveForumSettingsSection('#members', [...available])).toBe('general');
   });
+
+  it('resolves the extensions section', () => {
+    expect(resolveForumSettingsSection('#extensions', ['general', 'extensions'])).toBe('extensions');
+  });
 });

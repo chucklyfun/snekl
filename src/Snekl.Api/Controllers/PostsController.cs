@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Snekl.Domain.Dtos;
 using Snekl.Domain.Entities;
 using Snekl.Domain.Enums;
@@ -23,6 +24,8 @@ public class PostsController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly IForumModerationService _moderation;
     private readonly IEmoteService _emotes;
+    private readonly IReplyAlertService _replyAlerts;
+    private readonly ILogger<PostsController> _logger;
 
     public PostsController(
         IPostService posts,
@@ -34,7 +37,9 @@ public class PostsController : ControllerBase
         IWebHostEnvironment environment,
         IConfiguration configuration,
         IForumModerationService moderation,
-        IEmoteService emotes)
+        IEmoteService emotes,
+        IReplyAlertService replyAlerts,
+        ILogger<PostsController> logger)
     {
         _posts = posts;
         _upvotes = upvotes;
@@ -46,6 +51,8 @@ public class PostsController : ControllerBase
         _configuration = configuration;
         _moderation = moderation;
         _emotes = emotes;
+        _replyAlerts = replyAlerts;
+        _logger = logger;
     }
 
     [HttpGet("recent")]
@@ -140,6 +147,17 @@ public class PostsController : ControllerBase
 
             var result = await _upvotes.ToggleAsync(postId, userId, ct);
             var post = await _posts.GetEntityAsync(postId, ct);
+            if (result.ViewerHasUpvoted && post is not null)
+            {
+                try
+                {
+                    await _replyAlerts.RecordVoteMilestoneAsync(post, result.UpvoteCount - 1, result.UpvoteCount, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to record vote alert for post {PostId}", postId);
+                }
+            }
             if (post is not null)
             {
                 var threadId = await _posts.GetThreadRootIdAsync(postId, ct);

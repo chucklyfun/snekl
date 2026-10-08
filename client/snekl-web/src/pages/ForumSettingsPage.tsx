@@ -2,8 +2,9 @@ import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { ForumAppearanceFields } from '../components/ForumAppearanceFields';
 import { EmoteCatalogEditor } from '../components/EmoteCatalogEditor';
+import { ForumLayoutEditor } from '../components/ForumLayoutEditor';
 import { NsfwAgeCheckPanel, forumAgeStatus } from '../components/NsfwAgeCheckPanel';
-import { createContentClient, hasPermission } from '../api';
+import { createContentClient, hasPermission, NestRedirectError, rememberContentServer } from '../api';
 import { ChangeHistoryList } from '../components/ChangeHistoryList';
 import { ForumFlairRow, forumFlairSelectLabel, type FlairDraft } from '../components/ForumFlairRow';
 import { ForumRoleRow, type ForumRoleDraft } from '../components/ForumRoleRow';
@@ -13,6 +14,8 @@ import { iconForBadge } from '../components/ListEntryRow';
 import { useAuth } from '../AuthContext';
 import { useForumNav } from '../ForumNavContext';
 import { nextForumRolePosition } from '../forumRoles';
+import { fallbackChromeLayout, fallbackHomeLayout } from '../components/ForumLayoutRenderer';
+import { ExtensionInstallsPanel } from '../components/ExtensionInstallsPanel';
 import { useServerRegistry } from '../ServerRegistryContext';
 import {
   createForumPath,
@@ -25,7 +28,8 @@ import {
   watercoolerPath,
   watercoolerSettingsPath,
 } from '../serverDid';
-import type { ContentBlockType, Forum, ForumBan, ForumFlairTemplate, ForumMember, ForumRole, PostReport } from '../types';
+import type { ContentBlockType, Forum, ForumBan, ForumFlairTemplate, ForumMember, ForumPageDoc, ForumPageSummary, ForumRole, PostReport } from '../types';
+import { createDefaultExtraPageLayout } from '../forumLayoutEditor';
 import { applyEmoteSkinUpdate, type CatalogEmote } from '../emotes';
 import { patchForumRecentIdentity } from '../forumRecents';
 import {
@@ -33,7 +37,6 @@ import {
   resolveForumSettingsSection,
   type ForumSettingsSectionId,
 } from '../forumSettingsNav';
-
 export function ForumSettingsPage() {
   const { serverDid: encodedDid, slug, parentSlug } = useParams<{
     serverDid: string;
@@ -66,6 +69,13 @@ export function ForumSettingsPage() {
   const [banUsername, setBanUsername] = useState('');
   const [banReason, setBanReason] = useState('');
   const [blockTypes, setBlockTypes] = useState<ContentBlockType[]>([]);
+  const [layoutBusy, setLayoutBusy] = useState(false);
+  const [pagesTab, setPagesTab] = useState<'shared' | 'home' | string>('shared');
+  const [editingPage, setEditingPage] = useState<ForumPageDoc | null>(null);
+  const [addingPage, setAddingPage] = useState(false);
+  const [identityOpen, setIdentityOpen] = useState(false);
+  const [pageTitle, setPageTitle] = useState('');
+  const [pageSlug, setPageSlug] = useState('');
   const [name, setName] = useState('');
   const [slugDraft, setSlugDraft] = useState('');
 
@@ -77,6 +87,7 @@ export function ForumSettingsPage() {
   const canManageRoles = hasPermission(forum?.viewerPermissions, 'ManageRoles');
   const canManageMembers = hasPermission(forum?.viewerPermissions, 'ManageMembers');
   const canManageForum = hasPermission(forum?.viewerPermissions, 'ManageForum');
+  const canManageContentBlocks = hasPermission(forum?.viewerPermissions, 'ManageContentBlocks');
   const canManagePosts = hasPermission(forum?.viewerPermissions, 'ManagePosts');
   const canViewHistory = hasPermission(forum?.viewerPermissions, 'ViewHistory');
   const canListRoles = canManageRoles || canManageMembers;
@@ -92,15 +103,19 @@ export function ForumSettingsPage() {
     canManageRoles ||
     canManageMembers ||
     canManageForum ||
+    canManageContentBlocks ||
     canManagePosts ||
     canViewHistory ||
-    canTransferForum;
+    canTransferForum ||
+    Boolean(user);
 
   const availableSections = useMemo(() => {
     const visible: ForumSettingsSectionId[] = [];
     if (forum) visible.push('general');
     if (forum && client) visible.push('emotes');
     if (canManageForum && forum) visible.push('structure');
+    if (canManageContentBlocks && forum) visible.push('pages');
+    if (canManageForum && forum) visible.push('extensions');
     if (canManageRoles) visible.push('roles');
     if (canManageMembers) visible.push('members');
     if (canManagePosts) visible.push('moderation');
@@ -112,6 +127,7 @@ export function ForumSettingsPage() {
     forum,
     client,
     canManageForum,
+    canManageContentBlocks,
     canManageRoles,
     canManageMembers,
     canManagePosts,
@@ -120,6 +136,117 @@ export function ForumSettingsPage() {
   ]);
 
   const activeSection = resolveForumSettingsSection(hash, availableSections);
+
+  const pageSummaries: ForumPageSummary[] = forum?.pages ?? [];
+  const extraPages = pageSummaries.filter((p) => !p.isDefault);
+
+  useEffect(() => {
+    if (!client || !forum || pagesTab === 'shared' || pagesTab === 'home') {
+      setEditingPage(null);
+      return;
+    }
+    if (editingPage?.slug === pagesTab) return;
+    let cancelled = false;
+    setLayoutBusy(true);
+    void client
+      .getForumPage(forum.slug, pagesTab, effectiveParentSlug)
+      .then((page) => {
+        if (!cancelled) setEditingPage(page);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load page');
+      })
+      .finally(() => {
+        if (!cancelled) setLayoutBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, forum, pagesTab, effectiveParentSlug]);
+
+  useEffect(() => {
+    if (addingPage || identityOpen || !editingPage) return;
+    setPageTitle(editingPage.title);
+    setPageSlug(editingPage.slug);
+  }, [addingPage, identityOpen, editingPage]);
+
+  const selectPage = (tab: string) => {
+    setAddingPage(false);
+    setIdentityOpen(false);
+    setPagesTab(tab);
+  };
+
+  const createPage = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!client || !forum) return;
+    setLayoutBusy(true);
+    setError('');
+    setSuccess('');
+    try {
+      const page = await client.createForumPage(
+        forum.slug,
+        { title: pageTitle.trim(), slug: pageSlug.trim() || undefined },
+        effectiveParentSlug,
+      );
+      const summaries = await client.listForumPages(forum.slug, effectiveParentSlug);
+      setForum({ ...forum, pages: summaries });
+      setAddingPage(false);
+      setIdentityOpen(false);
+      setPageTitle(page.title);
+      setPageSlug(page.slug);
+      setPagesTab(page.slug);
+      setEditingPage(page);
+      setSuccess('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create page');
+    } finally {
+      setLayoutBusy(false);
+    }
+  };
+
+  const savePageIdentity = async (e: FormEvent) => {
+    e.preventDefault();
+    if (addingPage) {
+      await createPage(e);
+      return;
+    }
+    if (!client || !forum || !editingPage) return;
+    const title = pageTitle.trim();
+    const slug = pageSlug.trim();
+    if (!title) return;
+    if (title === editingPage.title && slug === editingPage.slug) {
+      setIdentityOpen(false);
+      return;
+    }
+    setLayoutBusy(true);
+    setError('');
+    setSuccess('');
+    try {
+      const page = await client.updateForumPageLayout(
+        forum.slug,
+        editingPage.slug,
+        editingPage.layout,
+        effectiveParentSlug,
+        title,
+        slug || editingPage.slug,
+      );
+      setForum({
+        ...forum,
+        pages: (forum.pages ?? []).map((item) =>
+          item.id === page.id ? { ...item, title: page.title, slug: page.slug } : item,
+        ),
+      });
+      setPagesTab(page.slug);
+      setEditingPage(page);
+      setPageTitle(page.title);
+      setPageSlug(page.slug);
+      setIdentityOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save page');
+    } finally {
+      setLayoutBusy(false);
+    }
+  };
 
   const loadForum = () => {
     if (!slug || !client) return;
@@ -130,7 +257,16 @@ export function ForumSettingsPage() {
         setName(loaded.name);
         setSlugDraft(loaded.slug);
       })
-      .catch((err) => setError(err.message));
+      .catch((err) => {
+        if (err instanceof NestRedirectError) {
+          if (baseUrl) rememberContentServer(baseUrl, err.redirect.serverId);
+          navigate(forumPath(err.redirect.serverDid, err.redirect.slug, err.redirect.parentSlug ?? undefined), {
+            replace: true,
+          });
+          return;
+        }
+        setError(err.message);
+      });
     client
       .getServerPermissions()
       .then((perms) => {
@@ -210,7 +346,7 @@ export function ForumSettingsPage() {
   if (!user) {
     return (
       <div className="card">
-        <Link to="/login">Log in</Link> to manage forum settings.
+        <Link to="/login">Log in</Link> to manage nest settings.
       </div>
     );
   }
@@ -218,7 +354,7 @@ export function ForumSettingsPage() {
   if (!forum && !error) return <p>Loading...</p>;
 
   if (forum && !canAccess) {
-    return <div className="error-banner">You do not have permission to manage this forum.</div>;
+    return <div className="error-banner">You do not have permission to manage this nest.</div>;
   }
 
   const saveRole = async (draft: ForumRoleDraft, existing?: ForumRole) => {
@@ -251,7 +387,7 @@ export function ForumSettingsPage() {
       effectiveParentSlug,
     );
     setComposingRole(false);
-    setSuccess('Forum role created.');
+    setSuccess('Nest role created.');
     loadRoles();
   };
 
@@ -385,7 +521,7 @@ export function ForumSettingsPage() {
     setError('');
     try {
       await client.assignForumFlair(slug, user.id, myFlairId || null, effectiveParentSlug);
-      setSuccess(myFlairId ? 'Your forum flair was saved.' : 'Your forum flair was cleared.');
+      setSuccess(myFlairId ? 'Your nest flair was saved.' : 'Your nest flair was cleared.');
       loadMembers();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save flair');
@@ -421,7 +557,7 @@ export function ForumSettingsPage() {
       }
       setSuccess('Name and address updated.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not update the forum.');
+      setError(err instanceof Error ? err.message : 'Could not update the nest.');
     }
   };
 
@@ -444,7 +580,7 @@ export function ForumSettingsPage() {
           ← {forum.name}
         </Link>
       )}
-      <h1 className="page-title">Forum settings</h1>
+      <h1 className="page-title">Nest settings</h1>
       {forum && (
         <p className="page-subtitle" style={{ marginTop: '-0.5rem' }}>
           /{effectiveParentSlug ? `${effectiveParentSlug}/` : ''}
@@ -453,7 +589,7 @@ export function ForumSettingsPage() {
         </p>
       )}
 
-      <nav className="settings-nav" aria-label="Forum settings sections">
+      <nav className="settings-nav" aria-label="Nest settings sections">
         {FORUM_SETTINGS_SECTIONS.filter((section) => availableSections.includes(section.id)).map((section) => (
           <a
             key={section.id}
@@ -478,17 +614,17 @@ export function ForumSettingsPage() {
         <section className="card">
           <h2 className="card-title">Ownership</h2>
           <p className="card-meta">
-            {forum.ownerUsername ? `Forum owner · @${forum.ownerUsername}` : 'No forum owner is set.'}
+            {forum.ownerUsername ? `Nest owner · @${forum.ownerUsername}` : 'No nest owner is set.'}
           </p>
           <TransferOwnershipForm
             id={forum.id}
             resourceName={forum.name}
-            confirmDetail="Forum admins will no longer be able to demote the new owner."
+            confirmDetail="Nest admins will no longer be able to demote the new owner."
             onTransfer={async (username) => {
               setError('');
               const updated = await client.transferForumOwnership(slug, username, effectiveParentSlug);
               setForum(updated);
-              setSuccess(`Transferred forum ownership to @${updated.ownerUsername ?? username}.`);
+              setSuccess(`Transferred nest ownership to @${updated.ownerUsername ?? username}.`);
             }}
           />
         </section>
@@ -534,9 +670,9 @@ export function ForumSettingsPage() {
         <form className="card" onSubmit={(e) => void saveIdentity(e)}>
           <h2 className="card-title">Name and address</h2>
           <p className="card-meta">
-            The name is the title on the forum page. The slug is the address. Changing the slug makes
-            existing links to this forum stop working.
-            {!forum.parentForumId ? ' Subforum addresses include this slug too.' : ''}
+            The name is the title on the nest page. The slug is the address. Changing the slug makes
+            existing links to this nest stop working.
+            {!forum.parentForumId ? ' Subnest addresses include this slug too.' : ''}
           </p>
           <div className="form-group">
             <label htmlFor="forum-settings-name">Name</label>
@@ -607,7 +743,7 @@ export function ForumSettingsPage() {
           <h2 className="card-title">NSFW age check</h2>
           <p className="card-meta">
             NSFW images already stay covered until someone confirms they are {forum.nsfwMinimumAge ?? 18}+.
-            Turn this on to also require that check before people can enter or join this forum.
+            Turn this on to also require that check before people can enter or join this nest.
             {forum.nsfwAgeCheckRequiredByServer ? ' The server already requires the NSFW media check.' : ''}
           </p>
           <form
@@ -626,8 +762,8 @@ export function ForumSettingsPage() {
                   loadForum();
                   setSuccess(
                     required
-                      ? 'Age check required before entering or joining this forum.'
-                      : 'Forum entry age check turned off.',
+                      ? 'Age check required before entering or joining this nest.'
+                      : 'Nest entry age check turned off.',
                   );
                 })
                 .catch((err) => setError(err instanceof Error ? err.message : 'Failed to update age check'));
@@ -641,7 +777,7 @@ export function ForumSettingsPage() {
                   setForum({ ...forum, nsfwAgeCheckRequired: e.target.checked })
                 }
               />{' '}
-              Require age check before entering or joining this forum
+              Require age check before entering or joining this nest
             </label>
             <div className="form-group" style={{ marginTop: '1rem' }}>
               <label htmlFor="forum-nsfw-age-explanation">Explanation shown on the age check</label>
@@ -651,7 +787,7 @@ export function ForumSettingsPage() {
                 maxLength={2000}
                 value={forum.nsfwAgeCheckExplanation ?? ''}
                 onChange={(e) => setForum({ ...forum, nsfwAgeCheckExplanation: e.target.value })}
-                placeholder="Why this forum needs an age check, and what people will find here."
+                placeholder="Why this nest needs an age check, and what people will find here."
               />
             </div>
             <button type="submit" className="btn-primary">
@@ -672,21 +808,21 @@ export function ForumSettingsPage() {
         />
       )}
 
-      {activeSection === 'structure' && canManageForum && forum && !forum.parentForumId && (
+      {activeSection === 'structure' && canManageForum && forum && (
         <section className="card">
-          <h2 className="card-title">Subforums</h2>
-          <p className="card-meta">Create focused areas under this forum.</p>
+          <h2 className="card-title">Subnests</h2>
+          <p className="card-meta">Create focused areas under this nest.</p>
           <Link
             to={`${createForumPath(serverDid)}?parent=${forum.id}&parentSlug=${forum.slug}`}
             className="btn-primary"
           >
-            Create subforum
+            New subnest
           </Link>
           {forum.subforums && forum.subforums.length > 0 && (
             <ul style={{ marginTop: '1rem' }}>
               {forum.subforums.map((s) => (
                 <li key={s.id}>
-                  <Link to={forumPath(serverDid, s.slug, forum.slug)}>{s.name}</Link>
+                  <Link to={forumPath(serverDid, s.slug, s.topSlug ?? forum.parentSlug ?? forum.slug)}>{s.name}</Link>
                 </li>
               ))}
             </ul>
@@ -697,9 +833,12 @@ export function ForumSettingsPage() {
       {activeSection === 'structure' && canManageForum && forum && (
         <section className="card">
           <h2 className="card-title">Watercoolers</h2>
-          <p className="card-meta">Untitled rooms beside this forum. Pin a feed to put the composer on the forum page.</p>
+          <p className="card-meta">
+            Untitled rooms beside this nest. Place a watercooler view on the home layout under{' '}
+            <a href="#pages">Pages</a>.
+          </p>
           <Link to={createWatercoolerPath(serverDid, forum.id)} className="btn-primary">
-            Create watercooler
+            New watercooler
           </Link>
           {forum.watercoolers && forum.watercoolers.length > 0 && (
             <ul style={{ marginTop: '1rem' }}>
@@ -727,45 +866,262 @@ export function ForumSettingsPage() {
                   >
                     Settings
                   </Link>
-                  {hasPermission(forum.viewerPermissions, 'ManageContentBlocks') && client && (
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      style={{ marginLeft: '0.5rem' }}
-                      onClick={() => {
-                        void client
-                          .replaceForumContentBlocks(
-                            forum.slug,
-                            [
-                              ...(forum.contentBlocks ?? [])
-                                .filter((b) => !(b.typeKey === 'cooler-feed' && b.slot === 'main'))
-                                .map((b) => ({
-                                  typeKey: b.typeKey,
-                                  watercoolerId: b.watercoolerId,
-                                  slot: b.slot,
-                                  position: b.position,
-                                })),
-                              {
-                                typeKey: 'cooler-feed',
-                                watercoolerId: cooler.id,
-                                slot: 'main',
-                                position: 0,
-                              },
-                            ],
-                            parentSlug,
-                          )
-                          .then((blocks) => setForum({ ...forum, contentBlocks: blocks }))
-                          .catch((err) => setError(err instanceof Error ? err.message : 'Could not pin feed'));
-                      }}
-                    >
-                      Pin feed
-                    </button>
-                  )}
                 </li>
               ))}
             </ul>
           )}
         </section>
+      )}
+
+      {activeSection === 'pages' && canManageContentBlocks && forum && client && (
+        <section className="card">
+          <div className="nest-pages-header">
+            <div>
+              <h2 className="card-title">Pages</h2>
+              <p className="card-meta">
+                Shared sections lock around every page of this nest — header, sidebars, directories, whatever
+                you place outside the page-body slot. Home is the page body injected into that slot. Subnests
+                have their own shared chrome and pages.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={layoutBusy || addingPage}
+              onClick={() => {
+                setAddingPage(true);
+                setIdentityOpen(true);
+                setPageTitle('');
+                setPageSlug('');
+                setError('');
+                setSuccess('');
+              }}
+            >
+              Add page
+            </button>
+          </div>
+          <div className="nest-pages">
+            <nav className="nest-pages-nav" aria-label="Nest pages">
+              <button
+                type="button"
+                className={!addingPage && pagesTab === 'shared' ? 'btn-primary' : 'btn-ghost'}
+                aria-current={!addingPage && pagesTab === 'shared' ? 'page' : undefined}
+                onClick={() => selectPage('shared')}
+              >
+                Shared
+              </button>
+              <button
+                type="button"
+                className={!addingPage && pagesTab === 'home' ? 'btn-primary' : 'btn-ghost'}
+                aria-current={!addingPage && pagesTab === 'home' ? 'page' : undefined}
+                onClick={() => selectPage('home')}
+              >
+                Home
+              </button>
+              {extraPages.map((page) => (
+                <button
+                  key={page.id}
+                  type="button"
+                  className={!addingPage && pagesTab === page.slug ? 'btn-primary' : 'btn-ghost'}
+                  aria-current={!addingPage && pagesTab === page.slug ? 'page' : undefined}
+                  onClick={() => selectPage(page.slug)}
+                >
+                  {page.title}
+                </button>
+              ))}
+              {addingPage && (
+                <button type="button" className="btn-primary" aria-current="page">
+                  {pageTitle.trim() || 'New page'}
+                </button>
+              )}
+            </nav>
+            <div className="nest-pages-editor">
+
+          {(addingPage || (pagesTab !== 'shared' && pagesTab !== 'home')) && (
+            <section className="page-identity">
+              <button
+                type="button"
+                className={`page-identity-toggle${identityOpen ? ' is-open' : ''}`}
+                aria-expanded={identityOpen}
+                onClick={() => setIdentityOpen((open) => !open)}
+              >
+                <span className="forum-browser-caret" aria-hidden="true" />
+                Name and slug
+                {!identityOpen && pageTitle.trim() && (
+                  <span className="card-meta">
+                    {pageTitle.trim()}
+                    {pageSlug.trim() ? ` · /${pageSlug.trim()}` : ''}
+                  </span>
+                )}
+              </button>
+              {identityOpen && (
+              <form onSubmit={(e) => void savePageIdentity(e)} className="page-identity-body">
+                <p className="card-meta">
+                  {addingPage
+                    ? 'Gets its own route under this nest and uses the shared chrome.'
+                    : 'Shown in the page list. The slug is the address under this nest.'}
+                </p>
+                <div className="form-group">
+                  <label htmlFor="page-title">Title</label>
+                  <input
+                    id="page-title"
+                    value={pageTitle}
+                    onChange={(e) => setPageTitle(e.target.value)}
+                    required
+                    maxLength={200}
+                    disabled={layoutBusy}
+                    autoFocus={addingPage}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="page-slug">Slug{addingPage ? ' (optional)' : ''}</label>
+                  <input
+                    id="page-slug"
+                    value={pageSlug}
+                    onChange={(e) => setPageSlug(e.target.value)}
+                    placeholder={addingPage ? 'auto from title' : undefined}
+                    maxLength={64}
+                    disabled={layoutBusy}
+                  />
+                </div>
+                <div className="server-row-actions">
+                  <button type="submit" className="btn-primary" disabled={layoutBusy || !pageTitle.trim()}>
+                    {layoutBusy ? 'Saving…' : addingPage ? 'Create page' : 'Save'}
+                  </button>
+                  {addingPage && (
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      disabled={layoutBusy}
+                      onClick={() => selectPage(pagesTab)}
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </form>
+              )}
+            </section>
+          )}
+
+          {!addingPage && pagesTab === 'shared' && (
+            <>
+              <h3 className="card-title" style={{ fontSize: '1.05rem' }}>
+                Shared chrome
+              </h3>
+              <p className="card-meta">
+                Locked layout applied to all pages here. Keep exactly one page-body slot. Use columns to pin
+                browsing aids (watercooler list, subnests, …) beside the page content.
+              </p>
+              <ForumLayoutEditor
+                key={`chrome-${forum.sharedChrome?.id ?? forum.id}`}
+                mode="chrome"
+                initialLayout={forum.sharedChrome?.layout ?? fallbackChromeLayout()}
+                watercoolers={forum.watercoolers ?? []}
+                contentBaseUrl={baseUrl}
+                loadExtensions={client ? () => client.getExtensions() : undefined}
+                busy={layoutBusy}
+                onSave={async (layout) => {
+                  setLayoutBusy(true);
+                  setError('');
+                  setSuccess('');
+                  try {
+                    const page = await client.updateForumChromeLayout(
+                      forum.slug,
+                      layout,
+                      parentSlug ?? forum.parentSlug ?? undefined,
+                    );
+                    setForum({ ...forum, sharedChrome: page });
+                    setSuccess('Shared chrome saved.');
+                  } finally {
+                    setLayoutBusy(false);
+                  }
+                }}
+              />
+            </>
+          )}
+
+          {!addingPage && pagesTab === 'home' && (
+            <>
+              <h3 className="card-title" style={{ fontSize: '1.05rem' }}>
+                Home layout
+              </h3>
+              <p className="card-meta">
+                Content for the nest front page, rendered inside the shared page-body slot.
+              </p>
+              <ForumLayoutEditor
+                key={`home-${forum.homePage?.id ?? forum.id}`}
+                mode="page"
+                initialLayout={forum.homePage?.layout ?? fallbackHomeLayout(forum)}
+                watercoolers={forum.watercoolers ?? []}
+                contentBaseUrl={baseUrl}
+                loadExtensions={client ? () => client.getExtensions() : undefined}
+                busy={layoutBusy}
+                onSave={async (layout) => {
+                  setLayoutBusy(true);
+                  setError('');
+                  setSuccess('');
+                  try {
+                    const page = await client.updateForumHomeLayout(
+                      forum.slug,
+                      layout,
+                      parentSlug ?? forum.parentSlug ?? undefined,
+                    );
+                    setForum({ ...forum, homePage: page });
+                    setSuccess('Home layout saved.');
+                  } finally {
+                    setLayoutBusy(false);
+                  }
+                }}
+              />
+            </>
+          )}
+
+          {!addingPage && pagesTab !== 'shared' && pagesTab !== 'home' && (
+            <>
+              <h3 className="card-title" style={{ fontSize: '1.05rem' }}>
+                {editingPage?.title ?? 'Page'} layout
+              </h3>
+              <p className="card-meta">
+                Extra page body for <code>/{pagesTab}</code>, rendered inside the shared page-body slot.
+              </p>
+              {editingPage && (
+                <ForumLayoutEditor
+                  key={`page-${editingPage.id}`}
+                  mode="page"
+                  initialLayout={editingPage.layout ?? createDefaultExtraPageLayout()}
+                  watercoolers={forum.watercoolers ?? []}
+                  contentBaseUrl={baseUrl}
+                  loadExtensions={client ? () => client.getExtensions() : undefined}
+                  busy={layoutBusy}
+                  onSave={async (layout) => {
+                    setLayoutBusy(true);
+                    setError('');
+                    setSuccess('');
+                    try {
+                      const page = await client.updateForumPageLayout(
+                        forum.slug,
+                        pagesTab,
+                        layout,
+                        parentSlug ?? forum.parentSlug ?? undefined,
+                      );
+                      setEditingPage(page);
+                      setSuccess('Page layout saved.');
+                    } finally {
+                      setLayoutBusy(false);
+                    }
+                  }}
+                />
+              )}
+            </>
+          )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {activeSection === 'extensions' && canManageForum && forum && client && (
+        <ExtensionInstallsPanel client={client} scope="forum" forumId={forum.id} />
       )}
 
       {activeSection === 'roles' && canManageRoles && (
@@ -774,7 +1130,7 @@ export function ForumSettingsPage() {
             <div>
               <h2 className="card-title">Roles</h2>
               <p className="card-meta">
-                @everyone and Moderator are created with every forum. Add a role or edit an existing one to
+                @everyone and Moderator are created with every nest. Add a role or edit an existing one to
                 change what it can do here.
               </p>
             </div>
@@ -933,7 +1289,7 @@ export function ForumSettingsPage() {
             <div>
               <h2 className="card-title">Flair templates</h2>
               <p className="card-meta">
-                These badges are available in this forum. Pick one for yourself below, or assign one on a member row.
+                These badges are available in this nest. Pick one for yourself below, or assign one on a member row.
               </p>
             </div>
             {canManageMembers && (
@@ -978,7 +1334,7 @@ export function ForumSettingsPage() {
       <section className="card">
         <h2 className="card-title">Your flair</h2>
         {flairs.length === 0 ? (
-          <p className="card-meta">No flair templates in this forum yet.</p>
+          <p className="card-meta">No flair templates in this nest yet.</p>
         ) : (
           <form onSubmit={saveMyFlair}>
             <div className="inline-form">
@@ -987,7 +1343,7 @@ export function ForumSettingsPage() {
                 className="flair-select"
                 value={myFlairId}
                 onChange={(e) => setMyFlairId(e.target.value)}
-                aria-label="Your forum flair"
+                aria-label="Your nest flair"
               >
                 <option value="">None</option>
                 {flairs.map((f) => (
@@ -1013,7 +1369,7 @@ export function ForumSettingsPage() {
               <input
                 value={myAlias}
                 onChange={(e) => setMyAlias(e.target.value)}
-                placeholder="Display name in this forum"
+                placeholder="Display name in this nest"
               />
               <button type="submit" className="btn-primary">
                 Save alias

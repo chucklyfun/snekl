@@ -1,13 +1,15 @@
 using Microsoft.EntityFrameworkCore;
+using Snekl.Api.Hosting;
 using Snekl.Api.Realtime;
+using Snekl.Domain.Entities;
 using Snekl.Domain.Identity;
 using Snekl.Infrastructure;
 using Snekl.Infrastructure.Data;
 using Snekl.Infrastructure.Services;
 using Snekl.Redis;
 using Snekl.DevSession;
-using Snekl.Infrastructure.Security;
 using Snekl.DeviceBinding;
+using Snekl.Infrastructure.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +21,8 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? "Host=localhost;Port=5432;Database=snekl;Username=snekl;Password=snekl";
 
 builder.Services.AddSneklInfrastructure(connectionString, builder.Configuration);
+builder.Services.AddSingleton<IServerTemplateStore>(_ =>
+    new ServerTemplateStore(Path.Combine(builder.Environment.ContentRootPath, "server-template.json")));
 builder.Services.AddDeviceProof();
 
 var signalRBuilder = builder.Services.AddSignalR();
@@ -386,6 +390,26 @@ using (var scope = app.Services.CreateScope())
         );
         CREATE INDEX IF NOT EXISTS "IX_ForumContentBlocks_ForumId_Slot_Position"
             ON "ForumContentBlocks" ("ForumId", "Slot", "Position");
+        CREATE TABLE IF NOT EXISTS "ForumPages" (
+            "Id" uuid NOT NULL PRIMARY KEY,
+            "ForumId" uuid NOT NULL REFERENCES "Forums"("Id") ON DELETE CASCADE,
+            "Title" character varying(200) NOT NULL,
+            "Slug" character varying(64) NOT NULL,
+            "IsDefault" boolean NOT NULL DEFAULT false,
+            "IsChrome" boolean NOT NULL DEFAULT false,
+            "LayoutJson" jsonb NOT NULL DEFAULT '{}'::jsonb,
+            "CreatedAt" timestamp with time zone NOT NULL,
+            "UpdatedAt" timestamp with time zone NOT NULL
+        );
+        ALTER TABLE "ForumPages" ADD COLUMN IF NOT EXISTS "IsChrome" boolean NOT NULL DEFAULT false;
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_ForumPages_ForumId_Slug"
+            ON "ForumPages" ("ForumId", "Slug");
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_ForumPages_ForumId_Default"
+            ON "ForumPages" ("ForumId")
+            WHERE "IsDefault" = true;
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_ForumPages_ForumId_Chrome"
+            ON "ForumPages" ("ForumId")
+            WHERE "IsChrome" = true;
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -491,12 +515,88 @@ using (var scope = app.Services.CreateScope())
                 LIMIT 1
             ) sub
             WHERE n."OwnerUserId" IS NULL;
+        CREATE TABLE IF NOT EXISTS "ThreadAlertPreferences" (
+            "Id" uuid NOT NULL PRIMARY KEY,
+            "UserId" uuid NOT NULL REFERENCES "Users"("Id") ON DELETE CASCADE,
+            "RootPostId" uuid NOT NULL REFERENCES "Posts"("Id") ON DELETE CASCADE,
+            "Mode" character varying(16) NOT NULL,
+            "UpdatedAt" timestamp with time zone NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_ThreadAlertPreferences_UserId_RootPostId"
+            ON "ThreadAlertPreferences" ("UserId", "RootPostId");
+        CREATE TABLE IF NOT EXISTS "ReplyAlerts" (
+            "Id" uuid NOT NULL PRIMARY KEY,
+            "RecipientUserId" uuid NOT NULL REFERENCES "Users"("Id") ON DELETE CASCADE,
+            "RootPostId" uuid NOT NULL REFERENCES "Posts"("Id") ON DELETE CASCADE,
+            "ReplyCount" integer NOT NULL,
+            "LatestReplyId" uuid NOT NULL,
+            "LatestReplyAt" timestamp with time zone NOT NULL,
+            "CreatedAt" timestamp with time zone NOT NULL,
+            "ReadAt" timestamp with time zone NULL
+        );
+        CREATE INDEX IF NOT EXISTS "IX_ReplyAlerts_RecipientUserId_LatestReplyAt"
+            ON "ReplyAlerts" ("RecipientUserId", "LatestReplyAt");
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_ReplyAlerts_OpenBurst"
+            ON "ReplyAlerts" ("RecipientUserId", "RootPostId")
+            WHERE "ReadAt" IS NULL;
+        CREATE TABLE IF NOT EXISTS "PushDevices" (
+            "Id" uuid NOT NULL PRIMARY KEY,
+            "UserId" uuid NOT NULL REFERENCES "Users"("Id") ON DELETE CASCADE,
+            "Platform" character varying(32) NOT NULL,
+            "Token" character varying(4096) NOT NULL,
+            "CreatedAt" timestamp with time zone NOT NULL,
+            "LastSeenAt" timestamp with time zone NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_PushDevices_Token"
+            ON "PushDevices" ("Token");
+        ALTER TABLE "ReplyAlerts" ADD COLUMN IF NOT EXISTS "Kind" character varying(16) NOT NULL DEFAULT 'thread';
+        ALTER TABLE "ReplyAlerts" ADD COLUMN IF NOT EXISTS "ForumId" uuid NULL;
+        ALTER TABLE "ReplyAlerts" ADD COLUMN IF NOT EXISTS "WatercoolerId" uuid NULL;
+        ALTER TABLE "ReplyAlerts" ALTER COLUMN "RootPostId" DROP NOT NULL;
+        DROP INDEX IF EXISTS "IX_ReplyAlerts_OpenBurst";
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_ReplyAlerts_OpenThread"
+            ON "ReplyAlerts" ("RecipientUserId", "RootPostId")
+            WHERE "ReadAt" IS NULL AND "Kind" = 'thread';
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_ReplyAlerts_OpenNest"
+            ON "ReplyAlerts" ("RecipientUserId", "ForumId")
+            WHERE "ReadAt" IS NULL AND "Kind" = 'nest';
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_ReplyAlerts_OpenWatercooler"
+            ON "ReplyAlerts" ("RecipientUserId", "WatercoolerId")
+            WHERE "ReadAt" IS NULL AND "Kind" = 'watercooler';
+        CREATE TABLE IF NOT EXISTS "PlaceAlertPreferences" (
+            "Id" uuid NOT NULL PRIMARY KEY,
+            "UserId" uuid NOT NULL REFERENCES "Users"("Id") ON DELETE CASCADE,
+            "ForumId" uuid NULL REFERENCES "Forums"("Id") ON DELETE CASCADE,
+            "WatercoolerId" uuid NULL REFERENCES "Watercoolers"("Id") ON DELETE CASCADE,
+            "Mode" character varying(16) NOT NULL,
+            "UpdatedAt" timestamp with time zone NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_PlaceAlertPreferences_UserId_ForumId"
+            ON "PlaceAlertPreferences" ("UserId", "ForumId")
+            WHERE "ForumId" IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_PlaceAlertPreferences_UserId_WatercoolerId"
+            ON "PlaceAlertPreferences" ("UserId", "WatercoolerId")
+            WHERE "WatercoolerId" IS NOT NULL;
+        ALTER TABLE "NodeConfig" ADD COLUMN IF NOT EXISTS "VoteAlertBase" integer NOT NULL DEFAULT 10;
+        ALTER TABLE "NodeConfig" ADD COLUMN IF NOT EXISTS "InheritHostAuthIssuers" boolean NOT NULL DEFAULT true;
+        ALTER TABLE "NodeConfig" ADD COLUMN IF NOT EXISTS "InheritHostHubs" boolean NOT NULL DEFAULT true;
+        ALTER TABLE "TrustedAuthIssuers" ADD COLUMN IF NOT EXISTS "IsRequired" boolean NOT NULL DEFAULT false;
+        ALTER TABLE "ReplyAlerts" ADD COLUMN IF NOT EXISTS "SubjectUserId" uuid NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_ReplyAlerts_OpenVote"
+            ON "ReplyAlerts" ("RecipientUserId", "RootPostId")
+            WHERE "ReadAt" IS NULL AND "Kind" = 'vote';
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_ReplyAlerts_OpenFollow"
+            ON "ReplyAlerts" ("RecipientUserId", "SubjectUserId")
+            WHERE "ReadAt" IS NULL AND "Kind" = 'follow';
         """;
         await schemaCmd.ExecuteNonQueryAsync();
     }
 
+    await EnsureVirtualServerColumnsAsync(db);
+
     var nodeService = scope.ServiceProvider.GetRequiredService<INodeService>();
     var node = await nodeService.GetOrCreateAsync();
+    scope.ServiceProvider.GetRequiredService<ICurrentServer>().Use(node.Id);
     var configuredUrl = builder.Configuration["Node:BaseUrl"];
     if (!string.IsNullOrWhiteSpace(configuredUrl) && node.BaseUrl != configuredUrl)
     {
@@ -524,8 +624,8 @@ app.UseSneklForwardedHeaders();
 app.UseCors();
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path == "/admin" || context.Request.Path == "/admin/")
-        context.Request.Path = "/admin/index.html";
+    if (context.Request.Path == "/server" || context.Request.Path == "/server/")
+        context.Request.Path = "/server/index.html";
     await next();
 });
 app.UseStaticFiles();
@@ -554,6 +654,7 @@ app.Use(async (context, next) =>
 
     await next();
 });
+app.UseMiddleware<VirtualServerMiddleware>();
 app.MapControllers();
 app.MapHub<ThreadHub>("/hubs/thread");
 
@@ -593,6 +694,92 @@ static async Task SeedTrustedAuthIssuersAsync(SneklDbContext db, ConfigurationMa
     }
 
     await db.SaveChangesAsync();
+}
+
+static async Task EnsureVirtualServerColumnsAsync(SneklDbContext db)
+{
+    var connection = db.Database.GetDbConnection();
+    foreach (var entityType in db.Model.GetEntityTypes())
+    {
+        if (!typeof(IServerScoped).IsAssignableFrom(entityType.ClrType))
+            continue;
+        var table = entityType.GetTableName();
+        if (string.IsNullOrEmpty(table))
+            continue;
+
+        // New tables are created later in this method. Existing databases do not
+        // have them yet, and ALTER would abort startup before CREATE TABLE runs.
+        await using var exists = connection.CreateCommand();
+        exists.CommandText = """
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = @table)
+            """;
+        var tableParam = exists.CreateParameter();
+        tableParam.ParameterName = "table";
+        tableParam.Value = table;
+        exists.Parameters.Add(tableParam);
+        if (await exists.ExecuteScalarAsync() is not true)
+            continue;
+
+        await using var add = connection.CreateCommand();
+        add.CommandText = $"""ALTER TABLE "{table}" ADD COLUMN IF NOT EXISTS "ServerId" uuid""";
+        await add.ExecuteNonQueryAsync();
+
+        await using var fill = connection.CreateCommand();
+        fill.CommandText = $"""
+            UPDATE "{table}" AS scoped
+            SET "ServerId" = node."Id"
+            FROM (SELECT "Id" FROM "NodeConfig" ORDER BY "CreatedAt" LIMIT 1) AS node
+            WHERE scoped."ServerId" IS NULL
+            """;
+        await fill.ExecuteNonQueryAsync();
+
+        await using var required = connection.CreateCommand();
+        required.CommandText = $"""
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM "{table}" WHERE "ServerId" IS NULL) THEN
+                ALTER TABLE "{table}" ALTER COLUMN "ServerId" SET NOT NULL;
+              END IF;
+            END $$;
+            """;
+        await required.ExecuteNonQueryAsync();
+    }
+
+    await using var indexes = connection.CreateCommand();
+    indexes.CommandText = """
+        ALTER TABLE "NodeConfig" ADD COLUMN IF NOT EXISTS "DisabledAt" timestamp with time zone NULL;
+        DROP INDEX IF EXISTS "IX_Users_Username";
+        DROP INDEX IF EXISTS "IX_Users_Email";
+        DROP INDEX IF EXISTS "IX_Users_Did";
+        DROP INDEX IF EXISTS "IX_Users_AuthIssuerUrl_AuthSubjectId";
+        DROP INDEX IF EXISTS "IX_PeerNodes_BaseUrl";
+        DROP INDEX IF EXISTS "IX_TrustedAuthIssuers_IssuerUrl";
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_Users_ServerId_Username" ON "Users" ("ServerId", "Username");
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_Users_ServerId_Email" ON "Users" ("ServerId", "Email");
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_Users_ServerId_Did" ON "Users" ("ServerId", "Did");
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_Users_ServerId_AuthIssuerUrl_AuthSubjectId"
+            ON "Users" ("ServerId", "AuthIssuerUrl", "AuthSubjectId");
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_PeerNodes_ServerId_BaseUrl" ON "PeerNodes" ("ServerId", "BaseUrl");
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_TrustedAuthIssuers_ServerId_IssuerUrl"
+            ON "TrustedAuthIssuers" ("ServerId", "IssuerUrl");
+        ALTER TABLE "Forums" ADD COLUMN IF NOT EXISTS "Locked" boolean NOT NULL DEFAULT false;
+        ALTER TABLE "Forums" ADD COLUMN IF NOT EXISTS "Hidden" boolean NOT NULL DEFAULT false;
+        ALTER TABLE "Forums" ADD COLUMN IF NOT EXISTS "SortOrder" integer NOT NULL DEFAULT 0;
+        CREATE TABLE IF NOT EXISTS "ForumRedirects" (
+            "Id" uuid NOT NULL PRIMARY KEY,
+            "ServerId" uuid NOT NULL,
+            "TopSlug" character varying(128) NOT NULL DEFAULT '',
+            "Slug" character varying(128) NOT NULL,
+            "TargetForumId" uuid NOT NULL REFERENCES "Forums"("Id") ON DELETE CASCADE,
+            "CreatedAt" timestamp with time zone NOT NULL,
+            "UpdatedAt" timestamp with time zone NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_ForumRedirects_ServerId_TopSlug_Slug"
+            ON "ForumRedirects" ("ServerId", "TopSlug", "Slug");
+        CREATE INDEX IF NOT EXISTS "IX_ForumRedirects_TargetForumId" ON "ForumRedirects" ("TargetForumId");
+        """;
+    await indexes.ExecuteNonQueryAsync();
 }
 
 public partial class Program;

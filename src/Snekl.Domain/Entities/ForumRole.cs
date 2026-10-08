@@ -2,8 +2,9 @@ using Snekl.Domain.Enums;
 
 namespace Snekl.Domain.Entities;
 
-public class ForumRole
+public class ForumRole : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ForumId { get; set; }
     public Forum? Forum { get; set; }
@@ -26,8 +27,9 @@ public class ForumRole
     public ICollection<ForumRoleAssignment> Assignments { get; set; } = new List<ForumRoleAssignment>();
 }
 
-public class ForumRoleAssignment
+public class ForumRoleAssignment : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ForumId { get; set; }
     public Forum? Forum { get; set; }

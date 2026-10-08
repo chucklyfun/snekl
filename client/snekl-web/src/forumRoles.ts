@@ -41,7 +41,7 @@ export const FORUM_ROLE_STARTER_PACKS: readonly ForumRoleStarterPack[] = [
   {
     id: 'viewer',
     label: 'Viewer',
-    description: 'See and read the forum',
+    description: 'See and read the nest',
     permissions: ['SeeForum', 'ViewForum', 'SeeContentBlocks'],
   },
   {

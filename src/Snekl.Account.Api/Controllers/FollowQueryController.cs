@@ -23,4 +23,15 @@ public class FollowQueryController : ControllerBase
 
         return Ok(new FollowContainsDto(await _follows.FollowsAsync(followerDid, targetDid, ct)));
     }
+
+    [HttpGet("watchers")]
+    public async Task<ActionResult<IReadOnlyList<FollowWatcherDto>>> Watchers(
+        [FromQuery] string targetDid,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(targetDid))
+            return BadRequest(new { error = "targetDid is required." });
+
+        return Ok(await _follows.ListWatchersAsync(targetDid, ct));
+    }
 }

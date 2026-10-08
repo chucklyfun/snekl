@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router';
 import { apiFor } from '../api';
 import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';
+import { FollowAlertControl } from '../components/FollowAlertControl';
 import { useFollows } from '../FollowsContext';
 import { useServerRegistry } from '../ServerRegistryContext';
 import type { DirectMessageEligibility, StatusPreset, UserPresentation } from '../types';
@@ -146,18 +147,21 @@ export function ProfilePage() {
         {canFollow && profile.did && (
           <div style={{ marginTop: '1rem' }}>
             {isFollowing(profile.did) ? (
-              <button
-                type="button"
-                className="btn-ghost"
-                onClick={() => {
-                  setError('');
-                  void unfollow(profile.did!).catch((err) =>
-                    setError(err instanceof Error ? err.message : 'Failed to unfollow'),
-                  );
-                }}
-              >
-                Unfollow
-              </button>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+                <FollowAlertControl did={profile.did} />
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => {
+                    setError('');
+                    void unfollow(profile.did!).catch((err) =>
+                      setError(err instanceof Error ? err.message : 'Failed to unfollow'),
+                    );
+                  }}
+                >
+                  Unfollow
+                </button>
+              </div>
             ) : (
               <button
                 type="button"
@@ -237,7 +241,7 @@ export function ProfilePage() {
                   event.preventDefault();
                   if (!api || !username) return;
                   if (!requestForumId) {
-                    setError('Choose the forum whose permission you are using for this request.');
+                    setError('Choose the nest whose permission you are using for this request.');
                     return;
                   }
                   setError('');
@@ -257,11 +261,11 @@ export function ProfilePage() {
                 }}
               >
                 <p className="card-meta">
-                  Choose the forum whose RequestDirectMessage permission you are using. Forums can keep
+                  Choose the nest whose RequestDirectMessage permission you are using. Nests can keep
                   this off new members until they have a trusted role.
                 </p>
                 <div className="form-group">
-                  <label htmlFor="dm-forum">Forum</label>
+                  <label htmlFor="dm-forum">Nest</label>
                   <select
                     id="dm-forum"
                     value={requestForumId}
@@ -269,7 +273,7 @@ export function ProfilePage() {
                     required
                   >
                     <option value="" disabled>
-                      Select a forum
+                      Select a nest
                     </option>
                     {eligibility.eligibleForums.map((forum) => (
                       <option key={forum.id} value={forum.id}>

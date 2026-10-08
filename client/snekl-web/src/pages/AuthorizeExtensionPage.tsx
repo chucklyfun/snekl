@@ -82,7 +82,7 @@ export function AuthorizeExtensionPage() {
       <div className="card">
         <h1 className="page-title">Authorize extension</h1>
         <p>
-          <Link to={`/login?return=${encodeURIComponent(returnTo)}`}>Log in</Link> as a forum or server admin
+          <Link to={`/login?return=${encodeURIComponent(returnTo)}`}>Log in</Link> as a nest or server admin
           to authorize this app. It will not post as you.
         </p>
       </div>
@@ -178,12 +178,12 @@ export function AuthorizeExtensionPage() {
                     checked={resource === 'forum'}
                     onChange={() => setResource('forum')}
                   />{' '}
-                  One forum I manage
+                  One nest I manage
                 </label>
               </div>
               {resource === 'forum' && (
                 <div className="form-group">
-                  <label htmlFor="forum">Forum</label>
+                  <label htmlFor="forum">Nest</label>
                   <select id="forum" value={forumId} onChange={(e) => setForumId(e.target.value)}>
                     {options.forums
                       .filter((f) => f.canInstall)
@@ -212,7 +212,7 @@ export function AuthorizeExtensionPage() {
 
 function ExistingInstallSummary({ install }: { install: ExtensionInstall }) {
   const scope =
-    install.resourceType === 'forum' ? install.forumName || 'one forum' : 'this whole server';
+    install.resourceType === 'forum' ? install.forumName || 'one nest' : 'this whole server';
   return (
     <p className="card-meta">
       Already authorized on {scope}. Reconnecting issues a new token without changing that grant.

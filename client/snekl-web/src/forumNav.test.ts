@@ -39,8 +39,8 @@ function server(did: string, name: string): ContentServerMembership {
   return { serverDid: did, baseUrl: `http://${name}`, name, status: 'active', subscribedAt: '' };
 }
 
-describe('forum nav sections', () => {
-  it('keeps lurked forums out of joined and manage', () => {
+describe('nest nav sections', () => {
+  it('keeps lurked nests out of joined and manage', () => {
     const lurk = item({ forumId: '1', name: 'Public', slug: 'public' });
     const joined = item({ forumId: '2', name: 'Club', slug: 'club', viewerIsMember: true });
     const managed = item({
@@ -56,7 +56,7 @@ describe('forum nav sections', () => {
     expect(discoverableForums([lurk, joined, managed]).map((f) => f.slug)).toEqual(['public']);
   });
 
-  it('filters browse forums by name description and slug', () => {
+  it('filters browse nests by name description and slug', () => {
     const forums = [
       { name: 'Garden', slug: 'garden', description: 'plants and dirt' },
       { name: 'Code', slug: 'dev-talk', description: 'compilers' },
@@ -67,7 +67,7 @@ describe('forum nav sections', () => {
     expect(filterBrowseForums(forums, '').length).toBe(2);
   });
 
-  it('includes pending forums in manage and only subscribed favorites', () => {
+  it('includes pending nests in manage and only subscribed favorites', () => {
     const pending = item({ forumId: 'p', name: 'Pending', slug: 'pending', approvalStatus: 'pending' });
     const starred = item({
       forumId: '2',
@@ -89,8 +89,8 @@ describe('forum nav sections', () => {
   });
 });
 
-describe('forum nav grouping', () => {
-  it('nests subforums under their parent when grouping by server', () => {
+describe('nest nav grouping', () => {
+  it('nests subnests under their parent when grouping by server', () => {
     const parent = item({ forumId: 'parent', name: 'Garden', slug: 'garden', viewerIsMember: true });
     const child = item({
       forumId: 'child',
@@ -111,7 +111,7 @@ describe('forum nav grouping', () => {
   it('duplicates a server across federations and buckets unaffiliated origins as Direct servers', () => {
     const alphaForum = item({
       forumId: 'a',
-      name: 'Alpha Forum',
+      name: 'Alpha Nest',
       slug: 'alpha',
       serverDid: 'did:alpha',
       serverName: 'Alpha',
@@ -119,7 +119,7 @@ describe('forum nav grouping', () => {
     });
     const betaForum = item({
       forumId: 'b',
-      name: 'Beta Forum',
+      name: 'Beta Nest',
       slug: 'beta',
       serverDid: 'did:beta',
       serverName: 'Beta',
@@ -156,7 +156,7 @@ describe('forum nav grouping', () => {
     expect(groups[2].servers.map((s) => s.serverDid)).toEqual(['did:lone']);
   });
 
-  it('treats an empty axis list as ungrouped subscribed forums', () => {
+  it('treats an empty axis list as ungrouped subscribed nests', () => {
     expect(normalizeGroupAxes([])).toEqual([]);
     expect(normalizeGroupAxes(['server', 'section', 'server', 'nope'])).toEqual(['server', 'section']);
     expect(originGroupingAxes(['section', 'federation', 'server'])).toEqual(['federation', 'server']);

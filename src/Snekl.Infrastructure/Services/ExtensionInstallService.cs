@@ -100,7 +100,7 @@ public class ExtensionInstallService : IExtensionInstallService
         else if (resource == ExtensionResourceTypes.Forum)
         {
             if (!request.ForumId.HasValue)
-                throw new InvalidOperationException("Forum id is required for a forum install.");
+                throw new InvalidOperationException("Nest id is required for a nest install.");
             forumId = request.ForumId;
             if (!await CanInstallForumAsync(userId, forumId.Value, ct))
                 throw new PermissionDeniedException(nameof(ForumPermissions.ManageForum), "forum");

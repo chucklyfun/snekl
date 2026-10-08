@@ -326,7 +326,7 @@ public class MediaService : IMediaService
 
         var post = link.Post ?? throw new InvalidOperationException("Post not found.");
         if (!post.ForumId.HasValue || post.WatercoolerId.HasValue)
-            throw new InvalidOperationException("NSFW marks apply to forum post images.");
+            throw new InvalidOperationException("NSFW marks apply to nest post images.");
         if (link.MediaAsset is null)
             throw new InvalidOperationException("Media asset was not found.");
 

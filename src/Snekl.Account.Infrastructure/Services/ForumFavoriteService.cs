@@ -45,9 +45,9 @@ public class ForumFavoriteService : IForumFavoriteService
         var name = (request.Name ?? "").Trim();
         var slug = (request.Slug ?? "").Trim();
         if (string.IsNullOrWhiteSpace(serverDid) || string.IsNullOrWhiteSpace(forumId))
-            throw new InvalidOperationException("Server DID and forum id are required.");
+            throw new InvalidOperationException("Server DID and nest id are required.");
         if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(slug))
-            throw new InvalidOperationException("Forum name and slug are required.");
+            throw new InvalidOperationException("Nest name and slug are required.");
 
         var settings = await GetOrCreateSettingsAsync(clusterId, ct);
         var favorites = Deserialize(settings.ForumFavoritesJson).ToList();

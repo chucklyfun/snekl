@@ -165,7 +165,7 @@ public class ForumModerationService : IForumModerationService
             var cooler = await _db.Watercoolers.AsNoTracking().FirstOrDefaultAsync(w => w.Id == post.WatercoolerId.Value, ct)
                 ?? throw new InvalidOperationException("Watercooler not found.");
             forumId = cooler.ParentForumId
-                ?? throw new InvalidOperationException("Server watercoolers do not have a forum report queue yet.");
+                ?? throw new InvalidOperationException("Server watercoolers do not have a nest report queue yet.");
         }
         else
             throw new InvalidOperationException("Post not found.");

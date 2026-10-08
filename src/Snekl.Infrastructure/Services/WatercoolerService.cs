@@ -32,18 +32,21 @@ public class WatercoolerService : IWatercoolerService
     private readonly IRoleSeedService _roleSeed;
     private readonly IUserPresentationService _presentation;
     private readonly IChangeLogService? _changeLog;
+    private readonly IForumPageService _forumPages;
 
     public WatercoolerService(
         SneklDbContext db,
         IPermissionService permissions,
         IRoleSeedService roleSeed,
         IUserPresentationService presentation,
+        IForumPageService forumPages,
         IChangeLogService? changeLog = null)
     {
         _db = db;
         _permissions = permissions;
         _roleSeed = roleSeed;
         _presentation = presentation;
+        _forumPages = forumPages;
         _changeLog = changeLog;
     }
 
@@ -58,7 +61,7 @@ public class WatercoolerService : IWatercoolerService
         if (request.ParentForumId.HasValue)
         {
             parent = await _db.Forums.FindAsync([request.ParentForumId.Value], ct)
-                ?? throw new InvalidOperationException("Parent forum not found.");
+                ?? throw new InvalidOperationException("Parent nest not found.");
             await _permissions.RequireForumPermissionAsync(userId, parent.Id, ForumPermissions.ManageForum, ct);
         }
         else if (!await _permissions.IsSuperUserAsync(userId, ct))
@@ -344,6 +347,9 @@ public class WatercoolerService : IWatercoolerService
         }
 
         await _db.SaveChangesAsync(ct);
+        var pinned = request.Blocks
+            .FirstOrDefault(b => b.TypeKey == WatercoolerBlockTypes.CoolerFeed && b.WatercoolerId.HasValue);
+        await _forumPages.SyncPinnedWatercoolerAsync(forumId, pinned?.WatercoolerId, ct);
         return await ListForumBlocksAsync(forumId, userId, ct);
     }
 

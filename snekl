@@ -38,7 +38,7 @@ case "$cmd" in
   status|help|--help|-h)
     run_built "$@"
     ;;
-  pack)
+  pack|android)
     SIDE="$ROOT/.snekl/cli"
     mkdir -p "$SIDE"
     dotnet build "$PROJECT" -c Release -o "$SIDE" --nologo

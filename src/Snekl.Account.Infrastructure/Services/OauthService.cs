@@ -52,23 +52,57 @@ public class OauthService : IOauthService
 
     public async Task EnsureDevAppsAsync(CancellationToken ct = default)
     {
-        var clientId = _config["OAuth:Faker:ClientId"];
-        var secret = _config["OAuth:Faker:ClientSecret"];
+        await EnsureDevAppAsync(
+            "OAuth:Faker",
+            "http://localhost:5300/oauth/callback",
+            "Snekl Faker",
+            "http://localhost:5300/",
+            null,
+            ct);
+        await EnsureDevAppAsync(
+            "OAuth:Commissions",
+            "http://localhost:5301/oauth/callback",
+            "Snekl Commissions",
+            "http://localhost:5301/",
+            "http://localhost:5301/",
+            ct);
+    }
+
+    private async Task EnsureDevAppAsync(
+        string section,
+        string defaultRedirect,
+        string defaultName,
+        string defaultAdmin,
+        string? defaultIframe,
+        CancellationToken ct)
+    {
+        var clientId = _config[$"{section}:ClientId"];
+        var secret = _config[$"{section}:ClientSecret"];
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(secret))
             return;
 
-        if (await _db.OAuthApps.AnyAsync(a => a.ClientId == clientId, ct))
+        var redirect = _config[$"{section}:RedirectUri"] ?? defaultRedirect;
+        var adminUrl = _config[$"{section}:AdminUrl"] ?? defaultAdmin;
+        var iframeUrl = _config[$"{section}:IframeUrl"] ?? defaultIframe;
+        var existing = await _db.OAuthApps.FirstOrDefaultAsync(a => a.ClientId == clientId, ct);
+        if (existing is not null)
+        {
+            if (string.IsNullOrWhiteSpace(existing.IframeUrl) && !string.IsNullOrWhiteSpace(iframeUrl))
+                existing.IframeUrl = iframeUrl;
+            if (string.IsNullOrWhiteSpace(existing.AdminUrl))
+                existing.AdminUrl = adminUrl;
+            await _db.SaveChangesAsync(ct);
             return;
+        }
 
-        var redirect = _config["OAuth:Faker:RedirectUri"] ?? "http://localhost:5300/oauth/callback";
         _db.OAuthApps.Add(new OAuthApp
         {
             ClientId = clientId,
             ClientSecretHash = BCrypt.Net.BCrypt.HashPassword(secret),
-            Name = _config["OAuth:Faker:Name"] ?? "Snekl Faker",
+            Name = _config[$"{section}:Name"] ?? defaultName,
             RedirectUrisJson = JsonSerializer.Serialize(new[] { redirect }),
-            AdminUrl = _config["OAuth:Faker:AdminUrl"] ?? "http://localhost:5300/",
-            IframeUrl = null
+            AdminUrl = adminUrl,
+            IframeUrl = string.IsNullOrWhiteSpace(iframeUrl) ? null : iframeUrl
         });
         await _db.SaveChangesAsync(ct);
     }

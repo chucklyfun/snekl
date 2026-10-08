@@ -70,12 +70,25 @@ export interface User {
   isFederated: boolean;
 }
 
+export interface NestMapNode {
+  id: string;
+  name: string;
+  slug: string;
+  parentForumId?: string | null;
+  topSlug?: string | null;
+  sortOrder: number;
+  locked: boolean;
+  hidden: boolean;
+  depth: number;
+}
+
 export interface ForumSummary {
   id: string;
   name: string;
   slug: string;
   postCount: number;
   avatarUrl?: string | null;
+  topSlug?: string | null;
 }
 
 export interface Forum {
@@ -100,6 +113,9 @@ export interface Forum {
   viewerIsFavorite?: boolean;
   watercoolers?: WatercoolerSummary[];
   contentBlocks?: ForumContentBlock[];
+  homePage?: ForumPageDoc | null;
+  sharedChrome?: ForumPageDoc | null;
+  pages?: ForumPageSummary[] | null;
   nsfwAgeCheckRequired?: boolean;
   nsfwAgeCheckRequiredByServer?: boolean;
   nsfwAgeCheckEnforced?: boolean;
@@ -112,6 +128,9 @@ export interface Forum {
   bannerUrl?: string | null;
   ownerUsername?: string | null;
   isViewerOwner?: boolean;
+  locked?: boolean;
+  hidden?: boolean;
+  topName?: string | null;
 }
 
 export interface WatercoolerSummary {
@@ -162,6 +181,30 @@ export interface ForumContentBlock {
   position: number;
 }
 
+export interface ForumPageRegion {
+  id: string;
+  typeKey: string;
+  settings?: Record<string, unknown> | null;
+  children?: ForumPageRegion[] | null;
+}
+
+export interface ForumPageDoc {
+  id: string;
+  title: string;
+  slug: string;
+  isDefault: boolean;
+  layout: ForumPageRegion;
+  warnings?: string[] | null;
+  isChrome?: boolean;
+}
+
+export interface ForumPageSummary {
+  id: string;
+  title: string;
+  slug: string;
+  isDefault: boolean;
+}
+
 export interface AuthMeResponse {
   user: UserPresentation;
   isSuperUser: boolean;
@@ -202,6 +245,7 @@ export interface ServerPermissionsInfo {
   nsfwMinimumAge?: number;
   viewerNsfwAgeAttested?: boolean;
   isServerOwner?: boolean;
+  voteAlertBase?: number;
 }
 
 export interface NsfwAgeCheckStatus {
@@ -583,11 +627,14 @@ export interface ForumFavorite {
   addedAt: string;
 }
 
+export type FollowAlertMode = 'off' | 'posts' | 'notable' | 'all';
+
 export interface Follow {
   did: string;
   displayName?: string | null;
   username?: string | null;
   addedAt: string;
+  alertMode?: FollowAlertMode;
 }
 
 export interface DirectMessagePeer {
@@ -803,4 +850,36 @@ export interface ExtensionInstallOptions {
     forumPermissions: string[];
   }>;
   existingInstall?: ExtensionInstall | null;
+}
+
+export type ReplyAlertMode = 'replies' | 'all' | 'off';
+export type ReplyAlertKind = 'thread' | 'nest' | 'watercooler' | 'vote' | 'follow';
+export type PlaceAlertMode = 'off' | 'posts' | 'all';
+
+export interface ReplyAlert {
+  id: string;
+  rootPostId?: string | null;
+  title: string;
+  replyCount: number;
+  latestReplyId: string;
+  latestReplyAt: string;
+  createdAt: string;
+  readAt: string | null;
+  kind?: ReplyAlertKind;
+  forumId?: string | null;
+  watercoolerId?: string | null;
+  slug?: string | null;
+  parentSlug?: string | null;
+  forumParentSlug?: string | null;
+}
+
+export interface PlaceAlertPreference {
+  kind: ReplyAlertKind;
+  placeId: string;
+  mode: PlaceAlertMode;
+}
+
+export interface ReplyAlertPreference {
+  rootPostId: string;
+  mode: ReplyAlertMode;
 }

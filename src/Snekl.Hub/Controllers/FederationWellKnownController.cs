@@ -40,7 +40,7 @@ public class FederationWellKnownController : ControllerBase
 }
 
 [ApiController]
-[Route("admin")]
+[Route("server")]
 public class HubAdminBootstrapController : ControllerBase
 {
     private readonly IConfiguration _config;

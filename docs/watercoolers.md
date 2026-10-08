@@ -62,14 +62,17 @@ Quote card: author, snippet, link. If the viewer cannot View the source, show a 
 
 ## Forum page and blocks
 
-Default main column: **titled threads**.
+Forum front pages (and extra forum pages) are a **subdividable layout** of views — see [forum-pages.md](forum-pages.md). Each forum/subforum owns its own site; Settings and the NSFW age-gate stay outside the tree. Layout edit gate: `ManageContentBlocks`.
 
-| Block | Behavior |
-|-------|----------|
-| `cooler-list` | Directory of rooms the viewer can **See** (blurred if View is missing). |
-| `cooler-feed` | Full channel or plaza for **one** cooler, including **full composer**. |
+Default **home** seed includes cooler and thread views:
 
-Placing a cooler-feed in the main column is how a club leads with chatter. The forum still has threads.
+| View (`typeKey`) | Behavior |
+|------------------|----------|
+| `cooler-list` | Directory / headers of rooms the viewer can **See** (blurred or locked if View is missing). |
+| `watercooler-view` | Full channel or plaza for **one** cooler, including **full composer**. Successor to the old `cooler-feed` placement. |
+| `forum-view` | Titled thread list (still on the default home unless mods remove it). |
+
+Placing a `watercooler-view` on the home layout is how a club leads with chatter. The same page can still include `forum-view`. Older docs/APIs may say `cooler-feed`; treat that as `watercooler-view`.
 
 ## Permalinks
 

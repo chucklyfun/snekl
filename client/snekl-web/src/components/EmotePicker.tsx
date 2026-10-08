@@ -88,7 +88,7 @@ export function EmotePicker({
                   Add them in settings
                 </Link>
               ) : (
-                <>Forum managers add them under Settings → Emotes.</>
+                <>Nest managers add them under Settings → Emotes.</>
               )}
             </p>
           )}

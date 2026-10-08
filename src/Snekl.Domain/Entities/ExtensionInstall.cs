@@ -2,8 +2,9 @@ using Snekl.Domain.Enums;
 
 namespace Snekl.Domain.Entities;
 
-public class ExtensionInstall
+public class ExtensionInstall : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public string ClientId { get; set; } = string.Empty;
     public string AppName { get; set; } = string.Empty;

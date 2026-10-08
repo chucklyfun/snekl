@@ -1,7 +1,8 @@
 namespace Snekl.Domain.Entities;
 
-public class ForumMemberBan
+public class ForumMemberBan : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ForumId { get; set; }
     public Forum? Forum { get; set; }

@@ -42,8 +42,8 @@ export type ForumNavLayout = {
 export const FORUM_NAV_BUILTIN_PEERS = [
   { id: 'section:favorites', title: 'Favorites' },
   { id: 'section:recents', title: 'Recent visits' },
-  { id: 'section:manage', title: 'Forums you manage' },
-  { id: 'section:joined', title: "Forums you've joined" },
+  { id: 'section:manage', title: 'Nests you manage' },
+  { id: 'section:joined', title: "Nests you've joined" },
 ] as const;
 
 export const FORUM_NAV_HIDEABLE_SECTIONS = [

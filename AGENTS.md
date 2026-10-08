@@ -16,13 +16,15 @@ See [README.md](README.md) for the canonical commands. Preferred local flow:
 
 On Windows: `.\snekl dev`. Equivalent: `dotnet run --project src/Snekl.Server --no-launch-profile -- dev`.
 
-That starts Redis + PostgreSQL + MinIO + OpenSearch via `docker-compose.deps.yml`, then Auth (`:5100`), Hub (`:5200`), Content (`:5001` / `:5002`), the Vite frontend (`:5173`), and a watch build of the shared admin UI into each API’s `wwwroot/admin`.
+`./snekl all` (Windows: `.\snekl all`) is the same stack plus the sibling `snekl-extensions` and `snekl-landing` repos when they sit next to this one. Extensions: `./extensions` in that repo (commissions on `:5301`). Landing: `./landing` (the site is not started, so that command reports it and exits).
+
+That starts Redis + PostgreSQL + MinIO + OpenSearch via `docker-compose.deps.yml`, then Auth (`:5100`), Hub (`:5200`), Content (`:5001` / `:5002`), the Vite frontend (`:5173`), and a watch build of the shared operator UI into each API’s `wwwroot/server`.
 
 Operator UIs (same React stack as the member SPA, themed per host, labeled **Admin**):
 
-- Auth admin: `http://localhost:5100/admin/`
-- Hub admin: `http://localhost:5200/admin/` (federation member registry)
-- Content admin: `http://localhost:5001/admin/` (node identity, issuers, Super Users; hub invite accept)
+- Auth admin: `http://localhost:5100/server/`
+- Hub admin: `http://localhost:5200/server/` (federation member registry)
+- Content admin: `http://localhost:5001/server/` (node identity, issuers, Super Users; hub invite accept)
 
 Manual equivalent when orchestrating separately:
 
@@ -44,11 +46,12 @@ Node/npm come from nvm (`~/.nvm/versions/node/v22.22.2/bin`). That directory is 
 |------|---------|-------|
 | Frontend lint | `npm run lint` in `client/snekl-web` | oxlint; may report non-blocking warnings |
 | Frontend build | `npm run build` in `client/snekl-web` | `tsc -b && vite build` |
-| Admin UI build | `npm run build:admin` in `client/snekl-web` | copies into Auth/Hub/Content `wwwroot/admin` |
+| Admin UI build | `npm run build:admin` in `client/snekl-web` | copies into Auth/Hub/Content `wwwroot/server` |
 | Frontend unit tests | `npm test` in `client/snekl-web` | Vitest (`src/**/*.test.ts`) |
 | .NET build | `dotnet build Snekl.Modern.sln` | |
 | .NET tests | `dotnet test Snekl.Modern.sln` | xUnit; integration tests need Docker (Testcontainers Postgres) |
 | Linux deploy package | `./snekl pack` | Caddy + Auth/Hub/Content images → `artifacts/snekl-linux-deploy.tar.gz`. Host: `./up.sh` (default **2gb**, Redis on, no OpenSearch) or `./up.sh --target search` (see [deploy/README.md](deploy/README.md)) |
+| Android debug APK | `./snekl android` | Member SPA → `client/snekl-web/android/app/build/outputs/apk/debug/app-debug.apk`. Needs JDK 17+ and `ANDROID_HOME` (platform 36) |
 
 ### Gotchas
 

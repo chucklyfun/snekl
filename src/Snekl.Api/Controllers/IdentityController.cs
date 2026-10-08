@@ -38,6 +38,7 @@ public class IdentityController : ControllerBase
 
     [Authorize(Policy = SiteAdminAuthorization.SiteAdminPolicy)]
     [HttpPost("issuers")]
+    [Snekl.Api.Hosting.RequiredAuthIssuerConflict]
     public async Task<ActionResult<TrustedAuthIssuer>> RegisterIssuer(RegisterTrustedIssuerRequest request, CancellationToken ct) =>
         Ok(await _mapping.RegisterTrustedIssuerAsync(request, ct));
 }

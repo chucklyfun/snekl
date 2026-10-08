@@ -17,4 +17,7 @@ public static class RepoPaths
 
     public static string DevSessionsFile(string repoRoot) =>
         Path.Combine(repoRoot, ".snekl", "dev-sessions.json");
+
+    public static string ErrorLogFile(string repoRoot) =>
+        Path.Combine(repoRoot, ".snekl", "errors.log");
 }

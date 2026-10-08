@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using Snekl.Domain.Entities;
 using Snekl.Domain.Identity;
@@ -6,11 +7,21 @@ namespace Snekl.Infrastructure.Data;
 
 public class SneklDbContext : DbContext
 {
-    public SneklDbContext(DbContextOptions<SneklDbContext> options) : base(options) { }
+    private readonly ICurrentServer? _current;
+
+    public SneklDbContext(DbContextOptions<SneklDbContext> options, ICurrentServer? current = null) : base(options)
+    {
+        _current = current;
+    }
+
+    public bool HasServerScope => _current?.ServerId is Guid id && id != Guid.Empty;
+
+    public Guid ScopedServerId => _current?.ServerId ?? Guid.Empty;
 
     public DbSet<NodeConfig> NodeConfig => Set<NodeConfig>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Forum> Forums => Set<Forum>();
+    public DbSet<ForumRedirect> ForumRedirects => Set<ForumRedirect>();
     public DbSet<Post> Posts => Set<Post>();
     public DbSet<PostUpvote> PostUpvotes => Set<PostUpvote>();
     public DbSet<Emote> Emotes => Set<Emote>();
@@ -49,10 +60,15 @@ public class SneklDbContext : DbContext
     public DbSet<WatercoolerRole> WatercoolerRoles => Set<WatercoolerRole>();
     public DbSet<WatercoolerRoleAssignment> WatercoolerRoleAssignments => Set<WatercoolerRoleAssignment>();
     public DbSet<ForumContentBlock> ForumContentBlocks => Set<ForumContentBlock>();
+    public DbSet<ForumPage> ForumPages => Set<ForumPage>();
     public DbSet<DirectConversationRequest> DirectConversationRequests => Set<DirectConversationRequest>();
     public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
     public DbSet<DirectMessageForumPreference> DirectMessageForumPreferences => Set<DirectMessageForumPreference>();
+    public DbSet<ThreadAlertPreference> ThreadAlertPreferences => Set<ThreadAlertPreference>();
+    public DbSet<PlaceAlertPreference> PlaceAlertPreferences => Set<PlaceAlertPreference>();
+    public DbSet<ReplyAlert> ReplyAlerts => Set<ReplyAlert>();
+    public DbSet<PushDevice> PushDevices => Set<PushDevice>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -65,10 +81,10 @@ public class SneklDbContext : DbContext
         modelBuilder.Entity<User>(e =>
         {
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.Username).IsUnique();
-            e.HasIndex(x => x.Email).IsUnique();
-            e.HasIndex(x => x.Did).IsUnique();
-            e.HasIndex(x => new { x.AuthIssuerUrl, x.AuthSubjectId }).IsUnique();
+            e.HasIndex(x => new { x.ServerId, x.Username }).IsUnique();
+            e.HasIndex(x => new { x.ServerId, x.Email }).IsUnique();
+            e.HasIndex(x => new { x.ServerId, x.Did }).IsUnique();
+            e.HasIndex(x => new { x.ServerId, x.AuthIssuerUrl, x.AuthSubjectId }).IsUnique();
             e.HasOne(x => x.ActiveStatus).WithOne(x => x.User).HasForeignKey<UserStatus>(x => x.UserId);
         });
 
@@ -86,6 +102,7 @@ public class SneklDbContext : DbContext
             e.HasOne(x => x.CreatedBy).WithMany(x => x.Forums).HasForeignKey(x => x.CreatedByUserId);
             e.HasOne(x => x.Owner).WithMany().HasForeignKey(x => x.OwnerUserId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(x => x.ParentForum).WithMany(x => x.Subforums).HasForeignKey(x => x.ParentForumId);
+            e.HasIndex(x => new { x.ServerId, x.SortOrder });
             e.HasOne(x => x.AvatarMedia).WithMany().HasForeignKey(x => x.AvatarMediaAssetId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(x => x.BannerMedia).WithMany().HasForeignKey(x => x.BannerMediaAssetId).OnDelete(DeleteBehavior.SetNull);
             e.Property(x => x.ApprovalStatus).HasMaxLength(32).HasDefaultValue("approved");
@@ -140,7 +157,7 @@ public class SneklDbContext : DbContext
         modelBuilder.Entity<PeerNode>(e =>
         {
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.BaseUrl).IsUnique();
+            e.HasIndex(x => new { x.ServerId, x.BaseUrl }).IsUnique();
         });
 
         modelBuilder.Entity<CuratedList>(e =>
@@ -192,7 +209,7 @@ public class SneklDbContext : DbContext
         modelBuilder.Entity<TrustedAuthIssuer>(e =>
         {
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.IssuerUrl).IsUnique();
+            e.HasIndex(x => new { x.ServerId, x.IssuerUrl }).IsUnique();
         });
 
         modelBuilder.Entity<SiteAdmin>(e =>
@@ -440,6 +457,23 @@ public class SneklDbContext : DbContext
             e.HasOne(x => x.Watercooler).WithMany().HasForeignKey(x => x.WatercoolerId);
         });
 
+        modelBuilder.Entity<ForumPage>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ForumId, x.Slug }).IsUnique();
+            e.HasIndex(x => x.ForumId)
+                .IsUnique()
+                .HasFilter("\"IsDefault\" = true");
+            e.HasIndex(x => x.ForumId)
+                .IsUnique()
+                .HasFilter("\"IsChrome\" = true")
+                .HasDatabaseName("IX_ForumPages_ForumId_Chrome");
+            e.Property(x => x.Title).HasMaxLength(200);
+            e.Property(x => x.Slug).HasMaxLength(64);
+            e.Property(x => x.LayoutJson).HasColumnType("jsonb");
+            e.HasOne(x => x.Forum).WithMany(x => x.Pages).HasForeignKey(x => x.ForumId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<DirectConversationRequest>(e =>
         {
             e.HasKey(x => x.Id);
@@ -479,5 +513,117 @@ public class SneklDbContext : DbContext
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Forum).WithMany().HasForeignKey(x => x.ForumId).OnDelete(DeleteBehavior.Cascade);
         });
+
+        modelBuilder.Entity<ThreadAlertPreference>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.UserId, x.RootPostId }).IsUnique();
+            e.Property(x => x.Mode).HasMaxLength(16);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.RootPost).WithMany().HasForeignKey(x => x.RootPostId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PlaceAlertPreference>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Mode).HasMaxLength(16);
+            e.HasIndex(x => new { x.UserId, x.ForumId })
+                .IsUnique()
+                .HasFilter("\"ForumId\" IS NOT NULL");
+            e.HasIndex(x => new { x.UserId, x.WatercoolerId })
+                .IsUnique()
+                .HasFilter("\"WatercoolerId\" IS NOT NULL");
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Forum).WithMany().HasForeignKey(x => x.ForumId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Watercooler).WithMany().HasForeignKey(x => x.WatercoolerId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ReplyAlert>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Kind).HasMaxLength(16);
+            e.HasIndex(x => new { x.RecipientUserId, x.LatestReplyAt });
+            e.HasIndex(x => new { x.RecipientUserId, x.RootPostId })
+                .IsUnique()
+                .HasFilter("\"ReadAt\" IS NULL AND \"Kind\" = 'thread'");
+            e.HasIndex(x => new { x.RecipientUserId, x.ForumId })
+                .IsUnique()
+                .HasFilter("\"ReadAt\" IS NULL AND \"Kind\" = 'nest'");
+            e.HasIndex(x => new { x.RecipientUserId, x.WatercoolerId })
+                .IsUnique()
+                .HasFilter("\"ReadAt\" IS NULL AND \"Kind\" = 'watercooler'");
+            e.HasIndex(x => new { x.RecipientUserId, x.RootPostId })
+                .IsUnique()
+                .HasFilter("\"ReadAt\" IS NULL AND \"Kind\" = 'vote'");
+            e.HasIndex(x => new { x.RecipientUserId, x.SubjectUserId })
+                .IsUnique()
+                .HasFilter("\"ReadAt\" IS NULL AND \"Kind\" = 'follow'");
+            e.HasOne(x => x.Recipient).WithMany().HasForeignKey(x => x.RecipientUserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.RootPost).WithMany().HasForeignKey(x => x.RootPostId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Forum>().WithMany().HasForeignKey(x => x.ForumId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Watercooler>().WithMany().HasForeignKey(x => x.WatercoolerId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PushDevice>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Token).IsUnique();
+            e.Property(x => x.Platform).HasMaxLength(32);
+            e.Property(x => x.Token).HasMaxLength(4096);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ForumRedirect>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.TopSlug).HasMaxLength(128);
+            e.Property(x => x.Slug).HasMaxLength(128);
+            e.HasIndex(x => new { x.ServerId, x.TopSlug, x.Slug }).IsUnique();
+            e.HasIndex(x => x.TargetForumId);
+            e.HasOne<Forum>().WithMany().HasForeignKey(x => x.TargetForumId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        var scopedTypes = modelBuilder.Model.GetEntityTypes()
+            .Select(entityType => entityType.ClrType)
+            .Where(clrType => typeof(IServerScoped).IsAssignableFrom(clrType))
+            .ToList();
+        foreach (var clrType in scopedTypes)
+        {
+            GetType()
+                .GetMethod(nameof(ApplyServerFilter), BindingFlags.Instance | BindingFlags.NonPublic)!
+                .MakeGenericMethod(clrType)
+                .Invoke(this, [modelBuilder]);
+        }
+    }
+
+    public override int SaveChanges()
+    {
+        StampServerIds();
+        return base.SaveChanges();
+    }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        StampServerIds();
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void StampServerIds()
+    {
+        // Runs before every save, so also refuse changes that drop a server's required issuer.
+        Snekl.Infrastructure.Services.ServerTrust.GuardRequiredIssuers(ChangeTracker);
+        if (!HasServerScope)
+            return;
+        foreach (var entry in ChangeTracker.Entries<IServerScoped>())
+        {
+            if (entry.State == EntityState.Added && entry.Entity.ServerId == Guid.Empty)
+                entry.Entity.ServerId = ScopedServerId;
+        }
+    }
+
+    private void ApplyServerFilter<TEntity>(ModelBuilder modelBuilder) where TEntity : class, IServerScoped
+    {
+        modelBuilder.Entity<TEntity>().HasIndex(e => e.ServerId);
+        modelBuilder.Entity<TEntity>().HasQueryFilter(e => !HasServerScope || e.ServerId == ScopedServerId);
     }
 }

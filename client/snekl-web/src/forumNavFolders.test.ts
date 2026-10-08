@@ -40,8 +40,8 @@ function layout(partial?: Partial<ForumNavLayout>): ForumNavLayout {
   };
 }
 
-describe('forum nav folders', () => {
-  it('nests subgroups and forums in the folder tree', () => {
+describe('nest nav folders', () => {
+  it('nests subgroups and nests in the folder tree', () => {
     const tree = buildFolderTree(layout());
     expect(tree).toHaveLength(1);
     expect(tree[0].name).toBe('Art');
@@ -68,7 +68,7 @@ describe('forum nav folders', () => {
     vi.unstubAllGlobals();
   });
 
-  it('adds and removes a forum from a folder without duplicating', () => {
+  it('adds and removes a nest from a folder without duplicating', () => {
     const forum = {
       serverDid: 'did:a',
       forumId: '2',
@@ -98,7 +98,7 @@ describe('forum nav folders', () => {
     ).toEqual(['Art', 'Art / Fanart']);
   });
 
-  it('hides a forum from one section without affecting another', () => {
+  it('hides a nest from one section without affecting another', () => {
     const forum = {
       key: 'did:a:1',
       serverDid: 'did:a',

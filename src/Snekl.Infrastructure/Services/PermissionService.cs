@@ -34,11 +34,13 @@ public class PermissionService : IPermissionService
 {
     private readonly SneklDbContext _db;
     private readonly INsfwAgeCheckService? _nsfwAge;
+    private readonly ICurrentServer? _current;
 
-    public PermissionService(SneklDbContext db, INsfwAgeCheckService? nsfwAge = null)
+    public PermissionService(SneklDbContext db, INsfwAgeCheckService? nsfwAge = null, ICurrentServer? current = null)
     {
         _db = db;
         _nsfwAge = nsfwAge;
+        _current = current;
     }
 
     public async Task<bool> IsSuperUserAsync(Guid? userId, CancellationToken ct = default)
@@ -54,8 +56,14 @@ public class PermissionService : IPermissionService
         if (!userId.HasValue) return false;
         var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId.Value, ct);
         if (user is { IsBot: true }) return false;
-        return await _db.NodeConfig.AsNoTracking().AnyAsync(n => n.OwnerUserId == userId.Value, ct);
+        var nodes = _db.NodeConfig.AsNoTracking().Where(n => n.OwnerUserId == userId.Value);
+        if (_current?.ServerId is Guid serverId && serverId != Guid.Empty)
+            nodes = nodes.Where(n => n.Id == serverId);
+        return await nodes.AnyAsync(ct);
     }
+
+    private async Task<bool> IsNestOperatorAsync(Guid? userId, CancellationToken ct) =>
+        await IsSuperUserAsync(userId, ct) || await IsServerOwnerAsync(userId, ct);
 
     public async Task<bool> CanOverrideForumOwnerAsync(Guid? userId, CancellationToken ct = default)
     {
@@ -194,6 +202,9 @@ public class PermissionService : IPermissionService
         var forum = await _db.Forums.AsNoTracking().FirstOrDefaultAsync(f => f.Id == forumId, ct);
         if (forum is null) return false;
 
+        if (forum.Locked || forum.Hidden)
+            return await IsNestOperatorAsync(userId, ct);
+
         if (!await CanAccessPendingForumAsync(userId, forum, ct))
             return false;
 
@@ -211,6 +222,9 @@ public class PermissionService : IPermissionService
     {
         var forum = await _db.Forums.AsNoTracking().FirstOrDefaultAsync(f => f.Id == forumId, ct);
         if (forum is null) return false;
+
+        if (forum.Locked || forum.Hidden)
+            return await IsNestOperatorAsync(userId, ct);
 
         if (!await CanAccessPendingForumAsync(userId, forum, ct))
             return false;

@@ -106,7 +106,7 @@ public class NsfwAgeCheckService : INsfwAgeCheckService
     public async Task EnsureViewerMayEnterForumAsync(Guid? userId, Guid forumId, CancellationToken ct = default)
     {
         if (await ViewerMayEnterForumAsync(userId, forumId, ct)) return;
-        throw new InvalidOperationException("Confirm your age before entering or joining this forum.");
+        throw new InvalidOperationException("Confirm your age before entering or joining this nest.");
     }
 
     private async Task<ResolvedPolicy> ResolvePolicyAsync(Guid? forumId, CancellationToken ct)

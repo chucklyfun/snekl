@@ -11,6 +11,7 @@ if /I "%CMD%"=="help" goto :nobuild
 if /I "%CMD%"=="--help" goto :nobuild
 if /I "%CMD%"=="-h" goto :nobuild
 if /I "%CMD%"=="pack" goto :pack
+if /I "%CMD%"=="android" goto :pack
 goto :build
 
 :stop

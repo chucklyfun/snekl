@@ -52,6 +52,27 @@ public class FollowsController : ControllerBase
         }
     }
 
+    [HttpPut("alert")]
+    [Authorize]
+    public async Task<ActionResult<FollowDto>> SetAlert(SetFollowAlertRequest request, CancellationToken ct)
+    {
+        if (!User.TryGetClusterId(out var clusterId))
+            return Unauthorized(new { error = "Invalid session. Please log in again." });
+
+        try
+        {
+            return Ok(await _follows.SetAlertModeAsync(clusterId, request.Did, request.Mode, ct));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
     [HttpDelete]
     [Authorize]
     public async Task<IActionResult> Remove([FromQuery] string did, CancellationToken ct)

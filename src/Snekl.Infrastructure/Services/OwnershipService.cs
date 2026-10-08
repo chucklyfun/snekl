@@ -55,16 +55,16 @@ public class OwnershipService : IOwnershipService
         CancellationToken ct = default)
     {
         var forum = await _db.Forums.FirstOrDefaultAsync(f => f.Id == forumId, ct)
-            ?? throw new InvalidOperationException("Forum not found.");
+            ?? throw new InvalidOperationException("Nest not found.");
 
         var isOwner = forum.OwnerUserId == actorId;
         var canOverride = await _permissions.CanOverrideForumOwnerAsync(actorId, ct);
         if (!isOwner && !canOverride)
-            throw new InvalidOperationException("Only the forum owner or a server-level admin can transfer forum ownership.");
+            throw new InvalidOperationException("Only the nest owner or a server-level admin can transfer nest ownership.");
 
         var recipient = await OwnershipLookup.RequireLocalUserAsync(_db, username, ct);
         if (forum.OwnerUserId == recipient.Id)
-            throw new InvalidOperationException("That user already owns this forum.");
+            throw new InvalidOperationException("That user already owns this nest.");
 
         forum.OwnerUserId = recipient.Id;
         await _roleSeed.EnsureForumOwnerAsync(forum.Id, recipient.Id, ct);

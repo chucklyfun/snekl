@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Extensions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Snekl.DevSession;
 
@@ -36,6 +39,31 @@ public static class DevSessionExtensions
         var store = new DevSessionStore(repoRoot);
         var pid = Environment.ProcessId;
         var urls = app.Configuration["DOTNET_URLS"] ?? app.Configuration["ASPNETCORE_URLS"];
+        var errorLog = RepoPaths.ErrorLogFile(repoRoot);
+        ErrorFileLog.Note(errorLog, serviceName, pid);
+        if (app.Services.GetService<ILoggerFactory>() is LoggerFactory factory)
+            factory.AddProvider(new ErrorFileLoggerProvider(errorLog, serviceName));
+
+        app.Use(async (context, next) =>
+        {
+            try
+            {
+                await next(context);
+            }
+            catch (Exception ex) when (IsClientAbort(context, ex))
+            {
+                // The browser moved on. That is not a server failure.
+            }
+            catch (Exception ex)
+            {
+                ErrorFileLog.Write(
+                    errorLog,
+                    serviceName,
+                    $"{context.Request.Method} {context.Request.GetEncodedPathAndQuery()}",
+                    ex);
+                throw;
+            }
+        });
 
         app.Lifetime.ApplicationStarted.Register(() =>
         {
@@ -62,5 +90,19 @@ public static class DevSessionExtensions
         app.UseMiddleware<DevSessionMiddleware>(store, pid);
 
         return app;
+    }
+
+    private static bool IsClientAbort(HttpContext context, Exception exception)
+    {
+        if (!context.RequestAborted.IsCancellationRequested)
+            return false;
+
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is OperationCanceledException or TaskCanceledException)
+                return true;
+        }
+
+        return false;
     }
 }

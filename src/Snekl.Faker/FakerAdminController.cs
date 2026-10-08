@@ -47,7 +47,7 @@ public class FakerAdminController : ControllerBase
         version = "0.1.0",
         adminUrl = _options.PublicBaseUrl.TrimEnd('/') + "/",
         iframeUrl = (string?)null,
-        description = "Creates bot identities and fake forum traffic for local UI and realtime testing."
+        description = "Creates bot identities and fake nest traffic for local UI and realtime testing."
     });
 
     [HttpGet("/api/faker/status")]
@@ -257,7 +257,7 @@ public class FakerAdminController : ControllerBase
             {
                 ("Welcome to the sandbox", "This node was empty, so Faker filled it. Watch the thread for live replies."),
                 ("Realtime check", "Keep this open while keep-posting is on."),
-                ("Nested replies", "Reply depth is the point of a forum, not a flat feed.")
+                ("Nested replies", "Reply depth is the point of a nest, not a flat feed.")
             };
             for (var i = 0; i < titles.Length; i++)
             {
@@ -317,7 +317,7 @@ public class FakerAdminController : ControllerBase
                 node.ThreadIds = threadIds;
                 node.PostIds = postIds;
                 node.UpvotedKeys = upvotedKeys.Distinct(StringComparer.Ordinal).ToList();
-                node.LastAction = "Filled forums, seed threads, replies, and upvotes";
+                node.LastAction = "Filled nests, seed threads, replies, and upvotes";
                 node.LastError = null;
                 state.LastAction = $"Filled {node.ContentBaseUrl}";
                 state.LastError = null;

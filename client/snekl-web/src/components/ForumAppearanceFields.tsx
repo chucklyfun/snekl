@@ -59,8 +59,8 @@ export function ForumAppearanceFields({
     <section className="card">
       <h2 className="card-title">Appearance</h2>
       <p className="card-meta">
-        The profile image sits beside the forum name in the left list. The banner is the wide image at
-        the top of the forum page.
+        The profile image sits beside the nest name in the left list. The banner is the wide image at
+        the top of the nest page.
       </p>
       {error && <div className="error-banner">{error}</div>}
       <div className="forum-appearance-grid">

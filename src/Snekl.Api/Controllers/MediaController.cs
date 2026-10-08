@@ -40,22 +40,47 @@ public class MediaController : ControllerBase
     [HttpGet("{mediaId:guid}")]
     public async Task<IActionResult> Get(Guid mediaId, CancellationToken ct)
     {
-        var opened = await _media.OpenOriginalAsync(mediaId, this.ViewerUserId(), ct);
-        if (opened is null) return NotFound();
+        try
+        {
+            var opened = await _media.OpenOriginalAsync(mediaId, this.ViewerUserId(), ct);
+            if (opened is null) return NotFound();
 
-        Response.Headers.CacheControl = opened.Value.CachePublic
-            ? "public, max-age=3600"
-            : "private, no-store";
-        return File(opened.Value.Stream, opened.Value.ContentType);
+            Response.Headers.CacheControl = opened.Value.CachePublic
+                ? "public, max-age=3600"
+                : "private, no-store";
+            return File(opened.Value.Stream, opened.Value.ContentType);
+        }
+        catch (Exception ex) when (IsStorageUnavailable(ex))
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
     }
 
     [HttpGet("{mediaId:guid}/preview")]
     public async Task<IActionResult> Preview(Guid mediaId, CancellationToken ct)
     {
-        var opened = await _media.OpenPreviewAsync(mediaId, ct);
-        if (opened is null) return NotFound();
+        try
+        {
+            var opened = await _media.OpenPreviewAsync(mediaId, ct);
+            if (opened is null) return NotFound();
 
-        Response.Headers.CacheControl = "public, max-age=3600";
-        return File(opened.Value.Stream, opened.Value.ContentType);
+            Response.Headers.CacheControl = "public, max-age=3600";
+            return File(opened.Value.Stream, opened.Value.ContentType);
+        }
+        catch (Exception ex) when (IsStorageUnavailable(ex))
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+    }
+
+    private static bool IsStorageUnavailable(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is HttpRequestException or System.Net.Sockets.SocketException)
+                return true;
+        }
+
+        return false;
     }
 }

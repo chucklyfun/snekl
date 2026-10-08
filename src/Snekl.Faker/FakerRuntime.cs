@@ -711,7 +711,7 @@ public class FakerPostingHostedService : BackgroundService
                 await _store.UpdateAsync(s =>
                 {
                     if (s.Posting && !s.Nodes.Any(n => n.ReadyToPost))
-                        s.LastError = "Fill a connected node first so bots have forums to post in.";
+                        s.LastError = "Fill a connected node first so bots have nests to post in.";
                 }, stoppingToken);
                 continue;
             }

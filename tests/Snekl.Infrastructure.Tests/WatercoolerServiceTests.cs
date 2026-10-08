@@ -183,7 +183,7 @@ public class WatercoolerServiceTests
         var permissions = new PermissionService(db);
         var seed = new RoleSeedService(db);
         var presentation = new StubPresentation();
-        return new WatercoolerService(db, permissions, seed, presentation);
+        return new WatercoolerService(db, permissions, seed, presentation, new ForumPageService(db, permissions));
     }
 
     private static User AddUser(SneklDbContext db, string name)

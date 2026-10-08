@@ -15,8 +15,8 @@ public interface IAccountAuthService
 {
     Task<RingSessionDto> RegisterAsync(RegisterRequest request, string deviceKeyThumbprint, CancellationToken ct = default);
     Task<RingSessionDto> ImportAsync(ImportIdentityRequest request, string deviceKeyThumbprint, CancellationToken ct = default);
-    Task<RingSessionDto?> LoginAsync(LoginRequest request, string deviceKeyThumbprint, CancellationToken ct = default);
-    Task<RingSessionDto?> ReauthenticateAsync(Guid identityId, string password, string? deviceKeyThumbprint, CancellationToken ct = default);
+    Task<AccountLoginResult?> LoginAsync(LoginRequest request, string deviceKeyThumbprint, CancellationToken ct = default);
+    Task<AccountReauthResult> ReauthenticateAsync(Guid identityId, string password, string? twoFactorCode, string? deviceKeyThumbprint, CancellationToken ct = default);
     Task<bool> EmailExistsAsync(string email, CancellationToken ct = default);
     Task DevResetPasswordAsync(DevResetPasswordRequest request, CancellationToken ct = default);
     Task<AuthIdentity?> GetIdentityAsync(Guid identityId, CancellationToken ct = default);
@@ -30,6 +30,7 @@ public class AccountAuthService : IAccountAuthService
     private readonly IRingLoginService _ring;
     private readonly IIdentityCredentialService _credentials;
     private readonly IEmailVerificationService _verification;
+    private readonly ITwoFactorService _twoFactor;
 
     public AccountAuthService(
         AccountDbContext db,
@@ -37,7 +38,8 @@ public class AccountAuthService : IAccountAuthService
         ITokenService tokens,
         IRingLoginService ring,
         IIdentityCredentialService credentials,
-        IEmailVerificationService verification)
+        IEmailVerificationService verification,
+        ITwoFactorService twoFactor)
     {
         _db = db;
         _server = server;
@@ -45,6 +47,7 @@ public class AccountAuthService : IAccountAuthService
         _ring = ring;
         _credentials = credentials;
         _verification = verification;
+        _twoFactor = twoFactor;
     }
 
     public async Task<RingSessionDto> RegisterAsync(RegisterRequest request, string deviceKeyThumbprint, CancellationToken ct = default)
@@ -162,7 +165,7 @@ public class AccountAuthService : IAccountAuthService
         return await _ring.CreateRingSessionAsync(identity, cluster, config, ct, DateTimeOffset.UtcNow, deviceKeyThumbprint);
     }
 
-    public async Task<RingSessionDto?> LoginAsync(LoginRequest request, string deviceKeyThumbprint, CancellationToken ct = default)
+    public async Task<AccountLoginResult?> LoginAsync(LoginRequest request, string deviceKeyThumbprint, CancellationToken ct = default)
     {
         var config = await _server.GetOrCreateAsync(ct);
         var email = request.Email.Trim().ToLowerInvariant();
@@ -190,23 +193,53 @@ public class AccountAuthService : IAccountAuthService
             await _db.SaveChangesAsync(ct);
         }
 
-        return await _ring.CreateRingSessionAsync(identity, identity.PersonCluster!, config, ct, DateTimeOffset.UtcNow, deviceKeyThumbprint);
+        if (identity.TotpEnabledAt is not null)
+        {
+            if (string.IsNullOrEmpty(identity.TotpSecretProtected))
+                throw new InvalidOperationException("Two-factor authentication is misconfigured for this account.");
+            return await _twoFactor.BeginLoginChallengeAsync(identity, deviceKeyThumbprint, ct);
+        }
+
+        var session = await _ring.CreateRingSessionAsync(identity, identity.PersonCluster!, config, ct, DateTimeOffset.UtcNow, deviceKeyThumbprint);
+        return AccountLoginResult.SignedIn(session);
     }
 
-    public async Task<RingSessionDto?> ReauthenticateAsync(Guid identityId, string password, string? deviceKeyThumbprint, CancellationToken ct = default)
+    public async Task<AccountReauthResult> ReauthenticateAsync(
+        Guid identityId,
+        string password,
+        string? twoFactorCode,
+        string? deviceKeyThumbprint,
+        CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(password))
-            return null;
+            return AccountReauthResult.Failed(AccountReauthStatus.InvalidPassword);
 
         var identity = await GetIdentityAsync(identityId, ct);
         if (identity?.PasswordHash is null || identity.PersonCluster is null)
-            return null;
+            return AccountReauthResult.Failed(AccountReauthStatus.InvalidPassword);
 
         if (!BCrypt.Net.BCrypt.Verify(password, identity.PasswordHash))
-            return null;
+            return AccountReauthResult.Failed(AccountReauthStatus.InvalidPassword);
+
+        if (identity.TotpEnabledAt is not null)
+        {
+            var proof = await _twoFactor.CheckCodeAsync(identity, twoFactorCode, allowRecovery: true, ct);
+            switch (proof)
+            {
+                case TwoFactorProof.Missing:
+                    return AccountReauthResult.Failed(AccountReauthStatus.TwoFactorRequired);
+                case TwoFactorProof.Invalid:
+                    return AccountReauthResult.Failed(AccountReauthStatus.TwoFactorInvalid);
+                case TwoFactorProof.Accepted:
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unexpected two-factor result {proof}.");
+            }
+        }
 
         var config = await _server.GetOrCreateAsync(ct);
-        return await _ring.CreateRingSessionAsync(identity, identity.PersonCluster, config, ct, DateTimeOffset.UtcNow, deviceKeyThumbprint);
+        var session = await _ring.CreateRingSessionAsync(identity, identity.PersonCluster, config, ct, DateTimeOffset.UtcNow, deviceKeyThumbprint);
+        return AccountReauthResult.Succeeded(session);
     }
 
     public Task<bool> EmailExistsAsync(string email, CancellationToken ct = default)
@@ -239,6 +272,7 @@ public class AccountAuthService : IAccountAuthService
                 "No account with that email. In dev the auth database is wiped when the auth server restarts — create a new account at /register, or use the exact email from signup.");
 
         identity.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        await _twoFactor.InvalidateLoginChallengesAsync(identity.Id, ct);
         await _db.SaveChangesAsync(ct);
     }
 

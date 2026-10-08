@@ -10,6 +10,8 @@ public class AuthServerConfig
     public string VerificationKeyMultibase { get; set; } = string.Empty;
     public string VerificationPrivateKeyPkcs8 { get; set; } = string.Empty;
     public string SigningKey { get; set; } = string.Empty;
+    /// <summary>Base64 32-byte key used only to encrypt TOTP secrets and hash recovery codes.</summary>
+    public string TotpProtectionKey { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -45,6 +47,13 @@ public class AuthIdentity
     public string AuthServerUrl { get; set; } = string.Empty;
     public string? PasswordHash { get; set; }
     public bool IsPrimary { get; set; }
+    /// <summary>AES-GCM payload of the active TOTP secret. Null until setup is confirmed.</summary>
+    public string? TotpSecretProtected { get; set; }
+    /// <summary>AES-GCM payload of a secret that is not active until the user confirms a code.</summary>
+    public string? TotpPendingSecretProtected { get; set; }
+    public DateTime? TotpEnabledAt { get; set; }
+    /// <summary>Last accepted 30-second TOTP step, so a code cannot be reused.</summary>
+    public long? TotpLastAcceptedStep { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -160,5 +169,28 @@ public class OAuthRefreshToken
     public Guid InstallId { get; set; }
     public DateTime ExpiresAt { get; set; }
     public DateTime? RevokedAt { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class TwoFactorRecoveryCode
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid AuthIdentityId { get; set; }
+    public AuthIdentity? AuthIdentity { get; set; }
+    public string CodeHash { get; set; } = string.Empty;
+    public DateTime? UsedAt { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class TwoFactorChallenge
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid AuthIdentityId { get; set; }
+    public AuthIdentity? AuthIdentity { get; set; }
+    public string TokenHash { get; set; } = string.Empty;
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? UsedAt { get; set; }
+    public int FailedAttempts { get; set; }
+    public string? DeviceKeyThumbprint { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

@@ -1,10 +1,10 @@
-# Snekl — Federated Forum Social Network
+# Snekl — Federated Nest Social Network
 
-Snekl is an open-source, forum-style social network built as a **network of independent nodes**. Each node runs its own C# web service and PostgreSQL database. Nodes connect to each other through a lightweight HTTP federation protocol to share forums and threaded discussions.
+Snekl is an open-source, nest-style social network built as a **network of independent nodes**. Each node runs its own C# web service and PostgreSQL database. Nodes connect to each other through a lightweight HTTP federation protocol to share nests and threaded discussions.
 
 ## Architecture
 
-Snekl separates **auth servers** (identity ring) from **content servers** (forums and posts). See [docs/architecture-auth-ring.md](docs/architecture-auth-ring.md) for the full auth ring design.
+Snekl separates **auth servers** (identity ring) from **content servers** (nests and posts). See [docs/architecture-auth-ring.md](docs/architecture-auth-ring.md) for the full auth ring design.
 
 ```
 ┌─────────────────┐         HTTP federation          ┌─────────────────┐
@@ -37,7 +37,8 @@ Snekl separates **auth servers** (identity ring) from **content servers** (forum
 | **Hub** | ASP.NET Core 8 | Federation registry, feed index API, optional SPA host (`:5200` local) |
 | **Account API** | ASP.NET Core 8 | Auth webservice: login, PersonCluster, partner trust (`:5100`) |
 | **API** | ASP.NET Core 8, EF Core | Content origins: REST, JWT auth, federation inbox |
-| **Domain** | C# class library | Users, forums, threaded posts, peer nodes |
+| **Domain** | C# class library | Users, nests, threaded posts, peer nodes |
+| **Billing** | C# class library | Stripe subscriptions and commission escrow ledger (`Snekl.Billing`). Not called by Auth or commissions yet |
 | **Database** | PostgreSQL | Independent per-node / hub / auth storage |
 | **Frontend** | React 19, TypeScript, Vite | Member SPA (login UI calls auth; feed will use hub) |
 
@@ -50,9 +51,9 @@ Each node exposes:
 - `POST /api/federation/inbox` — receive federated content
 - `DELETE /api/federation/peers/{id}` — unsubscribe
 
-**Today:** when a user creates a forum or post locally, the node broadcasts an envelope to subscribed peers. Federated content is stored locally with origin metadata and shown alongside local content.
+**Today:** when a user creates a nest or post locally, the node broadcasts an envelope to subscribed peers. Federated content is stored locally with origin metadata and shown alongside local content.
 
-**Planned:** named federations use official hubs that host the member SPA and hub APIs, own the federation registry, and index feed cards. **Auth stays a separate webservice** (login UI in the Hub SPA calls it over HTTP). Origins stay API-canonical for threads. The SPA may merge feeds across federations without leaking that data between hubs. See [hub feed architecture](docs/architecture-hub-feed.md).
+**Planned:** named federations use official hubs that host the member SPA and hub APIs, own the federation registry, and index feed cards. **Auth stays a separate webservice** (login UI in the Hub SPA calls it over HTTP). Origins stay API-canonical for threads. The SPA may merge feeds across federations without leaking that data between hubs. See [hub feed architecture](docs/architecture-hub-feed.md). Many customer content servers can share one content database and process pool; see [virtual content servers](docs/architecture-virtual-servers.md).
 
 ## Quick start (local development)
 
@@ -87,8 +88,23 @@ Other commands:
 ./snekl status        # running APIs and recent request activity
 ./snekl stop          # stop local APIs (skips rebuild if snekl.exe is locked)
 ./snekl pack          # Linux host tarball (Caddy + Auth/Hub/Content images)
+./snekl android       # member SPA debug APK
+./snekl all           # dev stack plus sibling extensions and landing repos
+./snekl dev --errors-only   # same stack; servers log errors only, so the port list stays on screen
 ./snekl dev --no-frontend
 ```
+
+### Android app
+
+The member SPA also ships as an Android app (`dev.snekl.app`) under `client/snekl-web/android`. It is the same client: sign in with an Auth server URL, then federations and content origins load from that account. Requires a JDK 17+ and the Android SDK (`ANDROID_HOME`, platform 36).
+
+```bash
+./snekl android
+```
+
+On Windows: `.\snekl android`. The debug APK is written to `client/snekl-web/android/app/build/outputs/apk/debug/app-debug.apk`. `npm run android` in `client/snekl-web` still opens Android Studio when that IDE is installed.
+
+On a phone or emulator, `localhost` is the device. At login, set Auth server URL to the computer running Auth (emulator: `http://10.0.2.2:5100`). The shell allows HTTP so a local stack works, and it does not auto-attach loopback content/hub ports.
 
 ### Deploy to a Linux host
 
@@ -169,11 +185,11 @@ VITE_ALLOW_DEV_PASSWORD_RESET=true
 
 Register and log in through the auth server; the React client generates a `did:key` in the browser and sends an ownership proof on signup. Federations and content origins are URLs on your account (paste them on **Servers**).
 
-Operator UIs use the same React visuals as the member app, labeled **Admin**, at `{host}/admin/`:
+Operator UIs use the same React visuals as the member app, labeled **Admin**, at `{host}/server/`:
 
-- **Auth admin:** `http://localhost:5100/admin/`
-- **Hub admin:** `http://localhost:5200/admin/`
-- **Content admin:** `http://localhost:5001/admin/`
+- **Auth admin:** `http://localhost:5100/server/`
+- **Hub admin:** `http://localhost:5200/server/`
+- **Content admin:** `http://localhost:5001/server/`
 
 Sign in with a regular Account, then an admin password that lives **only on that host**. The first Account user to open admin claims the server and chooses that password; later operators are invited and set their own password on first login. Hub operators send federation invites; the origin’s site admin accepts them under **Incoming hub requests**. The requester’s member JWT is checked on the content node for `RequestFederation`.
 
@@ -201,9 +217,9 @@ Auth API listens on `http://localhost:5100`.
 | POST | `/api/lists` | Create a curated list |
 | POST | `/api/lists/{id}/entries` | Add user to list with label + description |
 | POST | `/api/lists/{id}/subscribe` | Subscribe to a list |
-| GET | `/api/forums` | List forums |
-| POST | `/api/forums` | Create forum (auth required) |
-| GET | `/api/forums/{slug}` | Forum details |
+| GET | `/api/forums` | List nests |
+| POST | `/api/forums` | Create nest (auth required) |
+| GET | `/api/forums/{slug}` | Nest details |
 | GET | `/api/posts/forum/{forumId}` | List threads |
 | GET | `/api/posts/{postId}` | Thread with replies |
 | POST | `/api/posts` | Create post/reply (auth required) |
@@ -249,7 +265,7 @@ src/
   Snekl.Account.Domain/  # Auth ring entities and DTOs
   Snekl.Account.Infrastructure/
   Snekl.Account.Api/     # Auth ring REST API
-  Snekl.Faker/           # Dev extension: bot personas + fake forum traffic
+  Snekl.Faker/           # Dev extension: bot personas + fake nest traffic
 docs/
   architecture-auth-ring.md
 client/
@@ -294,7 +310,7 @@ Local Redis: `docker run -d -p 6379:6379 redis:7-alpine`
 
 - [x] Soft delete + edit history
 - [x] Signed federation envelopes (node key pairs)
-- [x] Moderation tools per forum
+- [x] Moderation tools per nest
 - [x] Upvotes + hot/new ranking
 - [x] Multi-server subscribe (auth) + client-aggregated home feed
 - [x] Real-time updates via SignalR
@@ -306,7 +322,7 @@ Local Redis: `docker run -d -p 6379:6379 redis:7-alpine`
 
 ### Next
 
-- Host **admin** (`:5100/admin/`, `:5200/admin/`, `:5001/admin/`) — Account identity plus a per-host operator password (first user claims the server)
+- Host **admin** (`:5100/server/`, `:5200/server/`, `:5001/server/`) — Account identity plus a per-host operator password (first user claims the server)
 - Richer extension placements (beyond the Extensions menu)
 
 ### Later / deferred

@@ -2,8 +2,9 @@ using Snekl.Domain.Enums;
 
 namespace Snekl.Domain.Entities;
 
-public class Forum : ExternalEntity
+public class Forum : ExternalEntity, IServerScoped
 {
+    public Guid ServerId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
@@ -15,6 +16,13 @@ public class Forum : ExternalEntity
     public User? Owner { get; set; }
     public Guid? ParentForumId { get; set; }
     public Forum? ParentForum { get; set; }
+    public int SortOrder { get; set; }
+
+    /// <summary>Prepared nest. Visible only to server super users and the server owner until unlocked.</summary>
+    public bool Locked { get; set; }
+
+    /// <summary>Preliminary delete. Hidden from members until restored or purged.</summary>
+    public bool Hidden { get; set; }
     public bool AllowAliases { get; set; } = true;
     public string ApprovalStatus { get; set; } = ForumApprovalStatuses.Approved;
     public bool NsfwAgeCheckRequired { get; set; }
@@ -31,4 +39,5 @@ public class Forum : ExternalEntity
     public ICollection<ForumFlairTemplate> FlairTemplates { get; set; } = new List<ForumFlairTemplate>();
     public ICollection<Watercooler> Watercoolers { get; set; } = new List<Watercooler>();
     public ICollection<ForumContentBlock> ContentBlocks { get; set; } = new List<ForumContentBlock>();
+    public ICollection<ForumPage> Pages { get; set; } = new List<ForumPage>();
 }

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Snekl.Account.Domain.Entities;
@@ -28,23 +29,40 @@ public class AuthServerService : IAuthServerService
     public async Task<AuthServerConfig> GetOrCreateAsync(CancellationToken ct = default)
     {
         var config = await _db.AuthServerConfig.FirstOrDefaultAsync(ct);
-        if (config is not null) return config;
-
-        var baseUrl = (_config["Auth:BaseUrl"] ?? "http://localhost:5100").TrimEnd('/');
-        var verificationKeys = DidKey.Generate();
-
-        config = new AuthServerConfig
+        var created = false;
+        if (config is null)
         {
-            Name = _config["Auth:Name"] ?? "Snekl Auth",
-            BaseUrl = baseUrl,
-            Did = DidWeb.FromBaseUrl(baseUrl),
-            VerificationDid = verificationKeys.Did,
-            VerificationKeyMultibase = DidKey.PublicKeyMultibase(verificationKeys.Did),
-            VerificationPrivateKeyPkcs8 = Convert.ToBase64String(verificationKeys.PrivateKey),
-            SigningKey = SigningKey
-        };
-        _db.AuthServerConfig.Add(config);
-        await _db.SaveChangesAsync(ct);
+            var baseUrl = (_config["Auth:BaseUrl"] ?? "http://localhost:5100").TrimEnd('/');
+            var verificationKeys = DidKey.Generate();
+
+            config = new AuthServerConfig
+            {
+                Name = _config["Auth:Name"] ?? "Snekl Auth",
+                BaseUrl = baseUrl,
+                Did = DidWeb.FromBaseUrl(baseUrl),
+                VerificationDid = verificationKeys.Did,
+                VerificationKeyMultibase = DidKey.PublicKeyMultibase(verificationKeys.Did),
+                VerificationPrivateKeyPkcs8 = Convert.ToBase64String(verificationKeys.PrivateKey),
+                SigningKey = SigningKey,
+                TotpProtectionKey = NewTotpProtectionKey()
+            };
+            _db.AuthServerConfig.Add(config);
+            created = true;
+        }
+
+        var keyAdded = false;
+        if (string.IsNullOrWhiteSpace(config.TotpProtectionKey))
+        {
+            config.TotpProtectionKey = NewTotpProtectionKey();
+            keyAdded = true;
+        }
+
+        if (created || keyAdded)
+            await _db.SaveChangesAsync(ct);
+
         return config;
     }
+
+    private static string NewTotpProtectionKey() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 }

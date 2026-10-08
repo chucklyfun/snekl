@@ -13,10 +13,11 @@ import { UserByline } from '../components/UserPresentation';
 import { useAuth } from '../AuthContext';
 import { insertEmoteToken, catalogEmoteShortcode, type CatalogEmote, type EmoteHome } from '../emotes';
 import { useForumNav } from '../ForumNavContext';
+import { parseReplyAlertMode } from '../replyAlerts';
 import { useServerRegistry } from '../ServerRegistryContext';
 import { postOwnerBaseUrl } from '../postOwner';
 import { decodeServerDid, forumSettingsPath, resolveServerBaseUrl, serverSettingsPath } from '../serverDid';
-import type { NsfwAgeCheckStatus, Post, PostRevision } from '../types';
+import type { NsfwAgeCheckStatus, Post, PostRevision, ReplyAlertMode } from '../types';
 import { usePostRealtime } from '../usePostRealtime';
 
 const isDev = import.meta.env.DEV;
@@ -50,6 +51,8 @@ function PostNode({
   setThreadLocked,
   setThreadPinned,
   setReplyPolicy,
+  replyAlertMode,
+  onReplyAlertMode,
   reportPost,
   emotes,
   home,
@@ -74,6 +77,8 @@ function PostNode({
   setThreadLocked: (postId: string, locked: boolean) => Promise<void>;
   setThreadPinned: (postId: string, pinned: boolean) => Promise<void>;
   setReplyPolicy: (postId: string, replyPolicy: string) => Promise<void>;
+  replyAlertMode?: ReplyAlertMode;
+  onReplyAlertMode?: (mode: ReplyAlertMode) => Promise<void>;
   reportPost: (postId: string, reason: string) => Promise<void>;
   emotes: CatalogEmote[];
   home?: EmoteHome;
@@ -411,6 +416,35 @@ function PostNode({
                 Limit replies to following
               </button>
             )}
+            {isRoot && user && onReplyAlertMode && (
+              <label className="thread-alert-setting">
+                Reply alerts
+                <select
+                  aria-label="Reply alerts"
+                  value={replyAlertMode ?? 'replies'}
+                  disabled={busy}
+                  onChange={(event) => {
+                    const mode = parseReplyAlertMode(event.target.value);
+                    if (!mode) return;
+                    void (async () => {
+                      setBusy(true);
+                      setError('');
+                      try {
+                        await onReplyAlertMode(mode);
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Could not save reply alerts');
+                      } finally {
+                        setBusy(false);
+                      }
+                    })();
+                  }}
+                >
+                  <option value="replies">Replies</option>
+                  <option value="all">All activity</option>
+                  <option value="off">Off</option>
+                </select>
+              </label>
+            )}
             {actions?.canReport && (
               <button type="button" className="btn-ghost" onClick={() => setShowReport(!showReport)} disabled={busy}>
                 Report
@@ -541,6 +575,7 @@ export function ThreadPage() {
   const [error, setError] = useState('');
   const [removed, setRemoved] = useState(false);
   const [ageStatus, setAgeStatus] = useState<NsfwAgeCheckStatus | null>(null);
+  const [alertMode, setAlertMode] = useState<ReplyAlertMode>('replies');
 
   const serverDid = encodedDid ? decodeServerDid(encodedDid) : '';
   const baseUrl = resolveServerBaseUrl(serverDid, resolveBaseUrl);
@@ -568,6 +603,20 @@ export function ThreadPage() {
   };
 
   useEffect(load, [postId, client]);
+
+  useEffect(() => {
+    if (!client || !user || !thread) return;
+    let cancelled = false;
+    client
+      .getReplyAlertPreference(thread.id)
+      .then((preference) => {
+        if (!cancelled) setAlertMode(preference.mode);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [client, user, thread?.id]);
 
   useEffect(() => {
     if (!client || !thread) return;
@@ -641,7 +690,7 @@ export function ThreadPage() {
     return (
       <div>
         <Link to="/" style={{ color: 'var(--muted)' }}>
-          ← Back to forums
+          ← Back to nests
         </Link>
         <p className="card-meta">This post was permanently removed.</p>
       </div>
@@ -652,7 +701,7 @@ export function ThreadPage() {
   return (
     <div className="thread-page">
       <Link to="/" className="thread-back">
-        ← Back to forums
+        ← Back to nests
       </Link>
       {error && <div className="error-banner">{error}</div>}
       {client && (ageStatus || (error && error.includes('Confirm your age'))) && (
@@ -708,6 +757,11 @@ export function ThreadPage() {
           }}
           setReplyPolicy={async (id, policy) => {
             await client.setReplyPolicy(id, policy);
+          }}
+          replyAlertMode={alertMode}
+          onReplyAlertMode={async (mode) => {
+            const saved = await client.setReplyAlertPreference(thread.id, mode);
+            setAlertMode(saved.mode);
           }}
           reportPost={async (id, reason) => {
             await client.reportPost(id, reason);

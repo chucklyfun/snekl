@@ -17,7 +17,7 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
 });
 
-describe('forum nav collapse', () => {
+describe('nest nav collapse', () => {
   const did = 'did:key:zTest';
 
   beforeEach(() => memory.clear());

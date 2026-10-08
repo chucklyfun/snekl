@@ -266,6 +266,8 @@ public class EmoteServiceTests
             Task.FromResult(new NodeInfoDto(Guid.Empty, "did:web:test", "Test Node", "http://test", "", DateTime.UtcNow));
         public Task<NodeConfig> UpdateAsync(string name, string baseUrl, string description, CancellationToken ct = default) =>
             throw new NotImplementedException();
+        public Task<int> GetVoteAlertBaseAsync(CancellationToken ct = default) => Task.FromResult(10);
+        public Task<int> SetVoteAlertBaseAsync(int value, CancellationToken ct = default) => Task.FromResult(value);
         public byte[] GetSigningPrivateKey(NodeConfig node) => throw new NotImplementedException();
         public string GetVerificationMethodId(NodeConfig node) => throw new NotImplementedException();
     }

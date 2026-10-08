@@ -1,0 +1,11 @@
+{
+  "Snekl.Account.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.Account.Api",
+  "Snekl.Account.Domain, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.Account.Domain",
+  "Snekl.Account.Infrastructure, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.Account.Infrastructure",
+  "Snekl.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.Api",
+  "Snekl.DevSession, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.DevSession",
+  "Snekl.Domain, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.Domain",
+  "Snekl.Infrastructure, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.Infrastructure",
+  "Snekl.Redis, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\src\\Snekl.Redis",
+  "Snekl.Tests.Shared, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "D:\\Source\\Snekl\\tests\\Snekl.Tests.Shared"
+}

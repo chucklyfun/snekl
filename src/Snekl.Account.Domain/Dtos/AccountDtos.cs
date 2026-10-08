@@ -21,7 +21,58 @@ public record ImportIdentityRequest(
 
 public record LoginRequest(string Email, string Password, DevicePublicJwk? DeviceKey = null);
 
-public record ReauthenticateRequest(string Password, DevicePublicJwk? DeviceKey = null);
+public record ReauthenticateRequest(string Password, string? TwoFactorCode = null, DevicePublicJwk? DeviceKey = null);
+
+public record CompleteTwoFactorLoginRequest(string ChallengeToken, string Code);
+
+public static class TwoFactorErrorCodes
+{
+    public const string Required = "two_factor_required";
+    public const string Invalid = "two_factor_invalid";
+    public const string Expired = "two_factor_expired";
+}
+
+public record TwoFactorChallengeDto(string Error, string Code, string ChallengeToken, DateTime ExpiresAt);
+
+public record TwoFactorStatusDto(bool Enabled, int RecoveryCodesRemaining);
+
+public record TwoFactorSetupDto(string Secret, string OtpAuthUri);
+
+public record TwoFactorCodeRequest(string Code);
+
+public record TwoFactorPasswordCodeRequest(string Password, string Code);
+
+public record TwoFactorRecoveryCodesDto(IReadOnlyList<string> RecoveryCodes);
+
+public sealed record AccountLoginResult
+{
+    public RingSessionDto? Session { get; init; }
+    public string? ChallengeToken { get; init; }
+    public DateTime? ChallengeExpiresAt { get; init; }
+    public bool RequiresTwoFactor => ChallengeToken is not null;
+
+    public static AccountLoginResult SignedIn(RingSessionDto session) => new() { Session = session };
+
+    public static AccountLoginResult NeedsTwoFactor(string challengeToken, DateTime expiresAt) =>
+        new() { ChallengeToken = challengeToken, ChallengeExpiresAt = expiresAt };
+}
+
+public enum AccountReauthStatus
+{
+    Success,
+    InvalidPassword,
+    TwoFactorRequired,
+    TwoFactorInvalid
+}
+
+public sealed record AccountReauthResult(AccountReauthStatus Status, RingSessionDto? Session)
+{
+    public static AccountReauthResult Succeeded(RingSessionDto session) =>
+        new(AccountReauthStatus.Success, session);
+
+    public static AccountReauthResult Failed(AccountReauthStatus status) =>
+        new(status, null);
+}
 
 public record ForgotPasswordRequest(string Email);
 
@@ -160,12 +211,17 @@ public record FollowDto(
     string Did,
     string? DisplayName,
     string? Username,
-    DateTime AddedAt);
+    DateTime AddedAt,
+    string AlertMode = "off");
 
 public record UpsertFollowRequest(
     string Did,
     string? DisplayName = null,
     string? Username = null);
+
+public record SetFollowAlertRequest(string Did, string Mode);
+
+public record FollowWatcherDto(string FollowerDid, string AlertMode);
 
 public record FollowContainsDto(bool Follows);
 

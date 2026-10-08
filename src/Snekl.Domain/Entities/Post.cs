@@ -2,8 +2,9 @@ using Snekl.Domain.Enums;
 
 namespace Snekl.Domain.Entities;
 
-public class Post : ExternalEntity
+public class Post : ExternalEntity, IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid? ForumId { get; set; }
     public Forum? Forum { get; set; }
     public Guid? WatercoolerId { get; set; }

@@ -8,7 +8,9 @@ import type {
   FederationConfig,
   FederationMembership,
   Follow,
+  FollowAlertMode,
   Forum,
+  NestMapNode,
   ForumBan,
   ForumFavorite,
   ForumFlairTemplate,
@@ -35,6 +37,11 @@ import type {
   PostReaction,
   PostReport,
   RecentThread,
+  PlaceAlertMode,
+  PlaceAlertPreference,
+  ReplyAlert,
+  ReplyAlertMode,
+  ReplyAlertPreference,
   RingSession,
   SearchHit,
   ServerMember,
@@ -46,7 +53,7 @@ import type {
 } from './types';
 import { type PostSort } from './ranking';
 import { applyMemberProof, getDevicePublicJwk, readBoundToken } from './deviceKey';
-import { getAuthBaseUrl, normalizeBaseUrl, rewriteLoopbackForPage, rewriteLoopbackUrlFields } from './hosts';
+import { defaultContentFallback, getAuthBaseUrl, normalizeBaseUrl, rewriteLoopbackForPage, rewriteLoopbackUrlFields } from './hosts';
 import type { ForumNavLayout } from './forumNavFolders';
 
 function recentThreadsPath(sort: PostSort, page: number, pageSize: number, servers?: string[]): string {
@@ -63,6 +70,19 @@ function recentThreadsPath(sort: PostSort, page: number, pageSize: number, serve
 
 export function authBase(): string {
   return getAuthBaseUrl();
+}
+
+export type TrustedAuthIssuer = {
+  name: string;
+  issuerUrl: string;
+  jwksUrl: string;
+};
+
+/** Auth servers the configured content host trusts. Used to populate login. */
+export function fetchTrustedAuthIssuers(): Promise<TrustedAuthIssuer[]> {
+  return request<{ issuers: TrustedAuthIssuer[] }>(defaultContentFallback(), '/api/node/auth').then(
+    (data) => data.issuers ?? [],
+  );
 }
 
 export type HubInfo = {
@@ -188,6 +208,63 @@ function getToken(): string | null {
   return readBoundToken('snekl_token');
 }
 
+export type ApiErrorBody = {
+  error?: string;
+  code?: string;
+  challengeToken?: string;
+  expiresAt?: string;
+};
+
+export class ApiRequestError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly body: ApiErrorBody;
+
+  constructor(status: number, body: ApiErrorBody, url: string) {
+    super(body.error ?? `Request failed (${status}) at ${url}`);
+    this.name = 'ApiRequestError';
+    this.status = status;
+    this.code = body.code;
+    this.body = body;
+  }
+}
+
+export class TwoFactorRequiredError extends Error {
+  readonly challengeToken: string;
+
+  constructor(challengeToken: string) {
+    super('Two-factor authentication required.');
+    this.name = 'TwoFactorRequiredError';
+    this.challengeToken = challengeToken;
+  }
+}
+
+export class NestRedirectError extends Error {
+  readonly redirect: NestRedirect;
+
+  constructor(redirect: NestRedirect) {
+    super('This nest has moved.');
+    this.name = 'NestRedirectError';
+    this.redirect = redirect;
+  }
+}
+
+export type NestRedirect = {
+  serverId: string;
+  serverDid: string;
+  slug: string;
+  parentSlug?: string | null;
+};
+
+export function rememberContentServer(baseUrl: string, serverId: string) {
+  try {
+    const root = rewriteLoopbackForPage(baseUrl);
+    sessionStorage.setItem(`snekl-server:${root}`, serverId);
+  } catch {
+    // Session storage can be unavailable in private embeddings.
+  }
+}
+
 async function request<T>(baseUrl: string, path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string> | undefined),
@@ -200,6 +277,14 @@ async function request<T>(baseUrl: string, path: string, options: RequestInit = 
 
   const root = rewriteLoopbackForPage(baseUrl);
   const url = `${root}${path}`;
+  if (!headers['X-Snekl-Server']) {
+    try {
+      const serverId = sessionStorage.getItem(`snekl-server:${root}`);
+      if (serverId) headers['X-Snekl-Server'] = serverId;
+    } catch {
+      // Session storage can be unavailable in private embeddings.
+    }
+  }
   const anonymousAuth = path.startsWith('/api/auth/') && !path.startsWith('/api/auth/reauthenticate');
   const token = anonymousAuth ? null : getToken();
   if (token) await applyMemberProof(headers, options.method ?? 'GET', url, token);
@@ -213,12 +298,20 @@ async function request<T>(baseUrl: string, path: string, options: RequestInit = 
   }
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error ?? `Request failed (${response.status}) at ${url}`);
+    const body = (await response.json().catch(() => ({}))) as ApiErrorBody;
+    throw new ApiRequestError(response.status, body, url);
   }
 
   if (response.status === 204) return undefined as T;
-  return rewriteLoopbackUrlFields(await response.json());
+  const payload = await response.json();
+  if (path === '/api/node' && payload && typeof payload.id === 'string') {
+    try {
+      sessionStorage.setItem(`snekl-server:${root}`, payload.id);
+    } catch {
+      // Session storage can be unavailable in private embeddings.
+    }
+  }
+  return rewriteLoopbackUrlFields(payload);
 }
 
 export function hasPermission(permissions: string[] | undefined, name: string): boolean {
@@ -239,16 +332,57 @@ export const authApi = {
       body: JSON.stringify({ ...payload, deviceKey: await getDevicePublicJwk() }),
     }),
 
-  login: async (email: string, password: string) =>
-    request<RingSession>(getAuthBaseUrl(), '/api/auth/login', {
+  login: async (email: string, password: string) => {
+    try {
+      return await request<RingSession>(getAuthBaseUrl(), '/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password, deviceKey: await getDevicePublicJwk() }),
+      });
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.code === 'two_factor_required' && err.body.challengeToken) {
+        throw new TwoFactorRequiredError(err.body.challengeToken);
+      }
+      throw err;
+    }
+  },
+
+  completeTwoFactorLogin: (challengeToken: string, code: string) =>
+    request<RingSession>(getAuthBaseUrl(), '/api/auth/login/two-factor', {
       method: 'POST',
-      body: JSON.stringify({ email, password, deviceKey: await getDevicePublicJwk() }),
+      body: JSON.stringify({ challengeToken, code }),
     }),
 
-  reauthenticate: (password: string) =>
+  reauthenticate: (password: string, twoFactorCode?: string) =>
     request<RingSession>(getAuthBaseUrl(), '/api/auth/reauthenticate', {
       method: 'POST',
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password, twoFactorCode: twoFactorCode || null }),
+    }),
+
+  twoFactorStatus: () =>
+    request<{ enabled: boolean; recoveryCodesRemaining: number }>(getAuthBaseUrl(), '/api/me/two-factor'),
+
+  twoFactorSetup: () =>
+    request<{ secret: string; otpAuthUri: string }>(getAuthBaseUrl(), '/api/me/two-factor/setup', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  twoFactorConfirm: (code: string) =>
+    request<{ recoveryCodes: string[] }>(getAuthBaseUrl(), '/api/me/two-factor/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+
+  twoFactorDisable: (password: string, code: string) =>
+    request<{ message: string }>(getAuthBaseUrl(), '/api/me/two-factor/disable', {
+      method: 'POST',
+      body: JSON.stringify({ password, code }),
+    }),
+
+  twoFactorRegenerateCodes: (password: string, code: string) =>
+    request<{ recoveryCodes: string[] }>(getAuthBaseUrl(), '/api/me/two-factor/recovery-codes', {
+      method: 'POST',
+      body: JSON.stringify({ password, code }),
     }),
 
   forgotPassword: (email: string) =>
@@ -394,6 +528,12 @@ export const authApi = {
       { method: 'DELETE' },
     ),
 
+  setFollowAlert: (did: string, mode: FollowAlertMode) =>
+    request<Follow>(getAuthBaseUrl(), '/api/me/follows/alert', {
+      method: 'PUT',
+      body: JSON.stringify({ did, mode }),
+    }),
+
   getForumGroups: () => request<ForumNavLayout>(getAuthBaseUrl(), '/api/me/forum-groups'),
 
   saveForumGroups: (layout: ForumNavLayout) =>
@@ -442,6 +582,11 @@ export function createContentClient(baseUrl: string) {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
+    updateVoteAlertBase: (base: number) =>
+      request<{ base: number }>(root, '/api/server/vote-alerts', {
+        method: 'PUT',
+        body: JSON.stringify({ base }),
+      }),
     getUser: (username: string) => {
       const handle = username.trim().replace(/^@+/, '');
       return request<UserPresentation>(root, `/api/users/${encodeURIComponent(handle)}`);
@@ -484,8 +629,32 @@ export function createContentClient(baseUrl: string) {
     getForums: () => request<Forum[]>(root, '/api/forums'),
     syncHubMemberships: () =>
       request<void>(root, '/api/forums/hub-memberships/sync', { method: 'POST' }),
-    getForum: (slug: string, parentSlug?: string) =>
-      request<Forum>(root, `${forumApiPath(slug)}${forumParentQuery(parentSlug)}`),
+    getForum: async (slug: string, parentSlug?: string) => {
+      const body = await request<Forum & { redirect?: NestRedirect }>(
+        root,
+        `${forumApiPath(slug)}${forumParentQuery(parentSlug)}`,
+      );
+      if (body.redirect?.serverId && body.redirect.slug) throw new NestRedirectError(body.redirect);
+      return body;
+    },
+    getNestMap: () => request<NestMapNode[]>(root, '/api/nest-map'),
+    placeNest: (forumId: string, parentForumId: string | null, sortOrder: number) =>
+      request<void>(root, `/api/nest-map/${forumId}/place`, {
+        method: 'POST',
+        body: JSON.stringify({ parentForumId, sortOrder }),
+      }),
+    setNestLocked: (forumId: string, value: boolean) =>
+      request<void>(root, `/api/nest-map/${forumId}/lock`, {
+        method: 'POST',
+        body: JSON.stringify({ value }),
+      }),
+    setNestHidden: (forumId: string, value: boolean) =>
+      request<void>(root, `/api/nest-map/${forumId}/hide`, {
+        method: 'POST',
+        body: JSON.stringify({ value }),
+      }),
+    purgeNest: (forumId: string) =>
+      request<void>(root, `/api/nest-map/${forumId}/purge`, { method: 'POST' }),
     transferForumOwnership: (slug: string, username: string, parentSlug?: string) =>
       request<Forum>(root, `${forumApiPath(slug, '/transfer-ownership')}${forumParentQuery(parentSlug)}`, {
         method: 'POST',
@@ -606,6 +775,69 @@ export function createContentClient(baseUrl: string) {
         `${forumApiPath(forumSlug, '/content-blocks')}${forumParentQuery(parentSlug)}`,
         { method: 'PUT', body: JSON.stringify({ blocks }) },
       ),
+    getForumHomePage: (forumSlug: string, parentSlug?: string) =>
+      request<import('./types').ForumPageDoc>(
+        root,
+        `${forumApiPath(forumSlug, '/pages/home')}${forumParentQuery(parentSlug)}`,
+      ),
+    updateForumHomeLayout: (
+      forumSlug: string,
+      layout: import('./types').ForumPageRegion,
+      parentSlug?: string,
+    ) =>
+      request<import('./types').ForumPageDoc>(
+        root,
+        `${forumApiPath(forumSlug, '/pages/home')}${forumParentQuery(parentSlug)}`,
+        { method: 'PUT', body: JSON.stringify({ layout }) },
+      ),
+    getForumChromePage: (forumSlug: string, parentSlug?: string) =>
+      request<import('./types').ForumPageDoc>(
+        root,
+        `${forumApiPath(forumSlug, '/pages/chrome')}${forumParentQuery(parentSlug)}`,
+      ),
+    updateForumChromeLayout: (
+      forumSlug: string,
+      layout: import('./types').ForumPageRegion,
+      parentSlug?: string,
+    ) =>
+      request<import('./types').ForumPageDoc>(
+        root,
+        `${forumApiPath(forumSlug, '/pages/chrome')}${forumParentQuery(parentSlug)}`,
+        { method: 'PUT', body: JSON.stringify({ layout }) },
+      ),
+    listForumPages: (forumSlug: string, parentSlug?: string) =>
+      request<import('./types').ForumPageSummary[]>(
+        root,
+        `${forumApiPath(forumSlug, '/pages')}${forumParentQuery(parentSlug)}`,
+      ),
+    createForumPage: (
+      forumSlug: string,
+      body: { title: string; slug?: string },
+      parentSlug?: string,
+    ) =>
+      request<import('./types').ForumPageDoc>(
+        root,
+        `${forumApiPath(forumSlug, '/pages')}${forumParentQuery(parentSlug)}`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
+    getForumPage: (forumSlug: string, pageSlug: string, parentSlug?: string) =>
+      request<import('./types').ForumPageDoc>(
+        root,
+        `${forumApiPath(forumSlug, `/pages/${encodeURIComponent(pageSlug)}`)}${forumParentQuery(parentSlug)}`,
+      ),
+    updateForumPageLayout: (
+      forumSlug: string,
+      pageSlug: string,
+      layout: import('./types').ForumPageRegion,
+      parentSlug?: string,
+      title?: string,
+      slug?: string,
+    ) =>
+      request<import('./types').ForumPageDoc>(
+        root,
+        `${forumApiPath(forumSlug, `/pages/${encodeURIComponent(pageSlug)}`)}${forumParentQuery(parentSlug)}`,
+        { method: 'PUT', body: JSON.stringify({ layout, title, slug }) },
+      ),
     getRecentThreads: (sort: PostSort = 'hot', page = 1, pageSize = 20, servers?: string[]) =>
       request<RecentThread[]>(root, recentThreadsPath(sort, page, pageSize, servers)),
     search: (q: string, page = 1, pageSize = 20) => {
@@ -659,6 +891,36 @@ export function createContentClient(baseUrl: string) {
       request<Post>(root, `/api/posts/${postId}/reply-policy`, {
         method: 'PUT',
         body: JSON.stringify({ replyPolicy }),
+      }),
+    getReplyAlerts: (limit = 50) => request<ReplyAlert[]>(root, `/api/reply-alerts?limit=${limit}`),
+    getReplyAlertUnreadCount: () => request<{ count: number }>(root, '/api/reply-alerts/unread-count'),
+    markReplyAlertRead: (alertId: string) =>
+      request<void>(root, `/api/reply-alerts/${alertId}/read`, { method: 'POST' }),
+    getReplyAlertPreference: (postId: string) =>
+      request<ReplyAlertPreference>(root, `/api/reply-alerts/threads/${postId}`),
+    setReplyAlertPreference: (postId: string, mode: ReplyAlertMode) =>
+      request<ReplyAlertPreference>(root, `/api/reply-alerts/threads/${postId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ mode }),
+      }),
+    getNestAlertPreference: (forumId: string) =>
+      request<PlaceAlertPreference>(root, `/api/reply-alerts/nests/${forumId}`),
+    setNestAlertPreference: (forumId: string, mode: PlaceAlertMode) =>
+      request<PlaceAlertPreference>(root, `/api/reply-alerts/nests/${forumId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ mode }),
+      }),
+    getWatercoolerAlertPreference: (watercoolerId: string) =>
+      request<PlaceAlertPreference>(root, `/api/reply-alerts/watercoolers/${watercoolerId}`),
+    setWatercoolerAlertPreference: (watercoolerId: string, mode: PlaceAlertMode) =>
+      request<PlaceAlertPreference>(root, `/api/reply-alerts/watercoolers/${watercoolerId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ mode }),
+      }),
+    registerPushDevice: (payload: { platform: string; token: string }) =>
+      request<void>(root, '/api/reply-alerts/devices', {
+        method: 'POST',
+        body: JSON.stringify(payload),
       }),
     reportPost: (postId: string, reason: string) =>
       request<PostReport>(root, `/api/posts/${postId}/report`, {

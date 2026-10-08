@@ -1,7 +1,8 @@
 namespace Snekl.Domain.Entities;
 
-public class MediaAsset
+public class MediaAsset : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid UploaderUserId { get; set; }
     public User? Uploader { get; set; }

@@ -83,7 +83,7 @@ export function BrowseForumsPage() {
         }
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load forums');
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load nests');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -146,7 +146,7 @@ export function BrowseForumsPage() {
     return (
       <div className="card">
         <p>
-          Please <Link to="/login">log in</Link> to browse forums on your servers.
+          Please <Link to="/login">log in</Link> to browse nests on your servers.
         </p>
       </div>
     );
@@ -158,16 +158,16 @@ export function BrowseForumsPage() {
     <div>
       <div className="browse-forums-heading">
         <div>
-          <h1 className="page-title">Browse forums</h1>
+          <h1 className="page-title">Browse nests</h1>
           <p className="page-subtitle">
             {noActiveServers
-              ? 'Subscribe to a content server first, then you can join its forums.'
-              : 'Find forums on servers you subscribe to, then join or leave them.'}
+              ? 'Subscribe to a content server first, then you can join its nests.'
+              : 'Find nests on servers you subscribe to, then join or leave them.'}
           </p>
         </div>
         {canShowCreateButton && (
           <button type="button" className="btn-primary" onClick={() => setDialogOpen(true)}>
-            New forum
+            New nest
           </button>
         )}
       </div>
@@ -192,7 +192,7 @@ export function BrowseForumsPage() {
       {noActiveServers ? (
         <div className="card">
           <p>
-            <Link to="/servers">Add a server</Link> to see forums you can join.
+            <Link to="/servers">Add a server</Link> to see nests you can join.
           </p>
         </div>
       ) : (
@@ -204,11 +204,11 @@ export function BrowseForumsPage() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search by name or description"
-          aria-label="Search forums"
+          aria-label="Search nests"
         />
       </div>
 
-      {loading && <p>Loading forums…</p>}
+      {loading && <p>Loading nests…</p>}
 
       {!loading && visiblePlazas.length > 0 && (
         <section className="browse-forum-group">
@@ -232,7 +232,7 @@ export function BrowseForumsPage() {
 
       {!loading && groups.length === 0 && visiblePlazas.length === 0 && (
         <div className="card">
-          <p>No forums match that search.</p>
+          <p>No nests match that search.</p>
         </div>
       )}
 

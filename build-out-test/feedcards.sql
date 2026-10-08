@@ -1,0 +1,1 @@
+SELECT "ServerDid", "Title" FROM "FeedCards";

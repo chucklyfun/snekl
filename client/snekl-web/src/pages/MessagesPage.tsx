@@ -90,7 +90,7 @@ export function MessagesPage() {
       await api.setDirectMessageForumPreference(forumId, mode);
       loadInbox();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update forum request handling');
+      setError(err instanceof Error ? err.message : 'Failed to update nest request handling');
     } finally {
       setBusy(false);
     }
@@ -119,7 +119,7 @@ export function MessagesPage() {
     <div>
       <h1 className="page-title">Messages</h1>
       <p className="page-subtitle">
-        Follow-back requests unlock DMs. Forums grant <code>RequestDirectMessage</code> on a role —
+        Follow-back requests unlock DMs. Nests grant <code>RequestDirectMessage</code> on a role —
         typically not @everyone or new members — so communities can keep solicitation behind
         reputation.
       </p>
@@ -157,7 +157,7 @@ export function MessagesPage() {
                   disabled={busy}
                   onClick={() => void setForumMode(item.forum.id, 'ignore')}
                 >
-                  Ignore this forum
+                  Ignore this nest
                 </button>
                 <button
                   type="button"
@@ -165,7 +165,7 @@ export function MessagesPage() {
                   disabled={busy}
                   onClick={() => void setForumMode(item.forum.id, 'reject')}
                 >
-                  Reject this forum
+                  Reject this nest
                 </button>
               </div>
             </div>
@@ -252,13 +252,13 @@ export function MessagesPage() {
       </div>
 
       <section className="card">
-        <h2 className="card-title">Requests from forums</h2>
+        <h2 className="card-title">Requests from nests</h2>
         <p className="card-meta">
-          Ignore hides follow-back requests from that forum. Reject tells the sender you are not
+          Ignore hides follow-back requests from that nest. Reject tells the sender you are not
           accepting requests from it. Accept is the default.
         </p>
         {(!preferences || preferences.forums.length === 0) && (
-          <p className="card-meta">Join a forum or receive a request to configure this list.</p>
+          <p className="card-meta">Join a nest or receive a request to configure this list.</p>
         )}
         {preferences?.forums.map((item) => (
           <div key={item.forum.id} className="server-row">

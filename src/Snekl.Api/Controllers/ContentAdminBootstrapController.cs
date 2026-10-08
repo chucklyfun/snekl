@@ -6,7 +6,7 @@ using Snekl.Infrastructure.Services;
 namespace Snekl.Api.Controllers;
 
 [ApiController]
-[Route("admin")]
+[Route("server")]
 public class ContentAdminBootstrapController : ControllerBase
 {
     private readonly INodeService _node;

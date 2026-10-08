@@ -1,3 +1,6 @@
+using System.Text.Json;
+using Snekl.Domain.Enums;
+
 namespace Snekl.Domain.Dtos;
 
 public record RateLimitRuleDto(
@@ -40,7 +43,13 @@ public record UserDto(
 // Deprecated for display — use UserPresentationDto in posts and profiles.
 
 public record CreateForumRequest(string Name, string Slug, string Description, Guid? ParentForumId = null);
-public record ForumSummaryDto(Guid Id, string Name, string Slug, int PostCount, string? AvatarUrl = null);
+public record ForumSummaryDto(
+    Guid Id,
+    string Name,
+    string Slug,
+    int PostCount,
+    string? AvatarUrl = null,
+    string? TopSlug = null);
 public record ForumDto(
     Guid Id,
     string Name,
@@ -63,6 +72,9 @@ public record ForumDto(
     bool ViewerIsFavorite = false,
     IReadOnlyList<WatercoolerSummaryDto>? Watercoolers = null,
     IReadOnlyList<ForumContentBlockDto>? ContentBlocks = null,
+    ForumPageDto? HomePage = null,
+    ForumPageDto? SharedChrome = null,
+    IReadOnlyList<ForumPageSummaryDto>? Pages = null,
     bool NsfwAgeCheckRequired = false,
     bool NsfwAgeCheckRequiredByServer = false,
     bool NsfwAgeCheckEnforced = false,
@@ -74,7 +86,50 @@ public record ForumDto(
     bool NsfwAgeCheckBlocksEntry = false,
     string? NsfwAgeCheckGateExplanation = null,
     string? OwnerUsername = null,
-    bool IsViewerOwner = false);
+    bool IsViewerOwner = false,
+    bool Locked = false,
+    bool Hidden = false,
+    string? TopName = null);
+
+public record NestMapNodeDto(
+    Guid Id,
+    string Name,
+    string Slug,
+    Guid? ParentForumId,
+    string? TopSlug,
+    int SortOrder,
+    bool Locked,
+    bool Hidden,
+    int Depth);
+
+public record PlaceNestRequest(Guid? ParentForumId, int SortOrder);
+public record SetNestFlagRequest(bool Value);
+
+public record NestRedirectDto(Guid ServerId, string ServerDid, string Slug, string? ParentSlug);
+
+public record MoveNestRequest(Guid DestinationServerId);
+
+public record ForumPageRegionDto(
+    Guid Id,
+    string TypeKey,
+    Dictionary<string, JsonElement>? Settings,
+    IReadOnlyList<ForumPageRegionDto>? Children);
+
+public record ForumPageDto(
+    Guid Id,
+    string Title,
+    string Slug,
+    bool IsDefault,
+    ForumPageRegionDto Layout,
+    IReadOnlyList<string> Warnings,
+    bool IsChrome = false);
+
+public record ForumPageSummaryDto(Guid Id, string Title, string Slug, bool IsDefault);
+
+public record UpdateForumHomeLayoutRequest(ForumPageRegionDto Layout);
+public record UpdateForumChromeLayoutRequest(ForumPageRegionDto Layout);
+public record UpdateForumPageLayoutRequest(ForumPageRegionDto Layout, string? Title = null, string? Slug = null);
+public record CreateForumPageRequest(string? Title, string? Slug);
 
 public record SetForumFavoriteRequest(bool IsFavorite);
 
@@ -473,7 +528,12 @@ public record ServerPermissionsDto(
     bool NsfwAgeCheckRequired = false,
     int NsfwMinimumAge = 18,
     bool ViewerNsfwAgeAttested = false,
-    bool IsServerOwner = false);
+    bool IsServerOwner = false,
+    int VoteAlertBase = VoteAlertLevels.DefaultBase);
+
+public record UpdateVoteAlertBaseRequest(int Base);
+
+public record VoteAlertBaseDto(int Base);
 
 public record ChangeLogEntryDto(
     Guid Id,
@@ -502,6 +562,8 @@ public record NsfwAgeCheckStatusDto(
 public record SubmitNsfwAgeCheckRequest(DateOnly DateOfBirth, Guid? ForumId = null);
 
 public record UpdateServerNsfwAgeCheckRequest(bool Required, int? MinimumAge = null);
+
+public record MyForumRoleDto(Guid ForumId, string ForumName, string ForumSlug, Guid RoleId, string RoleName, string Scope = "nest");
 
 public record ForumRoleDto(
     Guid Id,

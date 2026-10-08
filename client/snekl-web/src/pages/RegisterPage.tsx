@@ -1,7 +1,8 @@
 import { type FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useAuth } from '../AuthContext';
-import { getAuthBaseUrl, setAuthBaseUrl } from '../hosts';
+import { AuthServerField } from '../components/AuthServerField';
+import { setAuthBaseUrl } from '../hosts';
 
 export function RegisterPage() {
   const { register } = useAuth();
@@ -11,11 +12,12 @@ export function RegisterPage() {
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [authUrl, setAuthUrl] = useState(getAuthBaseUrl());
+  const [authUrl, setAuthUrl] = useState('');
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    if (!authUrl) return;
     try {
       setAuthBaseUrl(authUrl);
       await register(username, email, password, displayName);
@@ -33,10 +35,7 @@ export function RegisterPage() {
       </p>
       {error && <div className="error-banner">{error}</div>}
       <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label htmlFor="auth-url">Auth server URL</label>
-          <input id="auth-url" type="url" value={authUrl} onChange={(e) => setAuthUrl(e.target.value)} required />
-        </div>
+        <AuthServerField id="auth-url" value={authUrl} onChange={setAuthUrl} />
         <div className="form-group">
           <label htmlFor="username">Username</label>
           <input id="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
@@ -56,7 +55,7 @@ export function RegisterPage() {
           <label htmlFor="password">Password</label>
           <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
         </div>
-        <button type="submit" className="btn-primary">Sign up</button>
+        <button type="submit" className="btn-primary" disabled={!authUrl}>Sign up</button>
       </form>
       <p style={{ marginTop: '1rem', color: 'var(--muted)' }}>
         Already have an account? <Link to="/login">Log in</Link>

@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Link, useParams, useSearchParams } from 'react-router';
 import { createContentClient, hasPermission } from '../api';
 import { EmoteAutocomplete } from '../components/EmoteAutocomplete';
+import { PlaceAlertControl } from '../components/PlaceAlertControl';
 import { EmotePicker } from '../components/EmotePicker';
 import { NsfwAgeCheckPanel, forumAgeStatus } from '../components/NsfwAgeCheckPanel';
 import { PostBody } from '../components/PostBody';
@@ -245,19 +246,22 @@ export function WatercoolerPage() {
               {cooler.description ? ` · ${cooler.description}` : ''}
             </p>
           </div>
-          {user && canOpenSettings && (
-            <div className="page-actions">
-              <Link
-                to={watercoolerSettingsPath(
-                  serverDid,
-                  cooler.slug,
-                  cooler.parentForumSlug ?? undefined,
-                  forumParentSlug,
-                )}
-                className="btn-ghost"
-              >
-                Settings
-              </Link>
+          {user && (
+            <div className="page-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              {client && <PlaceAlertControl client={client} place={{ kind: 'watercooler', id: cooler.id }} />}
+              {canOpenSettings && (
+                <Link
+                  to={watercoolerSettingsPath(
+                    serverDid,
+                    cooler.slug,
+                    cooler.parentForumSlug ?? undefined,
+                    forumParentSlug,
+                  )}
+                  className="btn-ghost"
+                >
+                  Settings
+                </Link>
+              )}
             </div>
           )}
         </div>

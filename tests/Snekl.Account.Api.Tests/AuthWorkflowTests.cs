@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Snekl.Account.Domain.Dtos;
+using Snekl.Account.Infrastructure.Security;
 using Snekl.Tests.Shared;
 
 namespace Snekl.Account.Api.Tests;
@@ -184,7 +185,7 @@ public class AuthWorkflowTests
     [Fact]
     public async Task AdminBootstrap_ReturnsAuthKind()
     {
-        var response = await _fixture.Client.GetAsync("/admin/bootstrap");
+        var response = await _fixture.Client.GetAsync("/server/bootstrap");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var bootstrap = await response.Content.ReadFromJsonAsync<AdminBootstrapDto>(JsonOptions);
         Assert.NotNull(bootstrap);
@@ -478,6 +479,77 @@ public class AuthWorkflowTests
         var auth = await login.Content.ReadFromJsonAsync<AuthAdminAuthResponse>(JsonOptions);
         Assert.NotNull(auth);
         Assert.False(string.IsNullOrWhiteSpace(auth.Token));
+    }
+
+    [Fact]
+    public async Task TwoFactor_Setup_RequiresCodeAtLogin_AndRecoveryCodeWorksOnce()
+    {
+        var username = $"tf_{Guid.NewGuid():N}"[..16];
+        var email = $"{username}@example.com";
+        var register = await _fixture.Client.PostAsJsonAsync("/api/auth/register", new RegisterRequest(
+            username, email, "Password1!", "Two Factor"));
+        Assert.Equal(HttpStatusCode.OK, register.StatusCode);
+        var session = await register.Content.ReadFromJsonAsync<RingSessionDto>(JsonOptions);
+        Assert.NotNull(session);
+
+        using var member = _fixture.CreateClient();
+        member.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", session!.AccessToken);
+
+        var setup = await member.PostAsJsonAsync("/api/me/two-factor/setup", new { });
+        Assert.Equal(HttpStatusCode.OK, setup.StatusCode);
+        var setupBody = await setup.Content.ReadFromJsonAsync<TwoFactorSetupDto>(JsonOptions);
+        Assert.NotNull(setupBody);
+
+        var code = Totp.ComputeCode(setupBody!.Secret, DateTimeOffset.UtcNow);
+        var confirm = await member.PostAsJsonAsync("/api/me/two-factor/confirm", new TwoFactorCodeRequest(code));
+        var confirmText = await confirm.Content.ReadAsStringAsync();
+        Assert.True(confirm.IsSuccessStatusCode, confirmText);
+        var codes = System.Text.Json.JsonSerializer.Deserialize<TwoFactorRecoveryCodesDto>(confirmText, JsonOptions);
+        Assert.NotNull(codes);
+        Assert.Equal(10, codes!.RecoveryCodes.Count);
+
+        var login = await _fixture.Client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "Password1!"));
+        Assert.Equal(HttpStatusCode.Unauthorized, login.StatusCode);
+        var challenge = await login.Content.ReadFromJsonAsync<TwoFactorChallengeDto>(JsonOptions);
+        Assert.NotNull(challenge);
+        Assert.Equal(TwoFactorErrorCodes.Required, challenge!.Code);
+        Assert.False(string.IsNullOrWhiteSpace(challenge.ChallengeToken));
+
+        var wrongCode = code == "000000" ? "111111" : "000000";
+        var wrong = await _fixture.Client.PostAsJsonAsync("/api/auth/login/two-factor",
+            new CompleteTwoFactorLoginRequest(challenge.ChallengeToken, wrongCode));
+        Assert.Equal(HttpStatusCode.Unauthorized, wrong.StatusCode);
+
+        var done = await _fixture.Client.PostAsJsonAsync("/api/auth/login/two-factor",
+            new CompleteTwoFactorLoginRequest(challenge.ChallengeToken, codes.RecoveryCodes[0]));
+        Assert.Equal(HttpStatusCode.OK, done.StatusCode);
+        var signedIn = await done.Content.ReadFromJsonAsync<RingSessionDto>(JsonOptions);
+        Assert.NotNull(signedIn);
+        Assert.False(string.IsNullOrWhiteSpace(signedIn!.AccessToken));
+
+        var again = await _fixture.Client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "Password1!"));
+        var challengeAgain = await again.Content.ReadFromJsonAsync<TwoFactorChallengeDto>(JsonOptions);
+        var reused = await _fixture.Client.PostAsJsonAsync("/api/auth/login/two-factor",
+            new CompleteTwoFactorLoginRequest(challengeAgain!.ChallengeToken, codes.RecoveryCodes[0]));
+        Assert.Equal(HttpStatusCode.Unauthorized, reused.StatusCode);
+
+        using var authed = _fixture.CreateClient();
+        authed.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", signedIn.AccessToken);
+        var reauthMissing = await authed.PostAsJsonAsync("/api/auth/reauthenticate", new ReauthenticateRequest("Password1!"));
+        Assert.Equal(HttpStatusCode.Unauthorized, reauthMissing.StatusCode);
+
+        var reauth = await authed.PostAsJsonAsync("/api/auth/reauthenticate",
+            new ReauthenticateRequest("Password1!", codes.RecoveryCodes[1]));
+        Assert.Equal(HttpStatusCode.OK, reauth.StatusCode);
+
+        var disable = await authed.PostAsJsonAsync("/api/me/two-factor/disable",
+            new TwoFactorPasswordCodeRequest("Password1!", codes.RecoveryCodes[2]));
+        Assert.Equal(HttpStatusCode.OK, disable.StatusCode);
+
+        var plain = await _fixture.Client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "Password1!"));
+        Assert.Equal(HttpStatusCode.OK, plain.StatusCode);
+        var plainSession = await plain.Content.ReadFromJsonAsync<RingSessionDto>(JsonOptions);
+        Assert.False(string.IsNullOrWhiteSpace(plainSession!.AccessToken));
     }
 
     [Fact]

@@ -55,7 +55,7 @@ export function NsfwAgeCheckPanel({
   if (!status.enforced && !pendingNsfw && !status.blocksEntry) return null;
 
   const source = status.blocksEntry
-    ? 'Confirm your age before entering or joining this forum.'
+    ? 'Confirm your age before entering or joining this nest.'
     : status.requiredByServer
       ? 'This server requires an age check before NSFW images.'
       : 'NSFW images stay covered until you confirm you meet the minimum age.';

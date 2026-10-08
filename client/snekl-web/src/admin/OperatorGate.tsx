@@ -1,6 +1,7 @@
 import { type FormEvent, useState } from 'react';
+import { ApiRequestError, TwoFactorRequiredError } from '../api';
 import type { AdminKind } from './api';
-import { accountLogin, operatorLogin, operatorStatus, setAdminToken, setMemberToken } from './api';
+import { accountLogin, completeAccountTwoFactor, operatorLogin, operatorStatus, setAdminToken, setMemberToken } from './api';
 
 export function OperatorGate({
   kind,
@@ -16,19 +17,47 @@ export function OperatorGate({
   const [email, setEmail] = useState('');
   const [accountPass, setAccountPass] = useState('');
   const [adminPass, setAdminPass] = useState('');
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
   const [state, setState] = useState<string | null>(null);
   const [error, setError] = useState('');
+
+  const continueWithSession = async (accessToken: string) => {
+    setMemberToken(accessToken);
+    const status = await operatorStatus(kind);
+    if (status.state === 'forbidden') throw new Error(`You are not an operator on this ${kind} host.`);
+    setState(status.state);
+  };
 
   const continueAccount = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     try {
       const session = await accountLogin(authLoginUrl, email, accountPass);
-      setMemberToken(session.accessToken);
-      const status = await operatorStatus(kind);
-      if (status.state === 'forbidden') throw new Error(`You are not an operator on this ${kind} host.`);
-      setState(status.state);
+      await continueWithSession(session.accessToken);
     } catch (err) {
+      if (err instanceof TwoFactorRequiredError) {
+        setChallengeToken(err.challengeToken);
+        setTwoFactorCode('');
+        return;
+      }
+      setError(err instanceof Error ? err.message : 'Login failed');
+    }
+  };
+
+  const submitTwoFactor = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!challengeToken) return;
+    setError('');
+    try {
+      const session = await completeAccountTwoFactor(authLoginUrl, challengeToken, twoFactorCode);
+      setChallengeToken(null);
+      await continueWithSession(session.accessToken);
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.code === 'two_factor_expired') {
+        setChallengeToken(null);
+        setTwoFactorCode('');
+      }
       setError(err instanceof Error ? err.message : 'Login failed');
     }
   };
@@ -57,7 +86,26 @@ export function OperatorGate({
       <h1 className="page-title">Operator login</h1>
       <p className="page-subtitle">{hostLabel}</p>
       {error && <div className="error-banner">{error}</div>}
-      {!state ? (
+      {!state && challengeToken ? (
+        <form onSubmit={submitTwoFactor}>
+          <p className="card-meta" style={{ marginBottom: '1rem' }}>
+            Enter the 6-digit code from your authenticator app, or a backup code.
+          </p>
+          <div className="form-group">
+            <label htmlFor="two-factor-code">Authentication code</label>
+            <input
+              id="two-factor-code"
+              value={twoFactorCode}
+              onChange={(e) => setTwoFactorCode(e.target.value)}
+              autoComplete="one-time-code"
+              required
+            />
+          </div>
+          <button type="submit" className="btn-primary">
+            Verify
+          </button>
+        </form>
+      ) : !state ? (
         <form onSubmit={continueAccount}>
           <p className="card-meta" style={{ marginBottom: '1rem' }}>
             Sign in with a regular Account, then the operator password for <em>this</em> server.

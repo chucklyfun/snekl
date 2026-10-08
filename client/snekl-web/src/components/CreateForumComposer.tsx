@@ -93,7 +93,7 @@ export function CreateForumComposer({
       );
       onCreated(forum, serverDid);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create forum');
+      setError(err instanceof Error ? err.message : 'Failed to create nest');
     } finally {
       setSubmitting(false);
     }
@@ -145,7 +145,7 @@ export function CreateForumComposer({
     );
   }
 
-  const title = isSubforum ? 'Create subforum' : canCreateTopLevel ? 'Create forum' : 'Request a forum';
+  const title = isSubforum ? 'Create subnest' : canCreateTopLevel ? 'Create nest' : 'Request a nest';
 
   return (
     <>
@@ -195,9 +195,9 @@ export function CreateForumComposer({
         )}
         {!isSubforum && canCreateTopLevel && parentForums.length > 0 && (
           <div className="form-group">
-            <label htmlFor="parent">Parent forum (optional — creates a subforum)</label>
+            <label htmlFor="parent">Parent nest (optional — creates a subnest)</label>
             <select id="parent" value={parentForumId} onChange={(e) => setParentForumId(e.target.value)}>
-              <option value="">None (top-level forum)</option>
+              <option value="">None (top-level nest)</option>
               {parentForums.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.name}
@@ -206,7 +206,7 @@ export function CreateForumComposer({
             </select>
           </div>
         )}
-        {isSubforum && <p className="card-meta">Creating subforum under parent forum.</p>}
+        {isSubforum && <p className="card-meta">Creating subnest under parent nest.</p>}
         <div className="form-group">
           <label htmlFor="forum-name">Name</label>
           <input id="forum-name" value={name} onChange={(e) => handleNameChange(e.target.value)} required />
@@ -236,7 +236,7 @@ export function CreateForumComposer({
             </button>
           )}
           <button type="submit" className="btn-primary" disabled={submitting}>
-            {isSubforum ? 'Create subforum' : canCreateTopLevel ? 'Create forum' : 'Submit request'}
+            {isSubforum ? 'Create subnest' : canCreateTopLevel ? 'Create nest' : 'Submit request'}
           </button>
         </div>
       </form>

@@ -1,3 +1,5 @@
+import { Capacitor } from '@capacitor/core';
+
 const AUTH_STORAGE_KEY = 'snekl_auth_url';
 
 export type RuntimeHostConfig = {
@@ -57,6 +59,53 @@ export function rewriteLoopbackForPage(url: string, pageHostname?: string): stri
   return normalized;
 }
 
+/**
+ * Point a loopback iframe at the page host so the frame is same-site with the SPA.
+ * Also rewrites localhost to 127.0.0.1 (and the reverse) when the page itself is loopback.
+ * API URL rewriting stays in rewriteLoopbackForPage and still leaves those two hosts alone.
+ */
+export function rewriteFrameUrl(url: string, pageHostname?: string): string {
+  const normalized = normalizeBaseUrl(url);
+  const host =
+    pageHostname ??
+    (typeof window !== 'undefined' ? window.location.hostname : undefined);
+  if (!host) return normalized;
+
+  try {
+    const parsed = new URL(normalized);
+    const frameHost = parsed.hostname;
+    if (frameHost === host) return normalized;
+    if (frameHost !== 'localhost' && frameHost !== '127.0.0.1' && frameHost !== '[::1]') return normalized;
+    parsed.hostname = host;
+    return normalizeBaseUrl(parsed.toString());
+  } catch {
+    return normalized;
+  }
+}
+
+function loopbackHostname(host: string): boolean {
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+}
+
+/**
+ * The frame may answer from localhost, 127.0.0.1, or the page's LAN host
+ * while the install URL still says localhost. Same scheme and port is the same dev frame.
+ */
+export function frameOriginMatches(actualOrigin: string, frameUrl: string, pageHostname?: string): boolean {
+  const pageHost =
+    pageHostname ?? (typeof window !== 'undefined' ? window.location.hostname : '');
+  try {
+    const actual = new URL(actualOrigin);
+    const expected = new URL(frameUrl);
+    if (actual.protocol !== expected.protocol || actual.port !== expected.port) return false;
+    if (actual.hostname === expected.hostname) return true;
+    if (loopbackHostname(expected.hostname) && loopbackHostname(actual.hostname)) return true;
+    return Boolean(pageHost) && loopbackHostname(expected.hostname) && actual.hostname === pageHost;
+  } catch {
+    return false;
+  }
+}
+
 /** Rewrite loopback hosts inside JSON `*Url` / `url` fields for the page hostname. */
 export function rewriteLoopbackUrlFields<T>(data: T, fieldName?: string, pageHostname?: string): T {
   if (typeof data === 'string') {
@@ -79,13 +128,25 @@ export function rewriteLoopbackUrlFields<T>(data: T, fieldName?: string, pageHos
 }
 
 export function adminUrl(baseUrl: string): string {
-  return `${normalizeBaseUrl(baseUrl)}/admin/`;
+  return `${normalizeBaseUrl(baseUrl)}/server/`;
+}
+
+function isLoopbackBaseUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+  } catch {
+    return false;
+  }
 }
 
 /** First-run convenience only. Production clients remember the Auth URL after login. */
-export function defaultAuthFallback(): string {
-  return runtime.authUrl
-    || normalizeBaseUrl(import.meta.env.VITE_AUTH_URL || 'http://localhost:5100');
+export function defaultAuthFallback(native = Capacitor.isNativePlatform()): string {
+  if (runtime.authUrl) return runtime.authUrl;
+  const configured = normalizeBaseUrl(import.meta.env.VITE_AUTH_URL || 'http://localhost:5100');
+  // On a phone, localhost is the device. Leave the login field empty until a real Auth URL is entered.
+  if (native && isLoopbackBaseUrl(configured)) return '';
+  return configured;
 }
 
 export function defaultContentFallback(): string {
@@ -99,14 +160,16 @@ export function defaultHubFallback(): string {
 }
 
 /** Local/dev and explicitly configured clients may attach the site's home origin and hub. */
-export function homeSubscriptionsEnabled(): boolean {
-  return Boolean(
+export function homeSubscriptionsEnabled(native = Capacitor.isNativePlatform()): boolean {
+  const enabled = Boolean(
     import.meta.env.DEV
       || import.meta.env.VITE_CONTENT_URL
       || import.meta.env.VITE_HUB_URL
       || runtime.contentUrl
       || runtime.hubUrl,
   );
+  if (!enabled || !native) return enabled;
+  return [defaultContentFallback(), defaultHubFallback()].some((url) => !isLoopbackBaseUrl(url));
 }
 
 export function getAuthBaseUrl(): string {

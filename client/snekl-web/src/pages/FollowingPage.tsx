@@ -1,5 +1,6 @@
 import { Link } from 'react-router';
 import { useAuth } from '../AuthContext';
+import { FollowAlertControl } from '../components/FollowAlertControl';
 import { useFollows } from '../FollowsContext';
 
 export function FollowingPage() {
@@ -20,8 +21,8 @@ export function FollowingPage() {
     <div>
       <h1 className="page-title">Following</h1>
       <p className="page-subtitle">
-        One-way follows live on your Account with federations and forum favorites. A Following feed
-        can use this list later, including watercooler posts from people you follow.
+        One-way follows live on your Account. Choose whether a person notifies you about new posts,
+        vote milestones, or both.
       </p>
 
       <div className="card">
@@ -42,6 +43,7 @@ export function FollowingPage() {
               </div>
             </div>
             <div className="server-row-actions">
+              <FollowAlertControl did={person.did} />
               <button type="button" className="btn-ghost" onClick={() => void unfollow(person.did)}>
                 Unfollow
               </button>

@@ -2,8 +2,9 @@ using Snekl.Domain.Enums;
 
 namespace Snekl.Domain.Entities;
 
-public class ServerRole
+public class ServerRole : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = string.Empty;
     public string? Color { get; set; }
@@ -18,8 +19,9 @@ public class ServerRole
     public ICollection<ServerRoleAssignment> Assignments { get; set; } = new List<ServerRoleAssignment>();
 }
 
-public class ServerRoleAssignment
+public class ServerRoleAssignment : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid UserId { get; set; }
     public User? User { get; set; }

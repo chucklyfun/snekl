@@ -71,6 +71,10 @@ public sealed class HubOutboxDispatcher : BackgroundService
         var node = await nodeService.GetOrCreateAsync(ct);
         var privateKey = nodeService.GetSigningPrivateKey(node);
         var client = _http.CreateClient();
+        // Each message goes out as the server that queued it, so a spawned server sending to a
+        // hub it inherits is never mistaken for the host. Unscoped messages stay with the host.
+        var senderIds = due.Select(m => m.ServerId).Where(id => id != Guid.Empty && id != node.Id).Distinct().ToList();
+        var senders = await db.NodeConfig.Where(n => senderIds.Contains(n.Id)).ToDictionaryAsync(n => n.Id, ct);
 
         foreach (var message in due)
         {
@@ -80,17 +84,18 @@ public sealed class HubOutboxDispatcher : BackgroundService
                 using var payloadDoc = JsonDocument.Parse(message.PayloadJson);
                 var payload = payloadDoc.RootElement.Clone();
                 var timestamp = DateTime.UtcNow;
+                var sender = senders.TryGetValue(message.ServerId, out var queuedBy) ? queuedBy : node;
                 var signature = FederationEnvelopeSigner.Sign(
-                    privateKey,
+                    ReferenceEquals(sender, node) ? privateKey : nodeService.GetSigningPrivateKey(sender),
                     message.EnvelopeType,
-                    node.Id,
-                    node.BaseUrl,
+                    sender.Id,
+                    sender.BaseUrl,
                     timestamp,
                     payload);
                 var envelope = new FederationEnvelope(
                     message.EnvelopeType,
-                    node.Id,
-                    node.BaseUrl,
+                    sender.Id,
+                    sender.BaseUrl,
                     timestamp,
                     payload,
                     signature);

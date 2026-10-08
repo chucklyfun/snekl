@@ -25,15 +25,20 @@ public class ContentBlockCatalogTests
         Assert.Contains(types, t => t.Key == "extension");
         Assert.Contains(types, t => t.Key == "cooler-list");
         Assert.Contains(types, t => t.Key == "cooler-feed");
-        Assert.Equal(6, types.Count);
+        Assert.Contains(types, t => t.Key == "watercooler-view");
+        Assert.Contains(types, t => t.Key == "forum-header");
+        Assert.Contains(types, t => t.Key == "forum-view");
+        Assert.Contains(types, t => t.Key == "grid");
+        Assert.Equal(14, types.Count);
 
         var forumNames = await catalog.NamesForScopeAsync(ContentBlockScopes.Forum);
         Assert.Contains("ManageCalendar", forumNames);
         Assert.Contains("ManageAds", forumNames);
         Assert.Contains("ManageLinks", forumNames);
+        Assert.Contains("ManageCoolerFeed", forumNames);
 
         var serverNames = await catalog.NamesForScopeAsync(ContentBlockScopes.Server);
         Assert.Contains("ManageAds", serverNames);
-        Assert.Equal(6, await db.ContentBlockTypes.CountAsync());
+        Assert.Equal(14, await db.ContentBlockTypes.CountAsync());
     }
 }

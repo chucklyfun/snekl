@@ -22,7 +22,7 @@ export function CreateForumPage() {
     return (
       <div className="card">
         <p>
-          Please <Link to="/login">log in</Link> to create a forum.
+          Please <Link to="/login">log in</Link> to create a nest.
         </p>
       </div>
     );

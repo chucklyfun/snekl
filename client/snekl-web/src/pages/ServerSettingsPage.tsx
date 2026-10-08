@@ -3,7 +3,9 @@ import { Link, useParams } from 'react-router';
 import { createContentClient, hasPermission } from '../api';
 import { ChangeHistoryList } from '../components/ChangeHistoryList';
 import { EmoteCatalogEditor } from '../components/EmoteCatalogEditor';
+import { ExtensionInstallsPanel } from '../components/ExtensionInstallsPanel';
 import { NsfwAgeCheckPanel } from '../components/NsfwAgeCheckPanel';
+import { NestMapSection } from '../components/NestMapSection';
 import { MemberRoleRow, type MemberRoleDraft } from '../components/MemberRoleRow';
 import { ServerRoleRow, type ServerRoleDraft } from '../components/ServerRoleRow';
 import { useAuth } from '../AuthContext';
@@ -36,6 +38,7 @@ export function ServerSettingsPage() {
   const [blockTypes, setBlockTypes] = useState<ContentBlockType[]>([]);
   const [nsfwAgeRequired, setNsfwAgeRequired] = useState(false);
   const [nsfwMinimumAge, setNsfwMinimumAge] = useState(18);
+  const [voteAlertBase, setVoteAlertBase] = useState(10);
   const [ageStatus, setAgeStatus] = useState<NsfwAgeCheckStatus | null>(null);
 
   const [composingRole, setComposingRole] = useState(false);
@@ -84,6 +87,7 @@ export function ServerSettingsPage() {
         setBlockTypes(types);
         setNsfwAgeRequired(Boolean(perms.nsfwAgeCheckRequired));
         setNsfwMinimumAge(perms.nsfwMinimumAge ?? 18);
+        setVoteAlertBase(perms.voteAlertBase && perms.voteAlertBase > 0 ? perms.voteAlertBase : 10);
         setAgeStatus({
           enforced: Boolean(perms.nsfwAgeCheckRequired),
           requiredByServer: Boolean(perms.nsfwAgeCheckRequired),
@@ -156,7 +160,7 @@ export function ServerSettingsPage() {
 
   const deleteForum = async (forum: Forum) => {
     if (!client) return;
-    if (!window.confirm(`Delete forum “${forum.name}” (/${forum.slug})? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete nest “${forum.name}” (/${forum.slug})? This cannot be undone.`)) return;
     setError('');
     try {
       await client.deleteForum(forum.slug);
@@ -170,14 +174,14 @@ export function ServerSettingsPage() {
   return (
     <div>
       <Link to="/" style={{ color: 'var(--muted)' }}>
-        ← Forums
+        ← Nests
       </Link>
       <h1 className="page-title">Server settings</h1>
       {(originIsSuperUser || originIsServerOwner) && (
         <p className="page-subtitle">
           {originIsServerOwner
             ? 'You are the Server Owner on this node — your powers cannot be revoked by other users.'
-            : 'You are a Super User on this node — server configuration only. Forum access and moderation follow your assigned roles.'}
+            : 'You are a Super User on this node — server configuration only. Nest access and moderation follow your assigned roles.'}
           {originIsServerOwner && serverDid && (
             <>
               {' '}
@@ -205,7 +209,7 @@ export function ServerSettingsPage() {
         <section className="card">
           <h2 className="card-title">NSFW age check</h2>
           <p className="card-meta">
-            When enabled, members are asked to confirm their age on every forum. NSFW images stay covered
+            When enabled, members are asked to confirm their age on every nest. NSFW images stay covered
             until that check is passed, even when this is off. Date of birth is not stored.
           </p>
           <form
@@ -255,6 +259,44 @@ export function ServerSettingsPage() {
         </section>
       )}
 
+      {canManageSettings && client && (
+        <section className="card">
+          <h2 className="card-title">Vote alerts</h2>
+          <p className="card-meta">
+            The author is notified when a post reaches this many votes, then ten times that, and so on.
+            Someone you follow is included when their follow alerts are set to vote milestones or both.
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setError('');
+              void client
+                .updateVoteAlertBase(voteAlertBase)
+                .then((saved) => {
+                  setVoteAlertBase(saved.base);
+                  setSuccess(`Vote alerts start at ${saved.base}.`);
+                })
+                .catch((err) => setError(err instanceof Error ? err.message : 'Failed to update vote alerts'));
+            }}
+          >
+            <div className="form-group">
+              <label htmlFor="vote-alert-base">First notification at</label>
+              <input
+                id="vote-alert-base"
+                type="number"
+                min={1}
+                max={1000000000}
+                value={voteAlertBase}
+                onChange={(e) => setVoteAlertBase(Number(e.target.value))}
+              />
+            </div>
+            <button type="submit" className="btn-primary">
+              Save vote alerts
+            </button>
+          </form>
+        </section>
+      )}
+
       {client && ageStatus && (
         <NsfwAgeCheckPanel
           client={client}
@@ -293,10 +335,14 @@ export function ServerSettingsPage() {
         />
       )}
 
+      {(canManageSettings || canManage) && client && (
+        <ExtensionInstallsPanel client={client} scope="server" />
+      )}
+
       {(canDeleteForums || livePlazas.length > 0) && (
         <section className="card">
           <h2 className="card-title">Server plazas</h2>
-          <p className="card-meta">Untitled rooms that sit beside forums.</p>
+          <p className="card-meta">Untitled rooms that sit beside nests.</p>
           <Link to={createWatercoolerPath(serverDid)} className="btn-primary">
             New server plaza
           </Link>
@@ -338,10 +384,14 @@ export function ServerSettingsPage() {
         </section>
       )}
 
-      {canDeleteForums && forums.length > 0 && (
+      {(originIsSuperUser || originIsServerOwner) && client && (
+        <NestMapSection client={client} serverDid={serverDid} onChanged={load} />
+      )}
+
+      {canDeleteForums && !(originIsSuperUser || originIsServerOwner) && forums.length > 0 && (
         <section className="card">
-          <h2 className="card-title">Forums</h2>
-          <p className="card-meta">Slugs must be unique. Delete a forum to free its slug.</p>
+          <h2 className="card-title">Nests</h2>
+          <p className="card-meta">Slugs must be unique. Delete a nest to free its slug.</p>
           {forums.map((forum) => (
             <div key={forum.id} className="server-row">
               <div>
@@ -417,8 +467,8 @@ export function ServerSettingsPage() {
 
       {pendingForums.length > 0 && (
         <section className="card">
-          <h2 className="card-title">Forum requests</h2>
-          <p className="card-meta">These forums stay hidden until approved.</p>
+          <h2 className="card-title">Nest requests</h2>
+          <p className="card-meta">These nests stay hidden until approved.</p>
           {pendingForums.map((forum) => (
             <div key={forum.id} className="server-row">
               <div>

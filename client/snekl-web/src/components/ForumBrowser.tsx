@@ -622,7 +622,7 @@ function SidebarGroupMenu() {
   };
 
   return (
-    <OverflowMenu label="Group forums">
+    <OverflowMenu label="Group nests">
       <p className="forum-browser-menu-heading">Group by</p>
       {FORUM_NAV_AXES.map((axis) => (
         <button
@@ -857,20 +857,20 @@ export function ForumBrowser({ onNavigate }: { onNavigate?: () => void }) {
     >
       <div className="forum-browser-header">
         <div className="forum-browser-header-row">
-          <h2 className="forum-browser-title">Forums</h2>
+          <h2 className="forum-browser-title">Nests</h2>
           <SidebarGroupMenu />
         </div>
-        <NavLink to="/forums" className="forum-browser-browse">
-          Browse all forums
+        <NavLink to="/nests" className="forum-browser-browse">
+          Browse all nests
         </NavLink>
       </div>
 
-      {loading && empty && <p className="forum-browser-empty">Loading forums…</p>}
+      {loading && empty && <p className="forum-browser-empty">Loading nests…</p>}
 
       {!loading && empty && (
         <p className="forum-browser-empty">
-          You haven&apos;t joined any forums yet.{' '}
-          <NavLink to="/forums">Browse all forums</NavLink>
+          You haven&apos;t joined any nests yet.{' '}
+          <NavLink to="/nests">Browse all nests</NavLink>
           {' or '}
           <NavLink to="/servers">add a server</NavLink>.
         </p>

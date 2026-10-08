@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { ChangeLogEntry } from '../types';
 
+function historyEntityLabel(entityType: string): string {
+  return entityType.replaceAll('Forum', 'Nest');
+}
+
 function prettyJson(raw: string | null | undefined): string | null {
   if (!raw) return null;
   try {
@@ -50,7 +54,7 @@ export function ChangeHistoryList({
         return (
           <article key={row.id} className="change-history-item">
             <div className="card-meta">
-              @{row.actorUsername} · {row.action} · {row.entityType} ·{' '}
+              @{row.actorUsername} · {row.action} · {historyEntityLabel(row.entityType)} ·{' '}
               {new Date(row.createdAt).toLocaleString()}
             </div>
             <p className="post-body">{row.summary}</p>

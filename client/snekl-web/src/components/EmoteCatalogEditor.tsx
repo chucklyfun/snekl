@@ -53,7 +53,7 @@ export function EmoteCatalogEditor({
       <section id="emotes" className="card">
         <h2 className="card-title">Emotes</h2>
         <p className="card-meta">
-          Custom images for :code: in posts and as reactions. You need ManageForum to add forum emotes,
+          Custom images for :code: in posts and as reactions. You need ManageForum to add nest emotes,
           or ManageServerSettings on the server page for emotes that work everywhere.
         </p>
       </section>

@@ -30,7 +30,7 @@ public static class DirectMessageForumPreferenceModes
             return None;
         }
 
-        throw new InvalidOperationException("Forum request handling must be accept, ignore, or reject.");
+        throw new InvalidOperationException("Nest request handling must be accept, ignore, or reject.");
     }
 }
 
@@ -38,8 +38,9 @@ public static class DirectMessageForumPreferenceModes
 /// Follow-back request so two people can open a DM. Gated by
 /// <see cref="Enums.ForumPermissions.RequestDirectMessage"/> on a shared forum.
 /// </summary>
-public class DirectConversationRequest
+public class DirectConversationRequest : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid RequesterUserId { get; set; }
     public User? Requester { get; set; }
@@ -55,8 +56,9 @@ public class DirectConversationRequest
     public DirectConversation? Conversation { get; set; }
 }
 
-public class DirectConversation
+public class DirectConversation : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid UserLowId { get; set; }
     public User? UserLow { get; set; }
@@ -70,8 +72,9 @@ public class DirectConversation
     public ICollection<DirectMessage> Messages { get; set; } = new List<DirectMessage>();
 }
 
-public class DirectMessage
+public class DirectMessage : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ConversationId { get; set; }
     public DirectConversation? Conversation { get; set; }
@@ -85,8 +88,9 @@ public class DirectMessage
 /// Per-user handling of follow-back / DM requests that cite a given forum.
 /// Missing row means accept (show in inbox).
 /// </summary>
-public class DirectMessageForumPreference
+public class DirectMessageForumPreference : IServerScoped
 {
+    public Guid ServerId { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid UserId { get; set; }
     public User? User { get; set; }

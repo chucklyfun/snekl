@@ -38,7 +38,7 @@ Snekl separates **auth servers** (identity ring) from **content servers** (nests
 | **Account API** | ASP.NET Core 8 | Auth webservice: login, PersonCluster, partner trust (`:5100`) |
 | **API** | ASP.NET Core 8, EF Core | Content origins: REST, JWT auth, federation inbox |
 | **Domain** | C# class library | Users, nests, threaded posts, peer nodes |
-| **Billing** | C# class library | Stripe subscriptions and commission escrow ledger (`Snekl.Billing`). Not called by Auth or commissions yet |
+| **Billing** | C# class library | Stripe subscriptions and SFW commission escrow ledger (`Snekl.Billing`). Not wired to Auth yet. Adult commissions use CCBill milestones in the sibling `snekl-extensions` commissions app (artist merchant; never Snekl Stripe) |
 | **Database** | PostgreSQL | Independent per-node / hub / auth storage |
 | **Frontend** | React 19, TypeScript, Vite | Member SPA (login UI calls auth; feed will use hub) |
 
